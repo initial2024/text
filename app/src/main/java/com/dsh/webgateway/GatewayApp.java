@@ -8,6 +8,8 @@ import java.util.UUID;
 
 public final class GatewayApp extends Application {
     public static final int PORT = 8787;
+    public static final String OWN_PUBLIC_BASE = "https://gw-33e850180248.claua.de";
+    public static final String OWN_RELAY_WS = "wss://gw-33e850180248.claua.de/__device";
     public static final String TUNNEL_SUFFIX = ".deepseeks.dpdns.org";
 
     private static volatile WebRelay relay;
@@ -54,6 +56,33 @@ public final class GatewayApp extends Application {
         return prefs().getBoolean("tunnel_enabled", false);
     }
 
+    public static String tunnelBackend() {
+        String value = prefs().getString("tunnel_backend", "own");
+        return "legacy".equals(value) ? "legacy" : "own";
+    }
+
+    public static void setTunnelBackend(String backend) {
+        prefs().edit()
+                .putString("tunnel_backend", "legacy".equals(backend) ? "legacy" : "own")
+                .apply();
+    }
+
+    public static String relayKey() {
+        String value = prefs().getString("relay_key", "");
+        return value == null ? "" : value.trim();
+    }
+
+    public static void setRelayKey(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (!normalized.isEmpty() && (normalized.length() < 24 || normalized.length() > 256)) {
+            throw new IllegalArgumentException("Relay Key 长度必须为 24–256 个字符");
+        }
+        if (normalized.indexOf('\n') >= 0 || normalized.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException("Relay Key 不能包含换行");
+        }
+        prefs().edit().putString("relay_key", normalized).apply();
+    }
+
     public static void setTunnelEnabled(boolean enabled) {
         prefs().edit().putBoolean("tunnel_enabled", enabled).apply();
     }
@@ -95,6 +124,11 @@ public final class GatewayApp extends Application {
     }
 
     public static String generatedPublicUrl() {
+        if ("own".equals(tunnelBackend())) return OWN_PUBLIC_BASE;
+        return "https://" + tunnelPrefix() + TUNNEL_SUFFIX;
+    }
+
+    public static String legacyPublicUrl() {
         return "https://" + tunnelPrefix() + TUNNEL_SUFFIX;
     }
 
@@ -117,6 +151,7 @@ public final class GatewayApp extends Application {
     public static String effectivePublicUrl() {
         String custom = customPublicUrl();
         if (customPublicUrlVerified() && !custom.isEmpty()) return custom;
+        if ("own".equals(tunnelBackend())) return OWN_PUBLIC_BASE;
         return generatedPublicUrl();
     }
 
