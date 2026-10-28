@@ -62,6 +62,7 @@ public final class MainActivity extends Activity {
     private TextView apiKeyText;
     private TextView publicUrlText;
     private TextView tunnelStateText;
+    private TextView tunnelBackendText;
     private TextView currentProviderTitle;
     private TextView currentProviderDesc;
     private TextView webProviderTitle;
@@ -687,7 +688,33 @@ public final class MainActivity extends Activity {
         LinearLayout card = UiKit.card(this, surface, border);
 
         LinearLayout head = UiKit.horizontal(this);
+
+        FrameLayout cloudBox = new FrameLayout(this);
+        cloudBox.setBackground(UiKit.rounded(
+                primarySoft,
+                UiKit.dp(this, 16)));
+        ImageView cloud = new ImageView(this);
+        cloud.setImageResource(R.drawable.ic_cloud);
+        cloud.setColorFilter(primary);
+        cloud.setPadding(
+                UiKit.dp(this, 10),
+                UiKit.dp(this, 10),
+                UiKit.dp(this, 10),
+                UiKit.dp(this, 10));
+        cloudBox.addView(cloud, new FrameLayout.LayoutParams(
+                UiKit.dp(this, 42),
+                UiKit.dp(this, 42),
+                Gravity.CENTER));
+        head.addView(cloudBox, new LinearLayout.LayoutParams(
+                UiKit.dp(this, 46),
+                UiKit.dp(this, 46)));
+
         LinearLayout labels = UiKit.vertical(this);
+        LinearLayout.LayoutParams labelsLp = new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f);
+        labelsLp.leftMargin = UiKit.dp(this, 12);
 
         TextView title = UiKit.text(
                 this,
@@ -707,10 +734,7 @@ public final class MainActivity extends Activity {
         tsLp.topMargin = UiKit.dp(this, 4);
         labels.addView(tunnelStateText, tsLp);
 
-        head.addView(labels, new LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f));
+        head.addView(labels, labelsLp);
 
         tunnelSwitch = new Switch(this);
         tunnelSwitch.setShowText(false);
@@ -718,6 +742,40 @@ public final class MainActivity extends Activity {
         head.addView(tunnelSwitch);
 
         card.addView(head, UiKit.matchWrap());
+
+        LinearLayout backendRow = UiKit.horizontal(this);
+        LinearLayout.LayoutParams backendLp = UiKit.matchWrap();
+        backendLp.topMargin = UiKit.dp(this, 16);
+
+        tunnelBackendText = UiKit.text(
+                this,
+                "own".equals(GatewayApp.tunnelBackend())
+                        ? "自有 Cloudflare Relay"
+                        : "Legacy 兼容隧道",
+                12f,
+                "own".equals(GatewayApp.tunnelBackend()) ? primary : warning,
+                true);
+        tunnelBackendText.setGravity(Gravity.CENTER);
+        tunnelBackendText.setPadding(
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 7),
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 7));
+        tunnelBackendText.setBackground(UiKit.rounded(
+                "own".equals(GatewayApp.tunnelBackend())
+                        ? primarySoft
+                        : UiKit.withAlpha(warning, 30),
+                UiKit.dp(this, 15)));
+        backendRow.addView(tunnelBackendText);
+
+        TextView secure = UiKit.text(
+                this,
+                "  TLS · API Key 鉴权",
+                12f,
+                muted,
+                false);
+        backendRow.addView(secure);
+        card.addView(backendRow, backendLp);
 
         publicUrlText = UiKit.text(
                 this,
@@ -734,17 +792,42 @@ public final class MainActivity extends Activity {
                         () -> copySingleValue(
                                 "公网 Base URL",
                                 publicUrlText.getText().toString())),
-                fieldLp(18));
+                fieldLp(14));
+
+        LinearLayout route = UiKit.vertical(this);
+        route.setPadding(
+                UiKit.dp(this, 12),
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 12),
+                UiKit.dp(this, 11));
+        route.setBackground(UiKit.rounded(
+                surfaceSoft,
+                UiKit.dp(this, 16)));
+        route.addView(buildRouteLine(
+                "①",
+                "Cloudflare Edge",
+                "接收公网请求"));
+        route.addView(buildRouteLine(
+                "②",
+                "OmniGate Relay",
+                "WebSocket 回传手机"));
+        route.addView(buildRouteLine(
+                "③",
+                "127.0.0.1:8787",
+                "本机 API 与网页会话"));
+        LinearLayout.LayoutParams routeLp = UiKit.matchWrap();
+        routeLp.topMargin = UiKit.dp(this, 10);
+        card.addView(route, routeLp);
 
         TextView hint = UiKit.text(
                 this,
-                "默认兼容原 deepseeks.dpdns.org 穿透；也可以绑定你自己的 HTTPS 域名。",
+                "默认使用 gw-33e850180248.claua.de；旧 deepseeks.dpdns.org 仅保留为 Legacy 兼容模式。",
                 12.5f,
                 muted,
                 false);
         hint.setLineSpacing(UiKit.dp(this, 3), 1f);
         LinearLayout.LayoutParams hintLp = UiKit.matchWrap();
-        hintLp.topMargin = UiKit.dp(this, 10);
+        hintLp.topMargin = UiKit.dp(this, 11);
         card.addView(hint, hintLp);
 
         LinearLayout actions = UiKit.horizontal(this);
@@ -753,22 +836,22 @@ public final class MainActivity extends Activity {
 
         TextView configure = UiKit.pill(
                 this,
-                "配置网址",
+                "配置 Relay",
+                Color.WHITE,
                 primary,
-                primarySoft,
-                primarySoft,
+                primary,
                 true);
         configure.setOnClickListener(v -> showTunnelConfigDialog());
         actions.addView(configure, UiKit.weighted(1f));
 
         TextView importOld = UiKit.pill(
                 this,
-                "导入旧参数",
+                "Legacy",
                 text,
                 surfaceSoft,
                 border,
                 false);
-        LinearLayout.LayoutParams importLp = UiKit.weighted(1f);
+        LinearLayout.LayoutParams importLp = UiKit.weighted(0.72f);
         importLp.leftMargin = UiKit.dp(this, 10);
         importOld.setLayoutParams(importLp);
         importOld.setOnClickListener(v -> showImportTunnelDialog());
@@ -776,6 +859,72 @@ public final class MainActivity extends Activity {
 
         card.addView(actions, actionsLp);
         return card;
+    }
+
+    private View buildRouteLine(
+            String index,
+            String title,
+            String subtitle) {
+        LinearLayout row = UiKit.horizontal(this);
+        row.setPadding(
+                0,
+                UiKit.dp(this, 4),
+                0,
+                UiKit.dp(this, 4));
+
+        TextView number = UiKit.text(
+                this,
+                index,
+                12.5f,
+                primary,
+                true);
+        number.setGravity(Gravity.CENTER);
+        number.setBackground(UiKit.rounded(
+                primarySoft,
+                UiKit.dp(this, 13)));
+        row.addView(number, new LinearLayout.LayoutParams(
+                UiKit.dp(this, 28),
+                UiKit.dp(this, 28)));
+
+        LinearLayout labels = UiKit.vertical(this);
+        LinearLayout.LayoutParams labelsLp = new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f);
+        labelsLp.leftMargin = UiKit.dp(this, 10);
+
+        TextView titleView = UiKit.text(
+                this,
+                title,
+                13.5f,
+                text,
+                true);
+        labels.addView(titleView, UiKit.matchWrap());
+
+        TextView sub = UiKit.text(
+                this,
+                subtitle,
+                11.5f,
+                muted,
+                false);
+        LinearLayout.LayoutParams subLp = UiKit.matchWrap();
+        subLp.topMargin = UiKit.dp(this, 2);
+        labels.addView(sub, subLp);
+
+        row.addView(labels, labelsLp);
+
+        ImageView check = new ImageView(this);
+        check.setImageResource(R.drawable.ic_check);
+        check.setColorFilter(success);
+        check.setPadding(
+                UiKit.dp(this, 4),
+                UiKit.dp(this, 4),
+                UiKit.dp(this, 4),
+                UiKit.dp(this, 4));
+        row.addView(check, new LinearLayout.LayoutParams(
+                UiKit.dp(this, 25),
+                UiKit.dp(this, 25)));
+        return row;
     }
 
     private View buildProviderSummaryCard() {
@@ -938,7 +1087,11 @@ public final class MainActivity extends Activity {
     }
 
     private View buildProviderCard(AiProvider provider) {
-        LinearLayout card = UiKit.card(this, surface, border);
+        boolean selected = provider == GatewayApp.selectedProvider();
+        LinearLayout card = UiKit.card(
+                this,
+                selected ? primarySoft : surface,
+                selected ? UiKit.withAlpha(primary, 95) : border);
         card.setOnClickListener(v -> selectProvider(provider, true));
 
         LinearLayout row = UiKit.horizontal(this);
@@ -955,23 +1108,48 @@ public final class MainActivity extends Activity {
                 1f);
         labelsLp.leftMargin = UiKit.dp(this, 16);
 
+        LinearLayout nameRow = UiKit.horizontal(this);
         TextView name = UiKit.text(
                 this,
                 provider.displayName,
-                21f,
+                20f,
                 text,
                 true);
-        labels.addView(name, UiKit.matchWrap());
+        nameRow.addView(name);
+
+        if (selected) {
+            TextView current = UiKit.text(
+                    this,
+                    "当前",
+                    10.5f,
+                    primary,
+                    true);
+            current.setGravity(Gravity.CENTER);
+            current.setPadding(
+                    UiKit.dp(this, 8),
+                    UiKit.dp(this, 4),
+                    UiKit.dp(this, 8),
+                    UiKit.dp(this, 4));
+            current.setBackground(UiKit.rounded(
+                    surface,
+                    UiKit.dp(this, 12)));
+            LinearLayout.LayoutParams currentLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            currentLp.leftMargin = UiKit.dp(this, 8);
+            nameRow.addView(current, currentLp);
+        }
+        labels.addView(nameRow, UiKit.matchWrap());
 
         TextView desc = UiKit.text(
                 this,
                 provider.description,
-                13.5f,
+                13f,
                 muted,
                 false);
         desc.setLineSpacing(UiKit.dp(this, 3), 1f);
         LinearLayout.LayoutParams descLp = UiKit.matchWrap();
-        descLp.topMargin = UiKit.dp(this, 5);
+        descLp.topMargin = UiKit.dp(this, 6);
         labels.addView(desc, descLp);
 
         TextView model = UiKit.text(
@@ -981,20 +1159,22 @@ public final class MainActivity extends Activity {
                 primary2,
                 true);
         LinearLayout.LayoutParams modelLp = UiKit.matchWrap();
-        modelLp.topMargin = UiKit.dp(this, 8);
+        modelLp.topMargin = UiKit.dp(this, 9);
         labels.addView(model, modelLp);
 
         row.addView(labels, labelsLp);
 
-        TextView use = UiKit.pill(
+        ImageView action = UiKit.iconButton(
                 this,
-                provider == GatewayApp.selectedProvider() ? "当前" : "使用",
-                primary,
-                primarySoft,
-                primarySoft,
-                true);
-        use.setOnClickListener(v -> selectProvider(provider, true));
-        row.addView(use);
+                selected ? R.drawable.ic_check : R.drawable.ic_nav_web,
+                selected ? success : primary,
+                selected ? surface : primarySoft,
+                10,
+                selected ? "当前服务商" : "打开服务商");
+        action.setOnClickListener(v -> selectProvider(provider, true));
+        row.addView(action, new LinearLayout.LayoutParams(
+                UiKit.dp(this, 42),
+                UiKit.dp(this, 42)));
 
         card.addView(row, UiKit.matchWrap());
         return card;
@@ -1253,6 +1433,15 @@ public final class MainActivity extends Activity {
                             : "未开启");
             tunnelStateText.setTextColor(
                     GatewayApp.tunnelEnabled() ? success : muted);
+        }
+        if (tunnelBackendText != null) {
+            boolean own = "own".equals(GatewayApp.tunnelBackend());
+            tunnelBackendText.setText(
+                    own ? "自有 Cloudflare Relay" : "Legacy 兼容隧道");
+            tunnelBackendText.setTextColor(own ? primary : warning);
+            tunnelBackendText.setBackground(UiKit.rounded(
+                    own ? primarySoft : UiKit.withAlpha(warning, 30),
+                    UiKit.dp(this, 15)));
         }
         if (publicUrlText != null) {
             publicUrlText.setText(
