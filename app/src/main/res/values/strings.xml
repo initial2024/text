@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OmniGate</string>
-    <string name="app_tagline">Web AI Gateway</string>
+    <string name="app_name">OmniGate Companion</string>
+    <string name="app_tagline">Original AI Gateway Add-on</string>
 </resources>
