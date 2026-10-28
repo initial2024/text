@@ -109,7 +109,11 @@ public final class MainActivity extends Activity {
             webView.restoreState(savedInstanceState);
         }
 
-        switchTab(TAB_OVERVIEW);
+        switchTab(
+                getIntent() != null
+                        && getIntent().getBooleanExtra("open_web", false)
+                        ? TAB_WEB
+                        : TAB_OVERVIEW);
         refreshUi();
         uiHandler.post(statusTicker);
     }
@@ -1881,8 +1885,20 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.getBooleanExtra("open_web", false)) {
+            switchTab(TAB_WEB);
+        }
+        startGatewayService(GatewayService.ACTION_ENSURE_RUNNING);
+        refreshUi();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
+        startGatewayService(GatewayService.ACTION_ENSURE_RUNNING);
         if (pendingOverlayPermission
                 && Settings.canDrawOverlays(this)) {
             pendingOverlayPermission = false;
