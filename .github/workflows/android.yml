@@ -5,8 +5,12 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+concurrency:
+  group: android-gateway-main
+  cancel-in-progress: true
+
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -33,23 +37,30 @@ jobs:
         run: |
           set -euo pipefail
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          if [ ! -d "$SDK_ROOT" ]; then
-            echo "Android SDK root not found: $SDK_ROOT"
-            exit 1
-          fi
+          test -d "$SDK_ROOT"
           SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)"
-          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
-            echo "sdkmanager not found under $SDK_ROOT/cmdline-tools"
-            find "$SDK_ROOT" -maxdepth 4 -type f -name sdkmanager -print || true
-            exit 1
-          fi
-          echo "SDK_ROOT=$SDK_ROOT"
-          echo "SDKMANAGER=$SDKMANAGER"
+          test -n "$SDKMANAGER"
+          test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "root=$SDK_ROOT" >> "$GITHUB_OUTPUT"
+
+      - name: Source contract checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'public static final int PORT = 8787;' app/src/main/java/com/dsh/webgateway/GatewayApp.java
+          grep -F '.deepseeks.dpdns.org' app/src/main/java/com/dsh/webgateway/GatewayApp.java
+          grep -F '57.183.5.186' app/src/main/java/com/dsh/webgateway/TunnelClient.java
+          grep -F 'TUNNEL_PORT = 9000' app/src/main/java/com/dsh/webgateway/TunnelClient.java
+          grep -F 'PINNED_CERT_SHA256' app/src/main/java/com/dsh/webgateway/TunnelClient.java
+          grep -F 'REGISTER ' app/src/main/java/com/dsh/webgateway/TunnelClient.java
+          grep -F '/__tunnel_probe' app/src/main/java/com/dsh/webgateway/LocalHttpServer.java
+          grep -F 'HARD_TIMEOUT_MS = 600_000L' app/src/main/java/com/dsh/webgateway/WebRelay.java
+          grep -F 'MAX_ROLLOVER = 1' app/src/main/java/com/dsh/webgateway/WebRelay.java
+          grep -F 'ATTACHMENT_UPLOAD_FAILED' app/src/main/java/com/dsh/webgateway/WebRelay.java
 
       - name: Build unsigned release
         run: gradle --no-daemon :app:assembleRelease
@@ -62,18 +73,13 @@ jobs:
           BT="${{ steps.sdk.outputs.root }}/build-tools/35.0.0"
           test -x "$BT/zipalign"
           test -x "$BT/apksigner"
+          test -x "$BT/aapt2"
           echo "dir=$BT" >> "$GITHUB_OUTPUT"
 
-      - name: Create ephemeral signing key
+      - name: Create one-time test signing key
         run: |
           set -euo pipefail
-          keytool -genkeypair -v \
-            -keystore build-key.jks \
-            -storepass changeit \
-            -keypass changeit \
-            -alias gateway \
-            -keyalg RSA -keysize 3072 -validity 3650 \
-            -dname "CN=DSH Web Gateway GitHub Build,O=Temporary Build,L=Local,C=US"
+          keytool -genkeypair -v             -keystore build-key.jks             -storepass changeit             -keypass changeit             -alias gateway             -keyalg RSA -keysize 3072 -validity 3650             -dname "CN=DSH Web Gateway GitHub Test Build,O=Temporary Test Build,L=Local,C=US"
 
       - name: Zipalign and sign with official apksigner
         shell: bash
@@ -81,19 +87,14 @@ jobs:
           set -euo pipefail
           UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
           ALIGNED="app/build/outputs/apk/release/dsh-web-gateway-aligned.apk"
-          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.5.0.apk"
+          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk"
           BT="${{ steps.bt.outputs.dir }}"
           test -f "$UNSIGNED"
           "$BT/zipalign" -p -f -v 4 "$UNSIGNED" "$ALIGNED" > zipalign.txt
           "$BT/zipalign" -c -v 4 "$ALIGNED" >> zipalign.txt
-          "$BT/apksigner" sign \
-            --ks build-key.jks --ks-key-alias gateway \
-            --ks-pass pass:changeit --key-pass pass:changeit \
-            --v1-signing-enabled true \
-            --v2-signing-enabled true \
-            --v3-signing-enabled true \
-            --out "$FINAL" "$ALIGNED"
+          "$BT/apksigner" sign             --ks build-key.jks --ks-key-alias gateway             --ks-pass pass:changeit --key-pass pass:changeit             --v1-signing-enabled true             --v2-signing-enabled true             --v3-signing-enabled true             --out "$FINAL" "$ALIGNED"
           "$BT/apksigner" verify --verbose --print-certs "$FINAL" | tee apksigner-verify.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' apksigner-verify.txt
           sha256sum "$FINAL" | tee SHA256SUMS.txt
 
       - name: Inspect manifest / SDK / package
@@ -101,9 +102,11 @@ jobs:
         run: |
           set -euo pipefail
           BT="${{ steps.bt.outputs.dir }}"
-          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.5.0.apk"
+          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk"
           "$BT/aapt2" dump badging "$FINAL" | tee aapt-badging.txt
           grep -F "package: name='com.dsh.webgateway'" aapt-badging.txt
+          grep -F "versionCode='260'" aapt-badging.txt
+          grep -F "versionName='2.6.0'" aapt-badging.txt
           grep -F "sdkVersion:'26'" aapt-badging.txt
           grep -F "targetSdkVersion:'35'" aapt-badging.txt
 
@@ -112,7 +115,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "# DSH Web Gateway Android build verification"
+            echo "# DSH Web Gateway 2.6.0 build verification"
             echo
             echo "Commit: $GITHUB_SHA"
             echo
@@ -123,7 +126,7 @@ jobs:
             cat apksigner-verify.txt 2>/dev/null || true
             echo
             echo '## zipalign'
-            tail -n 30 zipalign.txt 2>/dev/null || true
+            tail -n 40 zipalign.txt 2>/dev/null || true
             echo
             echo '## manifest / package'
             cat aapt-badging.txt 2>/dev/null || true
@@ -133,13 +136,24 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: dsh-web-gateway-v2.5.0-apk
+          name: dsh-web-gateway-v2.6.0-apk
           path: |
-            app/build/outputs/apk/release/dsh-web-gateway-v2.5.0.apk
+            app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk
             BUILD_VERIFICATION.md
             SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish temporary prerelease
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="gateway-v2.6.0-test"
+          gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
+          gh release create "$TAG"             app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk             BUILD_VERIFICATION.md             SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "DSH Web Gateway 2.6.0 test build"             --notes "Temporary Android 16/vivo acceptance build. One-time test signing key; do not treat this signing identity as the final update channel."             --prerelease
 
       - name: Upload diagnostics on failure
         if: failure()
