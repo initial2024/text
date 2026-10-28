@@ -1579,45 +1579,49 @@ public final class MainActivity extends Activity {
     }
 
     private void requestOrShowOverlay() {
-        if (Settings.canDrawOverlays(this)) {
-            pendingOverlayPermission = false;
-            showOverlay();
-            return;
-        }
-
-        pendingOverlayPermission = true;
-        Intent permission = new Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + getPackageName()));
-        startActivity(permission);
+        showOverlay();
     }
 
     private void showOverlay() {
-        Intent intent = new Intent(this, FloatingOverlayService.class);
-        intent.setAction(FloatingOverlayService.ACTION_SHOW);
-        startService(intent);
-        GatewayApp.setOverlayEnabled(true);
-        Toast.makeText(
-                this,
-                "已显示 44dp 小悬浮球；拖动移动，长按隐藏",
-                Toast.LENGTH_SHORT).show();
+        try {
+            Intent intent = new Intent(
+                    "com.deepseek2.app.action.SHOW_OVERLAY");
+            intent.setClassName(
+                    "com.deepseek2.app",
+                    "com.deepseek2.app.ui.OverlayService");
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                startForegroundService(intent);
+            } else {
+                startService(intent);
+            }
+            Toast.makeText(
+                    this,
+                    "已请求显示原 AI Gateway 悬浮小窗口",
+                    Toast.LENGTH_SHORT).show();
+        } catch (Throwable e) {
+            openOriginalGateway();
+            Toast.makeText(
+                    this,
+                    "无法直接调用原悬浮服务，请在原 AI Gateway 中开启悬浮窗",
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     private void hideOverlay() {
-        Intent intent = new Intent(this, FloatingOverlayService.class);
-        intent.setAction(FloatingOverlayService.ACTION_HIDE);
-        startService(intent);
-        GatewayApp.setOverlayEnabled(false);
-        Toast.makeText(
-                this,
-                "悬浮窗已隐藏，OmniGate 服务继续运行",
-                Toast.LENGTH_SHORT).show();
+        try {
+            Intent intent = new Intent(
+                    "com.deepseek2.app.action.RETURN_FROM_OVERLAY");
+            intent.setClassName(
+                    "com.deepseek2.app",
+                    "com.deepseek2.app.ui.OverlayService");
+            startService(intent);
+        } catch (Throwable ignored) {
+            openOriginalGateway();
+        }
     }
 
     private void refreshOverlayLabel() {
-        Intent intent = new Intent(this, FloatingOverlayService.class);
-        intent.setAction(FloatingOverlayService.ACTION_REFRESH);
-        startService(intent);
+        // Original AI Gateway owns its overlay label and provider UI.
     }
 
     private void showTunnelConfigDialog() {
