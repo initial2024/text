@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.OmniGate" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/og_bg</item>
+        <item name="android:navigationBarColor">@color/og_bg</item>
+        <item name="android:colorAccent">@color/og_primary</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+
+    <style name="Theme.OmniGate.Splash" parent="Theme.OmniGate">
+        <item name="android:windowBackground">@color/og_bg</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>
