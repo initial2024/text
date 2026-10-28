@@ -213,7 +213,17 @@ public final class CompatSettingsActivity extends Activity {
         margin(connection, healthState, 5);
         upstreamGuide = text("", 12, 0xFF91601C, false);
         margin(connection, upstreamGuide, 8);
-        Button originalPage = button(connection, "返回原 AI 网页（检查原 1601 启动）", false);
+        Button originalApi = button(connection, "打开原核心 API 管理（1601）", false);
+        originalApi.setOnClickListener(v -> {
+            try {
+                Intent i = new Intent();
+                i.setClassName(getPackageName(), "com.deepseek2.app.ui.MainActivity");
+                startActivity(i);
+            } catch (RuntimeException ex) {
+                toast("原核心管理页打开失败：" + ex.getClass().getSimpleName());
+            }
+        });
+        Button originalPage = button(connection, "返回原 AI 网页", false);
         originalPage.setOnClickListener(v -> {
             try {
                 Intent i = new Intent();
@@ -306,7 +316,7 @@ public final class CompatSettingsActivity extends Activity {
         upstreamBadge.setBackground(background(upstream ? 0xFFE0F7ED : 0xFFFFF3E1, 12, 0));
         serviceState.setText(local ? "监听已开启；等待真实上游应答" : "服务未启动；点击“启动 8787”");
         upstreamGuide.setText(upstream ? "1601 TCP 已连通，仍需文本对话验证。" :
-            "1601 未响应。当前只能选择文件，不能证明附件已交给 AI。请先返回原网页使用或检查其本地服务设置。");
+            "1601 未响应：附件目前仅完成本地选择。原核心 MainActivity 含启动 API 方法，可尝试打开其管理页面，再返回检查。");
     }
 
     private void startLocalServer() {
