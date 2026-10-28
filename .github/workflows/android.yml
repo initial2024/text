@@ -107,7 +107,7 @@ jobs:
           grep -F "package: name='com.dsh.webgateway'" aapt-badging.txt
           grep -F "versionCode='260'" aapt-badging.txt
           grep -F "versionName='2.6.0'" aapt-badging.txt
-          grep -F "sdkVersion:'26'" aapt-badging.txt
+          grep -F "minSdkVersion:'26'" aapt-badging.txt
           grep -F "targetSdkVersion:'35'" aapt-badging.txt
 
       - name: Build verification report
