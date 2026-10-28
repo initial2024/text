@@ -1,4 +1,4 @@
-# OmniGate 2.8.0 — independent QA agent
+# OmniGate 2.8.1 — independent QA agent
 
 You are the independent release-gate agent for this Android gateway.
 
@@ -232,3 +232,26 @@ A REGISTER `OK` is not sufficient for PASS.
 4. Public tunnel is considered runtime PASS only when the probe returns this exact Gateway probe value.
 5. DNS failure, TCP/TLS failure, certificate-pin mismatch, REGISTER rejection and public-probe failure must be distinguishable in status text.
 6. If the original old URL is being restored, matching old `prefix + tunnel_token` evidence is required. The URL/prefix alone is insufficient.
+
+
+## N. 2.8.1 polished UI acceptance
+
+1. Launcher/app label is OmniGate.
+2. Branded splash is visible before the main UI.
+3. Overview begins with the purple-blue OmniGate readiness hero, not a plain button stack.
+4. Credential card has independent Local Base URL / Model / API Key rows.
+5. Copy controls are icon buttons; API Key has separate reveal/hide and edit controls.
+6. Public access card shows the selected backend and the Edge → Relay → 127.0.0.1:8787 topology.
+7. Default public URL is exactly `https://gw-33e850180248.claua.de/v1`.
+8. Provider cards use selected-state highlighting and provider-specific badges.
+9. Bottom navigation remains 概览 / 会话 / 网页.
+10. Dark-mode contrast must remain legible with no white-on-white or dark-on-dark cards.
+
+## O. Own Cloudflare Relay acceptance
+
+1. Default backend is `own`, not legacy.
+2. WebSocket endpoint is `wss://gw-33e850180248.claua.de/__device`.
+3. Relay pairing key is never committed to this repository.
+4. Cloudflare side stores/validates only the SHA-256 hash of the pairing key.
+5. Public requests without a connected Android device return a device-offline error rather than silently falling back to legacy.
+6. Legacy `deepseeks.dpdns.org` mode is user-selected only.
