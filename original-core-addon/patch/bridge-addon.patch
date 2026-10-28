@@ -1,0 +1,240 @@
+--- /mnt/data/audit/v21/bridge.js	2026-10-28 04:12:19.620912657 +0000
++++ patch/bridge.js	2026-10-28 04:20:51.589079893 +0000
+@@ -3,7 +3,8 @@
+ 
+   const NATIVE_APP = "aiGateway";
+   const STATE_DEBOUNCE_MS = 300;
+-  const DEEPSEEK_GENERATION_GRACE_MS = 5000;
++  const GENERATION_ACTIVITY_GRACE_MS = 10000;
++  const MAX_AUTO_ROLLOVERS = 3;
+   const RELAY_ENVELOPE_PREFIX = "<<<DSH_WEB_RELAY_V2_ATTACHMENT_ENVELOPE>>>";
+   const RELAY_ENVELOPE_SUFFIX = "<<<END_DSH_WEB_RELAY_V2_ATTACHMENT_ENVELOPE>>>";
+   const ATTACHMENT_UPLOAD_TIMEOUT_MS = 20000;
+@@ -15,13 +16,14 @@
+   let stateTimer = null;
+   let lastState = "";
+   let generationGraceUntil = 0;
++  let generationLeaseArmed = false;
+   let lastObservedAnswer = "";
+   let lastObservedThinking = "";
+   let uploadedAttachmentIds = new Set();
+   let attachmentCache = new Map();
+   let lastSubmission = null;
+   let submissionSeq = 0;
+-  let rollover = { active: false, attemptedId: 0, replayed: false, error: "" };
++  let rollover = { active: false, submissionId: 0, attempts: 0, replayed: false, error: "" };
+ 
+   function visible(element) {
+     if (!element || !element.isConnected || element.hidden ||
+@@ -73,7 +75,7 @@
+   function parseRelayPayload(rawText) {
+     const text = String(rawText || "");
+     const start = text.indexOf(RELAY_ENVELOPE_PREFIX);
+-    if (start < 0) return { prompt: text, attachments: [], relayV2: false };
++    if (start < 0) return { prompt: text, rolloverPrompt: text, attachments: [], relayV2: false };
+     const dataStart = start + RELAY_ENVELOPE_PREFIX.length;
+     const end = text.indexOf(RELAY_ENVELOPE_SUFFIX, dataStart);
+     if (end < 0) throw new Error("relay_v2_envelope_incomplete");
+@@ -99,7 +101,7 @@
+       if (!id || !data) throw new Error(`attachment_${index}_missing_data`);
+       return { id, name, mime, current, data };
+     });
+-    return { prompt: payload.prompt, attachments, relayV2: true };
++    return { prompt: payload.prompt, rolloverPrompt: String(payload.rolloverPrompt || payload.prompt), attachments, relayV2: true };
+   }
+ 
+   function rememberAttachments(items) {
+@@ -231,7 +233,7 @@
+   function currentLimitNoticeInfo() {
+     const selectors = [
+       '[role="alert"]', '[aria-live="assertive"]', '[aria-live="polite"]',
+-      '[class*="toast"]', '[class*="message"]', '[class*="notice"]'
++      '[class*="toast"]', '[class*="notice"]', '[class*="warning"]', '[class*="limit"]'
+     ];
+     const seen = new Set();
+     const candidates = [];
+@@ -240,7 +242,7 @@
+         if (!visible(element) || seen.has(element)) continue;
+         seen.add(element);
+         const text = (element.innerText || element.textContent || '').trim();
+-        if (text && text.length <= 1400 && conversationLimitText(text)) candidates.push({ text, element });
++        if (text && text.length <= 700 && conversationLimitText(text)) candidates.push({ text, element });
+       }
+     }
+     return candidates.length ? candidates[candidates.length - 1] : { text: '', element: null };
+@@ -251,7 +253,7 @@
+   }
+ 
+   function resetRollover() {
+-    rollover = { active: false, attemptedId: 0, replayed: false, error: "" };
++    rollover = { active: false, submissionId: 0, attempts: 0, replayed: false, error: "" };
+   }
+ 
+   function strictFreshChat() {
+@@ -276,23 +278,43 @@
+     }, ROLLOVER_READY_TIMEOUT_MS, 120);
+     if (!ready) throw new Error("auto_rollover_new_chat_timeout");
+     await sleep(ROLLOVER_RETRY_DELAY_MS);
+-    await uploadAttachments(submission.attachments, true);
+-    const result = sendPrompt(submission.prompt);
++
++    // Preserve the original uploader, but only re-upload current-turn files.
++    // Historical attachments remain represented in the compact rollover prompt.
++    await uploadAttachments(submission.attachments.filter(item => item.current), true);
++    const continuation = submission.rolloverPrompt || submission.prompt;
++    const result = sendPrompt(`${continuation}
++
++[OmniGate 自动续接 ${rollover.attempts}/${MAX_AUTO_ROLLOVERS}] 直接继续未完成任务，不要从头重复。`);
+     if (result !== "ok") throw new Error(`auto_rollover_${result}`);
+     submission.baselineAnswer = "";
+     submission.baselineThinking = "";
+     submission.baselineLimitNotice = "";
+     submission.baselineLimitElement = null;
+     rollover.replayed = true;
+-    generationGraceUntil = Date.now() + DEEPSEEK_GENERATION_GRACE_MS;
++    generationLeaseArmed = false;
++    generationGraceUntil = 0;
+     scheduleState(true);
+   }
+ 
+   function beginAutoRollover(limitAnswer) {
+     const submission = lastSubmission;
+-    if (!submission || rollover.active || rollover.attemptedId === submission.id) return;
+-    rollover = { active: true, attemptedId: submission.id, replayed: false, error: "" };
+-    generationGraceUntil = Date.now() + DEEPSEEK_GENERATION_GRACE_MS;
++    if (!submission || rollover.active) return;
++    if (rollover.submissionId !== submission.id) {
++      rollover.submissionId = submission.id;
++      rollover.attempts = 0;
++      rollover.error = "";
++    }
++    if (rollover.attempts >= MAX_AUTO_ROLLOVERS) {
++      rollover.error = `max_rollovers_${MAX_AUTO_ROLLOVERS}`;
++      scheduleState(true);
++      return;
++    }
++    rollover.active = true;
++    rollover.replayed = false;
++    rollover.attempts += 1;
++    // Do not stop a live generation to roll over. The caller reaches here only
++    // after the activity lease has settled and a strong limit notice is visible.
+     setTimeout(async () => {
+       try {
+         await replayAfterRollover(submission);
+@@ -300,6 +322,7 @@
+         rollover.active = false;
+         rollover.error = error && error.message ? String(error.message) : "auto_rollover_failed";
+         generationGraceUntil = 0;
++        generationLeaseArmed = false;
+       }
+       scheduleState(true);
+     }, 0);
+@@ -402,34 +425,35 @@
+     const rawGenerating = any(selectors.generating);
+     const now = Date.now();
+ 
+-    // DeepSeek occasionally re-renders the stop button between thinking/search/answer
+-    // phases. Treating that brief disappearance as completion truncates the relay.
+-    // Keep a short generation lease after a confirmed generating state, and extend
+-    // it while assistant text is still changing. This only affects DeepSeek.
+-    let generating = rawGenerating;
+-    if (config.provider === "deepseek") {
+-      const contentChanged = answer !== lastObservedAnswer || thinking !== lastObservedThinking;
+-      const hadRecentGeneration = rawGenerating || now < generationGraceUntil;
+-      if (rawGenerating) generationGraceUntil = now + DEEPSEEK_GENERATION_GRACE_MS;
+-      if (contentChanged && hadRecentGeneration) {
+-        generationGraceUntil = now + DEEPSEEK_GENERATION_GRACE_MS;
+-      }
+-      generating = rawGenerating || now < generationGraceUntil;
+-      lastObservedAnswer = answer;
+-      lastObservedThinking = thinking;
+-    } else {
+-      generationGraceUntil = 0;
+-      lastObservedAnswer = answer;
+-      lastObservedThinking = thinking;
+-    }
+-
+-    const limitNoticeInfo = config.provider === "deepseek" ? currentLimitNoticeInfo() : { text: "", element: null };
+-    const answerReachedLimit = answer !== lastSubmission?.baselineAnswer && conversationLimitText(answer);
++    // A provider may briefly remove/re-render its stop button while still producing
++    // output. Once a real generating state has been observed, keep a short activity
++    // lease and renew it whenever answer/thinking text changes. This deliberately
++    // delays completion; it never clicks Stop and never starts a new chat by itself.
++    const contentChanged = answer !== lastObservedAnswer || thinking !== lastObservedThinking;
++    if (rawGenerating) {
++      generationLeaseArmed = true;
++      generationGraceUntil = now + GENERATION_ACTIVITY_GRACE_MS;
++    } else if (generationLeaseArmed && contentChanged) {
++      generationGraceUntil = now + GENERATION_ACTIVITY_GRACE_MS;
++    }
++    let generating = rawGenerating ||
++      Boolean(lastSubmission && generationLeaseArmed && now < generationGraceUntil);
++    lastObservedAnswer = answer;
++    lastObservedThinking = thinking;
++
++    // Auto-rollover is intentionally conservative: never infer a limit from silence,
++    // elapsed time, missing stop button, or stalled DOM. Require a new visible limit
++    // notice. DeepSeek also has a short provider-system answer form used as fallback.
++    const limitNoticeInfo = currentLimitNoticeInfo();
++    const strongAnswerLimit = Boolean(
++      config.provider === "deepseek" && lastSubmission && answer &&
++      answer !== lastSubmission.baselineAnswer && answer.length <= 700 &&
++      conversationLimitText(answer) && /(?:新建|开启|开始|创建|new chat|new conversation)/i.test(answer)
++    );
+     const noticeReachedLimit = Boolean(lastSubmission && limitNoticeInfo.text &&
+       limitNoticeInfo.element !== lastSubmission.baselineLimitElement);
+-    if (config.provider === "deepseek" && lastSubmission && !rawGenerating &&
+-        (answerReachedLimit || noticeReachedLimit)) {
+-      beginAutoRollover(answerReachedLimit ? answer : limitNoticeInfo.text);
++    if (lastSubmission && !generating && (strongAnswerLimit || noticeReachedLimit)) {
++      beginAutoRollover(strongAnswerLimit ? answer : limitNoticeInfo.text);
+     }
+ 
+     // While rollover is moving to a new page, never expose the provider's limit
+@@ -627,6 +651,7 @@
+     const submission = {
+       id: ++submissionSeq,
+       prompt: payload.prompt,
++      rolloverPrompt: payload.rolloverPrompt || payload.prompt,
+       attachments: payload.attachments,
+       baselineAnswer: baseline.answer,
+       baselineThinking: baseline.thinking,
+@@ -635,6 +660,10 @@
+       relayV2: payload.relayV2
+     };
+     lastSubmission = submission;
++    generationLeaseArmed = false;
++    generationGraceUntil = 0;
++    lastObservedAnswer = baseline.answer;
++    lastObservedThinking = baseline.thinking;
+     // The envelope may carry historical attachments so a future auto-rollover
+     // can reconstruct context. Only attachments on the latest user message are
+     // uploaded for the ordinary send; historical ones are cache-only here.
+@@ -692,7 +721,11 @@
+       cachedAttachments: attachmentCache.size,
+       uploadedAttachments: uploadedAttachmentIds.size,
+       currentLimitNotice: currentLimitNotice() || null,
++      generationActivityGraceMs: GENERATION_ACTIVITY_GRACE_MS,
++      generationLeaseArmed,
+       autoRolloverActive: rollover.active,
++      autoRolloverAttempts: rollover.attempts,
++      autoRolloverMax: MAX_AUTO_ROLLOVERS,
+       autoRolloverError: rollover.error || null
+     };
+   }
+@@ -713,6 +746,7 @@
+           config = message.config;
+           if (!config || !config.selectors || !config.provider) throw new Error("invalid_config");
+           generationGraceUntil = 0;
++          generationLeaseArmed = false;
+           lastObservedAnswer = "";
+           lastObservedThinking = "";
+           uploadedAttachmentIds.clear();
+@@ -755,6 +789,7 @@
+     if (observer) observer.disconnect();
+     clearTimeout(stateTimer);
+     generationGraceUntil = 0;
++    generationLeaseArmed = false;
+     lastObservedAnswer = "";
+     lastObservedThinking = "";
+     uploadedAttachmentIds.clear();
