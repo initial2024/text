@@ -59,6 +59,7 @@ public final class MainActivity extends Activity {
     private TextView statusSubtitle;
     private TextView endpointText;
     private TextView modelText;
+    private TextView apiKeyText;
     private TextView publicUrlText;
     private TextView tunnelStateText;
     private TextView currentProviderTitle;
@@ -67,6 +68,7 @@ public final class MainActivity extends Activity {
     private Switch tunnelSwitch;
     private boolean updatingTunnelSwitch;
     private boolean pendingOverlayPermission;
+    private boolean apiKeyVisible;
 
     private int bg;
     private int surface;
@@ -322,8 +324,136 @@ public final class MainActivity extends Activity {
         LinearLayout card = UiKit.card(this, surface, border);
 
         LinearLayout titleRow = UiKit.horizontal(this);
-        TextView label = UiKit.text(this, "API 接口", 14f, muted, true);
+        TextView label = UiKit.text(
+                this,
+                "连接信息",
+                19f,
+                text,
+                true);
         titleRow.addView(label, new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f));
+
+        TextView editKey = UiKit.pill(
+                this,
+                "设置 API Key",
+                primary,
+                primarySoft,
+                primarySoft,
+                true);
+        editKey.setOnClickListener(v -> showApiKeyEditor());
+        titleRow.addView(editKey);
+        card.addView(titleRow, UiKit.matchWrap());
+
+        endpointText = UiKit.text(
+                this,
+                "http://127.0.0.1:" + GatewayApp.PORT + "/v1",
+                15.5f,
+                text,
+                false);
+        endpointText.setTextIsSelectable(true);
+        card.addView(
+                buildCopyFieldRow(
+                        "本机 Base URL",
+                        endpointText,
+                        () -> copySingleValue(
+                                "本机 Base URL",
+                                endpointText.getText().toString())),
+                fieldLp(16));
+
+        modelText = UiKit.text(
+                this,
+                GatewayApp.selectedProvider().model,
+                15.5f,
+                text,
+                true);
+        modelText.setTextIsSelectable(true);
+        card.addView(
+                buildCopyFieldRow(
+                        "Model",
+                        modelText,
+                        () -> copySingleValue(
+                                "Model",
+                                modelText.getText().toString())),
+                fieldLp(10));
+
+        apiKeyText = UiKit.text(
+                this,
+                maskedApiKey(),
+                15f,
+                text,
+                false);
+        apiKeyText.setTextIsSelectable(true);
+
+        LinearLayout apiRow = buildCopyFieldRow(
+                "API Key",
+                apiKeyText,
+                () -> copySingleValue(
+                        "API Key",
+                        GatewayApp.apiKey()));
+
+        TextView toggle = UiKit.pill(
+                this,
+                "显示",
+                text,
+                surfaceSoft,
+                border,
+                false);
+        toggle.setOnClickListener(v -> {
+            apiKeyVisible = !apiKeyVisible;
+            apiKeyText.setText(
+                    apiKeyVisible ? GatewayApp.apiKey() : maskedApiKey());
+            toggle.setText(apiKeyVisible ? "隐藏" : "显示");
+        });
+        apiRow.addView(toggle, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        card.addView(apiRow, fieldLp(10));
+
+        TextView note = UiKit.text(
+                this,
+                "API Key 默认隐藏。可以自定义；修改后本机与公网 /v1 接口立即使用新 Key。",
+                12.5f,
+                muted,
+                false);
+        note.setLineSpacing(UiKit.dp(this, 3), 1f);
+        LinearLayout.LayoutParams noteLp = UiKit.matchWrap();
+        noteLp.topMargin = UiKit.dp(this, 14);
+        card.addView(note, noteLp);
+
+        return card;
+    }
+
+    private LinearLayout buildCopyFieldRow(
+            String label,
+            TextView valueView,
+            Runnable copyAction) {
+        LinearLayout row = UiKit.horizontal(this);
+        row.setPadding(
+                UiKit.dp(this, 12),
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 8),
+                UiKit.dp(this, 11));
+        row.setBackground(UiKit.rounded(
+                surfaceSoft,
+                UiKit.dp(this, 16)));
+
+        LinearLayout values = UiKit.vertical(this);
+        TextView labelView = UiKit.text(
+                this,
+                label,
+                11.5f,
+                muted,
+                true);
+        values.addView(labelView, UiKit.matchWrap());
+
+        LinearLayout.LayoutParams valueLp = UiKit.matchWrap();
+        valueLp.topMargin = UiKit.dp(this, 4);
+        values.addView(valueView, valueLp);
+
+        row.addView(values, new LinearLayout.LayoutParams(
                 0,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 1f));
@@ -332,45 +462,89 @@ public final class MainActivity extends Activity {
                 this,
                 "复制",
                 primary,
-                primarySoft,
-                primarySoft,
+                surface,
+                border,
                 true);
-        copy.setOnClickListener(v -> copyConnectionInfo());
-        titleRow.addView(copy);
-        card.addView(titleRow, UiKit.matchWrap());
+        copy.setOnClickListener(v -> copyAction.run());
+        row.addView(copy);
 
-        endpointText = UiKit.text(
+        return row;
+    }
+
+    private LinearLayout.LayoutParams fieldLp(int topMarginDp) {
+        LinearLayout.LayoutParams lp = UiKit.matchWrap();
+        lp.topMargin = UiKit.dp(this, topMarginDp);
+        return lp;
+    }
+
+    private String maskedApiKey() {
+        String key = GatewayApp.apiKey();
+        if (key.length() <= 8) return "••••••••";
+        return key.substring(0, Math.min(4, key.length()))
+                + "••••••••••••"
+                + key.substring(Math.max(4, key.length() - 4));
+    }
+
+    private void copySingleValue(String label, String value) {
+        ClipboardManager clipboard =
+                (ClipboardManager) getSystemService(
+                        Context.CLIPBOARD_SERVICE);
+        clipboard.setPrimaryClip(
+                ClipData.newPlainText(label, value));
+        Toast.makeText(
                 this,
-                "http://127.0.0.1:" + GatewayApp.PORT + "/v1",
-                18f,
-                text,
-                false);
-        endpointText.setTextIsSelectable(true);
-        LinearLayout.LayoutParams epLp = UiKit.matchWrap();
-        epLp.topMargin = UiKit.dp(this, 14);
-        card.addView(endpointText, epLp);
+                label + " 已复制",
+                Toast.LENGTH_SHORT).show();
+    }
 
-        TextView modelLabel = UiKit.text(
-                this,
-                "当前模型",
-                12.5f,
-                muted,
-                false);
-        LinearLayout.LayoutParams mlLp = UiKit.matchWrap();
-        mlLp.topMargin = UiKit.dp(this, 18);
-        card.addView(modelLabel, mlLp);
+    private void showApiKeyEditor() {
+        LinearLayout box = UiKit.vertical(this);
+        int pad = UiKit.dp(this, 24);
+        box.setPadding(pad, UiKit.dp(this, 8), pad, 0);
 
-        modelText = UiKit.text(
-                this,
-                GatewayApp.selectedProvider().model,
-                17f,
-                text,
-                true);
-        LinearLayout.LayoutParams mLp = UiKit.matchWrap();
-        mLp.topMargin = UiKit.dp(this, 5);
-        card.addView(modelText, mLp);
+        EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("至少 12 个字符");
+        input.setText(GatewayApp.apiKey());
+        input.setSelectAllOnFocus(true);
+        input.setInputType(
+                InputType.TYPE_CLASS_TEXT
+                        | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        box.addView(input, UiKit.matchWrap());
 
-        return card;
+        new AlertDialog.Builder(this)
+                .setTitle("自定义 API Key")
+                .setMessage(
+                        "Key 仅保存在本机应用私有配置中。公网接口也使用同一个 Key。")
+                .setView(box)
+                .setNeutralButton("重新随机生成", (dialog, which) -> {
+                    GatewayApp.resetApiKey();
+                    apiKeyVisible = false;
+                    refreshUi();
+                    Toast.makeText(
+                            this,
+                            "已生成新的随机 API Key",
+                            Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("取消", null)
+                .setPositiveButton("保存", (dialog, which) -> {
+                    try {
+                        GatewayApp.setApiKey(
+                                input.getText().toString());
+                        apiKeyVisible = false;
+                        refreshUi();
+                        Toast.makeText(
+                                this,
+                                "API Key 已更新",
+                                Toast.LENGTH_SHORT).show();
+                    } catch (Exception e) {
+                        Toast.makeText(
+                                this,
+                                e.getMessage(),
+                                Toast.LENGTH_LONG).show();
+                    }
+                })
+                .show();
     }
 
     private View buildTunnelCard() {
@@ -411,15 +585,20 @@ public final class MainActivity extends Activity {
 
         publicUrlText = UiKit.text(
                 this,
-                GatewayApp.generatedPublicUrl(),
-                17f,
+                GatewayApp.generatedPublicUrl() + "/v1",
+                15f,
                 primary2,
                 false);
         publicUrlText.setTextIsSelectable(true);
         publicUrlText.setLineSpacing(UiKit.dp(this, 2), 1f);
-        LinearLayout.LayoutParams urlLp = UiKit.matchWrap();
-        urlLp.topMargin = UiKit.dp(this, 18);
-        card.addView(publicUrlText, urlLp);
+        card.addView(
+                buildCopyFieldRow(
+                        "公网 Base URL",
+                        publicUrlText,
+                        () -> copySingleValue(
+                                "公网 Base URL",
+                                publicUrlText.getText().toString())),
+                fieldLp(18));
 
         TextView hint = UiKit.text(
                 this,
@@ -910,6 +1089,10 @@ public final class MainActivity extends Activity {
         if (modelText != null) {
             modelText.setText(provider.model);
         }
+        if (apiKeyText != null) {
+            apiKeyText.setText(
+                    apiKeyVisible ? GatewayApp.apiKey() : maskedApiKey());
+        }
         if (currentProviderTitle != null) {
             currentProviderTitle.setText(provider.displayName);
         }
@@ -937,9 +1120,10 @@ public final class MainActivity extends Activity {
         }
         if (publicUrlText != null) {
             publicUrlText.setText(
-                    GatewayApp.tunnelEnabled()
+                    (GatewayApp.tunnelEnabled()
                             ? GatewayApp.effectivePublicUrl()
-                            : GatewayApp.generatedPublicUrl());
+                            : GatewayApp.generatedPublicUrl())
+                            + "/v1");
         }
     }
 
