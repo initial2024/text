@@ -213,14 +213,12 @@ public final class CompatSettingsActivity extends Activity {
         margin(connection, healthState, 5);
         upstreamGuide = text("", 12, 0xFF91601C, false);
         margin(connection, upstreamGuide, 8);
-        Button originalApi = button(connection, "打开原核心 API 管理（1601）", false);
+        Button originalApi = button(connection, "启动原核心 API（自动读取端口）", true);
         originalApi.setOnClickListener(v -> {
             try {
-                Intent i = new Intent();
-                i.setClassName(getPackageName(), "com.deepseek2.app.ui.MainActivity");
-                startActivity(i);
+                OriginalCoreBridge.requestExplicitNativeStart(this);
             } catch (RuntimeException ex) {
-                toast("原核心管理页打开失败：" + ex.getClass().getSimpleName());
+                toast("原核心 API 请求失败：" + ex.getClass().getSimpleName());
             }
         });
         Button originalPage = button(connection, "返回原 AI 网页", false);
@@ -304,19 +302,25 @@ public final class CompatSettingsActivity extends Activity {
         updateState();
     }
 
+    @Override protected void onResume() {
+        super.onResume();
+        if (localBadge != null && upstreamBadge != null) updateState();
+    }
+
     private void updateState() {
         if (serviceState == null) return;
         boolean local = LocalProxyRuntime.isListening();
         boolean upstream = SidecarProxyServer.isUpstreamReachable();
+        int nativePort = OriginalCoreBridge.configuredPort();
         localBadge.setText(local ? "● 本地 8787 · 已监听" : "○ 本地 8787 · 已停止");
         localBadge.setTextColor(local ? 0xFF136A48 : 0xFF664D87);
         localBadge.setBackground(background(local ? 0xFFE0F7ED : 0xFFF1EDF7, 12, 0));
-        upstreamBadge.setText(upstream ? "● 原核心 1601 · 可连接" : "● 原核心 1601 · 不可连接");
+        upstreamBadge.setText(upstream ? "● 原核心 " + nativePort + " · 可连接" : "● 原核心 " + nativePort + " · 不可连接");
         upstreamBadge.setTextColor(upstream ? 0xFF136A48 : 0xFF966317);
         upstreamBadge.setBackground(background(upstream ? 0xFFE0F7ED : 0xFFFFF3E1, 12, 0));
         serviceState.setText(local ? "监听已开启；等待真实上游应答" : "服务未启动；点击“启动 8787”");
-        upstreamGuide.setText(upstream ? "1601 TCP 已连通，仍需文本对话验证。" :
-            "1601 未响应：附件目前仅完成本地选择。原核心 MainActivity 含启动 API 方法，可尝试打开其管理页面，再返回检查。");
+        upstreamGuide.setText(upstream ? "原生端口 " + nativePort + " TCP 已连通，仍需模型回复验证。" :
+            "原生端口 " + nativePort + " 未响应；附件仅在手机中选取。点击“启动原核心 API”，在原管理页检查端口，然后点 API 悬浮入口重新查看。状态：" + OriginalCoreBridge.lastStartStatus());
     }
 
     private void startLocalServer() {
@@ -441,7 +445,9 @@ public final class CompatSettingsActivity extends Activity {
             return;
         }
         if (!SidecarProxyServer.isUpstreamReachable()) {
-            replyState.setText("附件已在 Android 中选取，但 1601 不可连接，尚未提交给 AI。先检查原网页/1601 服务。");
+            replyState.setText("附件在本机已选取，但原上游 " +
+                OriginalCoreBridge.configuredPort() +
+                " 不可连接，尚未提交 AI；请先启动原核心 API。");
             updateState();
             return;
         }
