@@ -217,12 +217,14 @@ public final class CloudflareRelayClient {
                     String lower = key.toLowerCase();
                     if ("host".equals(lower)
                             || "content-length".equals(lower)
-                            || "connection".equals(lower)) {
+                            || "connection".equals(lower)
+                            || "x-omnigate-public-relay".equals(lower)) {
                         continue;
                     }
                     conn.setRequestProperty(key, headers.optString(key, ""));
                 }
             }
+            conn.setRequestProperty("X-OmniGate-Public-Relay", "1");
 
             String body = msg.optString("body", "");
             if (!body.isEmpty()
