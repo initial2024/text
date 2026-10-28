@@ -188,7 +188,7 @@ public final class CompatSettingsActivity extends Activity {
         hero.setPadding(dp(19), dp(17), dp(19), dp(18));
         margin(page, hero, 14);
         margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
-        margin(hero, text("API 控制台   /   v0.6.0", 13, 0xFFE5E7FF, false), 7);
+        margin(hero, text("API 控制台   /   v0.6.1", 13, 0xFFE5E7FF, false), 7);
         margin(hero, text("本地优先 · 手动启停 · 网页注入保持不变", 12, 0xFFD6E9FF, false), 0);
 
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
@@ -305,7 +305,7 @@ public final class CompatSettingsActivity extends Activity {
         send.setOnClickListener(v -> sendAttachment());
         replyState = text("尚未发送；上游接收成功需要真实回复验证", 12, 0xFF68718A, false);
         margin(files, replyState, 10);
-        margin(files, text("原版注入依赖网页 file input 和网站上传完成迹象。只有成功回复并经网页确认，"
+        margin(files, text("也可以在模型网页的悬浮小窗使用 API／文件注入双页签。原版注入依赖网页 file input 和网站上传完成迹象。只有成功回复并经网页确认，"
           + "才能标记附件送达；如果网站不支持附件或要求登录，本功能不会绕过。", 12, 0xFF68718A, false), 0);
 
         Button expand = button(page, "高级配置  ▾  密钥与公网选项", false);
