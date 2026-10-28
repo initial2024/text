@@ -6,6 +6,7 @@ on:
     branches: [ original-core-addon ]
     paths:
       - 'original-core-addon/BUILD_TRIGGER'
+      - '.github/workflows/original-core-sidecar-build.yml'
 
 concurrency:
   group: original-core-sidecar
