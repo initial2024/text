@@ -86,11 +86,13 @@ public final class ApiQuickPanel {
         TextView status;
         TextView textStatus;
         TextView textAnswer;
+        TextView guestDiagText;
         Button textSend;
         EditText prompt;
         EditText textPrompt;
         int lastRevision=-1;
         int lastTextRevision=-1;
+        int lastGuestDiagRevision=-1;
         boolean attached;
         int startX,startY;
         float touchX,touchY;
@@ -115,6 +117,13 @@ public final class ApiQuickPanel {
                     }
                     if(textSend!=null)
                         textSend.setEnabled(!OverlayTextClient.isSending());
+                }
+                if(guestDiagText!=null&&selectedTab==0) {
+                    int revision=WebBridgeDiagnostics.revision();
+                    if(revision!=lastGuestDiagRevision) {
+                        lastGuestDiagRevision=revision;
+                        guestDiagText.setText(WebBridgeDiagnostics.state());
+                    }
                 }
                 main.postDelayed(this,1100);
             }
@@ -149,7 +158,7 @@ public final class ApiQuickPanel {
             attached=false;
             main.removeCallbacks(refresh);
             status=null;prompt=null;textStatus=null;textAnswer=null;
-            textPrompt=null;textSend=null;
+            textPrompt=null;textSend=null;guestDiagText=null;
             if(shell!=null&&shell.getParent()==frame)frame.removeView(shell);
             shell=null;
         }
@@ -227,6 +236,7 @@ public final class ApiQuickPanel {
                 OverlayTextClient.setDraft(textPrompt.getText().toString());
             shell.removeAllViews();status=null;prompt=null;
             textStatus=null;textAnswer=null;textPrompt=null;textSend=null;
+            guestDiagText=null;
             shell.setPadding(0,0,0,0);
             if(!expanded){
                 params.width=dp(activity,CHIP);
@@ -337,7 +347,15 @@ public final class ApiQuickPanel {
                     .getSystemService(Context.CLIPBOARD_SERVICE);
                 if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("OmniGate 文本回复",reply));
             });
-            TextView note=text("HTTP 502/no reply ≠ 文本成功；网页可能需要登录。先完成此项再验收上传。",
+            Button diagnose=button("诊断原网页桥 / 游客输入状态",false);
+            add(shell,diagnose,6);
+            guestDiagText=text(WebBridgeDiagnostics.state(),10,0xFF666E8C,false);
+            guestDiagText.setMaxLines(5);
+            add(shell,guestDiagText,5);
+            diagnose.setOnClickListener(v->{
+                guestDiagText.setText(WebBridgeDiagnostics.run());
+            });
+            TextView note=text("游客输入框就绪≠账户已登录。HTTP 502/no reply 需查看桥诊断；不主动终止生成。",
                 10,0xFF9D664B,false);
             add(shell,note,6);
         }
