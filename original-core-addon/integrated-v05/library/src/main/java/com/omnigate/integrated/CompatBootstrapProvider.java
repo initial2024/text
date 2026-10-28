@@ -42,9 +42,14 @@ public final class CompatBootstrapProvider extends ContentProvider {
         ((Application) appContext).registerActivityLifecycleCallbacks(
             new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityResumed(Activity activity) {
-                    if ("com.deepseek2.app.ui.ProviderActivity".equals(
-                            activity.getClass().getName())) {
+                    String cls = activity.getClass().getName();
+                    if ("com.deepseek2.app.ui.ProviderActivity".equals(cls)) {
                         activity.runOnUiThread(() -> attach(activity));
+                    } else if ("com.deepseek2.app.ui.MainActivity".equals(cls)) {
+                        activity.runOnUiThread(() -> {
+                            attach(activity);
+                            OriginalCoreBridge.onOriginalMainResumed(activity);
+                        });
                     }
                 }
                 @Override public void onActivityCreated(Activity a, Bundle b) {}
