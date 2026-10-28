@@ -563,7 +563,11 @@ public final class WebRelay {
     private Boolean evalBoolean(String js) throws Exception {
         String result = eval(js, 10_000L);
         if (result == null) return false;
-        return "true".equalsIgnoreCase(result) || ""true"".equalsIgnoreCase(result);
+        if ("true".equalsIgnoreCase(result)) return true;
+        return result.length() == 6
+                && result.charAt(0) == 34
+                && result.charAt(5) == 34
+                && "true".equalsIgnoreCase(result.substring(1, 5));
     }
 
     private String eval(String js, long timeoutMs) throws Exception {
@@ -582,7 +586,9 @@ public final class WebRelay {
     private String unwrapJavascriptString(String value) {
         if (value == null) return "";
         String v = value.trim();
-        if (v.startsWith(""") && v.endsWith(""")) {
+        if (v.length() >= 2
+                && v.charAt(0) == 34
+                && v.charAt(v.length() - 1) == 34) {
             try {
                 return new JSONArray("[" + v + "]").getString(0);
             } catch (Exception ignored) {}
