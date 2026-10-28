@@ -27,7 +27,7 @@ def uleb128(data: bytes, p: int) -> tuple[int, int]:
 
 
 def check_dex(data: bytes) -> dict:
-    if len(data) < 112 or data[:4] != b"dex\\n":
+    if len(data) < 112 or data[:4] != b"dex\n":
         raise ValueError("Not an Android DEX")
     if data[12:32] != hashlib.sha1(data[32:]).digest():
         raise ValueError("Invalid DEX SHA-1")
@@ -40,8 +40,8 @@ def check_dex(data: bytes) -> dict:
     for index in range(size):
         ptr = struct.unpack_from("<I", data, offset + 4 * index)[0]
         _, pos = uleb128(data, ptr)
-        end = data.index(b"\\0", pos)
-        string = data[pos:end].replace(b"\\xc0\\x80", b"\\0").decode("utf-8", errors="surrogatepass")
+        end = data.index(b"\0", pos)
+        string = data[pos:end].replace(b"\xc0\x80", b"\0").decode("utf-8", errors="surrogatepass")
         order_key = string.encode("utf-16be", errors="surrogatepass")
         if prev is not None and order_key < prev:
             raise ValueError(
