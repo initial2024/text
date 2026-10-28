@@ -51,6 +51,36 @@ jobs:
           test -s library/build/outputs/aar/library-release.aar
           unzip -t library/build/outputs/aar/library-release.aar
           sha256sum library/build/outputs/aar/library-release.aar | tee library-release.sha256
+      - name: Package isolated compatibility DEX with only required OkHttp and Okio
+        shell: bash
+        working-directory: original-core-addon/integrated-v05
+        run: |
+          set -euo pipefail
+          mkdir -p standalone-dex/inputs standalone-dex/output
+          unzip -p library/build/outputs/aar/library-release.aar classes.jar > standalone-dex/inputs/compat.jar
+          OKHTTP="$(find "$HOME/.gradle/caches/modules-2/files-2.1/com.squareup.okhttp3/okhttp" -type f -name 'okhttp-4.12.0.jar' | head -1)"
+          OKIO="$(find "$HOME/.gradle/caches/modules-2/files-2.1/com.squareup.okio/okio-jvm" -type f -name 'okio-jvm-*.jar' | head -1)"
+          test -s "$OKHTTP"
+          test -s "$OKIO"
+          # Original core already owns Kotlin runtime. D8 only receives the
+          # isolated Java compatibility classes and the missing OkHttp/Okio.
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/build-tools/35.0.0/d8" --release --min-api 26 \
+            --lib "$SDK_ROOT/platforms/android-35/android.jar" \
+            --output standalone-dex/output \
+            standalone-dex/inputs/compat.jar "$OKHTTP" "$OKIO"
+          test -s standalone-dex/output/classes.dex
+          sha256sum standalone-dex/output/classes.dex > standalone-dex/compat-dex.sha256
+      - name: Upload integration DEX (not signed, not APK)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniGate-v05-compat-dex-UNSIGNED
+          path: |
+            original-core-addon/integrated-v05/standalone-dex/output/classes.dex
+            original-core-addon/integrated-v05/standalone-dex/compat-dex.sha256
+          retention-days: 3
+          if-no-files-found: error
       - name: Package compile-only evidence
         if: success()
         uses: actions/upload-artifact@v4
