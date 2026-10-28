@@ -167,6 +167,15 @@ public final class SidecarProxyServer {
                 return;
             }
 
+            if (!isUpstreamReachable()) {
+                writeJson(out, 503, new JSONObject()
+                    .put("error", "native_api_unavailable")
+                    .put("message", "Original AI Gateway native API is not listening")
+                    .put("expectedPort", OriginalCoreBridge.configuredPort())
+                    .put("hint", "Open OmniGate API settings and explicitly start native API"));
+                return;
+            }
+
             proxyToFrozenCore(request, out);
         } catch (Throwable e) {
             status("Sidecar 请求异常 · " + shortError(e));
