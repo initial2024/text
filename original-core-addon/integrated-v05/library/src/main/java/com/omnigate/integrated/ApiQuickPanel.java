@@ -86,6 +86,7 @@ public final class ApiQuickPanel {
         TextView status;
         TextView textStatus;
         TextView textAnswer;
+        Button textSend;
         EditText prompt;
         EditText textPrompt;
         int lastRevision=-1;
@@ -112,6 +113,8 @@ public final class ApiQuickPanel {
                         if(textAnswer!=null)
                             textAnswer.setText(OverlayTextClient.response());
                     }
+                    if(textSend!=null)
+                        textSend.setEnabled(!OverlayTextClient.isSending());
                 }
                 main.postDelayed(this,1100);
             }
@@ -145,7 +148,8 @@ public final class ApiQuickPanel {
         void detach(){
             attached=false;
             main.removeCallbacks(refresh);
-            status=null;prompt=null;textStatus=null;textAnswer=null;textPrompt=null;
+            status=null;prompt=null;textStatus=null;textAnswer=null;
+            textPrompt=null;textSend=null;
             if(shell!=null&&shell.getParent()==frame)frame.removeView(shell);
             shell=null;
         }
@@ -222,7 +226,7 @@ public final class ApiQuickPanel {
             if(textPrompt!=null && selectedTab==0)
                 OverlayTextClient.setDraft(textPrompt.getText().toString());
             shell.removeAllViews();status=null;prompt=null;
-            textStatus=null;textAnswer=null;textPrompt=null;
+            textStatus=null;textAnswer=null;textPrompt=null;textSend=null;
             shell.setPadding(0,0,0,0);
             if(!expanded){
                 params.width=dp(activity,CHIP);
@@ -304,6 +308,7 @@ public final class ApiQuickPanel {
             shell.addView(textPrompt,ip);
 
             Button send=button("发送普通文本（不含附件）",true);
+            textSend=send;
             LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(activity,39));
             sp.bottomMargin=dp(activity,8);shell.addView(send,sp);
             send.setEnabled(!OverlayTextClient.isSending());
@@ -412,10 +417,12 @@ public final class ApiQuickPanel {
             Button send=button("向当前网页注入附件（测试）",true);
             LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(activity,38));
             sp.bottomMargin=dp(activity,8);shell.addView(send,sp);
-            send.setEnabled(OverlayTextClient.lastSuccess());
+            send.setEnabled(OverlayTextClient.lastSuccess() &&
+                OverlayTextClient.lastModel().equals(OriginalCoreBridge.activeProviderModel()));
             send.setOnClickListener(v->{
-                if(!OverlayTextClient.lastSuccess()){
-                    OverlayAttachmentDraft.report("请先在「文本」页完成真实模型回复测试，再验收附件。");
+                if(!OverlayTextClient.lastSuccess() ||
+                    !OverlayTextClient.lastModel().equals(OriginalCoreBridge.activeProviderModel())){
+                    OverlayAttachmentDraft.report("请先在当前模型的「文本」页完成真实回复测试，再验收附件。");
                     render();return;
                 }
                 OverlayAttachmentDraft.setPrompt(prompt.getText().toString());
@@ -423,7 +430,8 @@ public final class ApiQuickPanel {
                 OverlayAttachmentDraft.report(result);
                 render();
             });
-            TextView note=text(OverlayTextClient.lastSuccess()
+            TextView note=text(OverlayTextClient.lastSuccess() &&
+                OverlayTextClient.lastModel().equals(OriginalCoreBridge.activeProviderModel())
                 ? "文本接口已验收；附件仍需网页缩略图和真实回复确认。"
                 : "先去「文本」页确认真实文字回复；当前附件发送按钮禁用。",
                 10,0xFF8E6946,false);
