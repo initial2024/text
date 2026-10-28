@@ -69,7 +69,21 @@ jobs:
           grep -F 'glm-web' app/src/main/java/com/dsh/webgateway/AiProvider.java
           grep -F 'SYSTEM_ALERT_WINDOW' app/src/main/AndroidManifest.xml
           grep -F 'FloatingOverlayService' app/src/main/AndroidManifest.xml
-          grep -F '48' app/src/main/java/com/dsh/webgateway/FloatingOverlayService.java
+          grep -F 'int size = dp(44);' app/src/main/java/com/dsh/webgateway/FloatingOverlayService.java
+          grep -F 'OmniGate' app/src/main/res/values/strings.xml
+          grep -F 'SplashActivity' app/src/main/AndroidManifest.xml
+          grep -F '@mipmap/ic_launcher' app/src/main/AndroidManifest.xml
+          grep -F 'TAB_OVERVIEW' app/src/main/java/com/dsh/webgateway/MainActivity.java
+          grep -F 'TAB_SESSIONS' app/src/main/java/com/dsh/webgateway/MainActivity.java
+          grep -F 'TAB_WEB' app/src/main/java/com/dsh/webgateway/MainActivity.java
+          grep -F '自定义 API Key' app/src/main/java/com/dsh/webgateway/MainActivity.java
+          grep -F 'copySingleValue' app/src/main/java/com/dsh/webgateway/MainActivity.java
+          grep -F 'setApiKey' app/src/main/java/com/dsh/webgateway/GatewayApp.java
+          grep -F 'resetApiKey' app/src/main/java/com/dsh/webgateway/GatewayApp.java
+          grep -F 'TLS/证书验证通过' app/src/main/java/com/dsh/webgateway/TunnelClient.java
+          grep -F '正在注册 ' app/src/main/java/com/dsh/webgateway/TunnelClient.java
+          grep -F '公网探针失败' app/src/main/java/com/dsh/webgateway/TunnelClient.java
+          grep -F 'LocalHttpServer.PROBE_VALUE' app/src/main/java/com/dsh/webgateway/TunnelClient.java
 
       - name: Build unsigned release
         run: gradle --no-daemon :app:assembleRelease
@@ -88,7 +102,7 @@ jobs:
       - name: Create one-time test signing key
         run: |
           set -euo pipefail
-          keytool -genkeypair -v             -keystore build-key.jks             -storepass changeit             -keypass changeit             -alias gateway             -keyalg RSA -keysize 3072 -validity 3650             -dname "CN=DSH Web Gateway GitHub Test Build,O=Temporary Test Build,L=Local,C=US"
+          keytool -genkeypair -v             -keystore build-key.jks             -storepass changeit             -keypass changeit             -alias gateway             -keyalg RSA -keysize 3072 -validity 3650             -dname "CN=OmniGate GitHub Test Build,O=Temporary Test Build,L=Local,C=US"
 
       - name: Zipalign and sign with official apksigner
         shell: bash
@@ -96,7 +110,7 @@ jobs:
           set -euo pipefail
           UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
           ALIGNED="app/build/outputs/apk/release/dsh-web-gateway-aligned.apk"
-          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.7.0.apk"
+          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.8.0.apk"
           BT="${{ steps.bt.outputs.dir }}"
           test -f "$UNSIGNED"
           "$BT/zipalign" -p -f -v 4 "$UNSIGNED" "$ALIGNED" > zipalign.txt
@@ -111,11 +125,11 @@ jobs:
         run: |
           set -euo pipefail
           BT="${{ steps.bt.outputs.dir }}"
-          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.7.0.apk"
+          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.8.0.apk"
           "$BT/aapt2" dump badging "$FINAL" | tee aapt-badging.txt
           grep -F "package: name='com.dsh.webgateway'" aapt-badging.txt
-          grep -F "versionCode='270'" aapt-badging.txt
-          grep -F "versionName='2.7.0'" aapt-badging.txt
+          grep -F "versionCode='280'" aapt-badging.txt
+          grep -F "versionName='2.8.0'" aapt-badging.txt
           grep -F "minSdkVersion:'26'" aapt-badging.txt
           grep -F "targetSdkVersion:'35'" aapt-badging.txt
 
@@ -124,7 +138,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "# DSH Web Gateway 2.7.0 build verification"
+            echo "# DSH Web Gateway 2.8.0 build verification"
             echo
             echo "Commit: $GITHUB_SHA"
             echo
@@ -145,9 +159,9 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: dsh-web-gateway-v2.7.0-apk
+          name: dsh-web-gateway-v2.8.0-apk
           path: |
-            app/build/outputs/apk/release/dsh-web-gateway-v2.7.0.apk
+            app/build/outputs/apk/release/dsh-web-gateway-v2.8.0.apk
             BUILD_VERIFICATION.md
             SHA256SUMS.txt
           if-no-files-found: error
@@ -160,15 +174,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="gateway-v2.7.0-test"
+          TAG="gateway-v2.8.0-test"
           gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
-          gh release create "$TAG"             app/build/outputs/apk/release/dsh-web-gateway-v2.7.0.apk             BUILD_VERIFICATION.md             SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "DSH Web Gateway 2.7.0 test build"             --notes "Temporary Android 16/vivo acceptance build. One-time test signing key; do not treat this signing identity as the final update channel."             --prerelease
+          gh release create "$TAG"             app/build/outputs/apk/release/dsh-web-gateway-v2.8.0.apk             BUILD_VERIFICATION.md             SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "DSH Web Gateway 2.8.0 test build"             --notes "Temporary OmniGate Android 16/vivo acceptance build. One-time test signing key; do not treat this signing identity as the final update channel."             --prerelease
 
       - name: Upload diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: dsh-web-gateway-build-failure
+          name: omnigate-build-failure
           path: |
             app/build/reports/**
             app/build/outputs/**
