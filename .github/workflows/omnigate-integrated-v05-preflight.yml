@@ -71,6 +71,24 @@ jobs:
             standalone-dex/inputs/compat.jar "$OKHTTP" "$OKIO"
           test -s standalone-dex/output/classes.dex
           sha256sum standalone-dex/output/classes.dex > standalone-dex/compat-dex.sha256
+      - name: DEX verifier regression tests
+        shell: bash
+        working-directory: original-core-addon/integrated-v05
+        run: |
+          set -euo pipefail
+          python3 tools/test_dex_integrity.py
+      - name: Validate D8 compiled DEX before packaging
+        shell: bash
+        working-directory: original-core-addon/integrated-v05
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile("standalone-dex/validated-dex.apk", "w") as z:
+              z.write("standalone-dex/output/classes.dex", "classes.dex")
+          PY
+          python3 tools/check_dex_integrity.py standalone-dex/validated-dex.apk
+          rm -f standalone-dex/validated-dex.apk
       - name: Upload integration DEX (not signed, not APK)
         if: success()
         uses: actions/upload-artifact@v4
