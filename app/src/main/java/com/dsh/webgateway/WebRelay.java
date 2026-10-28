@@ -177,6 +177,37 @@ public final class WebRelay {
             int rolloverCount) throws Exception {
         waitForComposer(30_000L);
 
+        PageState beforeSend = readState(provider);
+        if (beforeSend.limit) {
+            if (rolloverCount >= MAX_ROLLOVER) {
+                throw new IOException(
+                        "AUTO_ROLLOVER_FAILED: exceeded "
+                                + MAX_ROLLOVER
+                                + " automatic continuation chats");
+            }
+
+            String nextPrompt = buildContinuationPrompt(
+                    env,
+                    rolloverCount + 1,
+                    beforeSend.answer,
+                    beforeSend.thinking);
+
+            if (!startFreshChat(provider)) {
+                throw new IOException(
+                        "AUTO_ROLLOVER_FAILED: new-chat control unavailable before send");
+            }
+
+            waitForComposer(30_000L);
+            return runSubmission(
+                    provider,
+                    new Envelope(
+                            nextPrompt,
+                            env.rolloverPrompt,
+                            env.attachments),
+                    sink,
+                    rolloverCount + 1);
+        }
+
         List<Attachment> toUpload = new ArrayList<>();
         for (Attachment a : env.attachments) {
             if (a.current) toUpload.add(a);
@@ -189,7 +220,42 @@ public final class WebRelay {
         if (prompt.isEmpty() && !toUpload.isEmpty()) {
             prompt = "请查看并分析我刚刚上传的附件。";
         }
-        sendPrompt(provider, prompt);
+        try {
+            sendPrompt(provider, prompt);
+        } catch (IOException sendError) {
+            PageState failedState = readState(provider);
+            if (!failedState.limit) throw sendError;
+
+            if (rolloverCount >= MAX_ROLLOVER) {
+                throw new IOException(
+                        "AUTO_ROLLOVER_FAILED: exceeded "
+                                + MAX_ROLLOVER
+                                + " automatic continuation chats",
+                        sendError);
+            }
+
+            String nextPrompt = buildContinuationPrompt(
+                    env,
+                    rolloverCount + 1,
+                    failedState.answer,
+                    failedState.thinking);
+
+            if (!startFreshChat(provider)) {
+                throw new IOException(
+                        "AUTO_ROLLOVER_FAILED: new-chat control unavailable after send failure",
+                        sendError);
+            }
+
+            waitForComposer(30_000L);
+            return runSubmission(
+                    provider,
+                    new Envelope(
+                            nextPrompt,
+                            env.rolloverPrompt,
+                            env.attachments),
+                    sink,
+                    rolloverCount + 1);
+        }
 
         long start = System.currentTimeMillis();
         long lastGeneratingAt = start;
