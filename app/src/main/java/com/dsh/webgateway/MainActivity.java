@@ -101,16 +101,8 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         loadPalette();
 
-        webView = new WebView(this);
         buildUi();
-        configureWebView();
         startGatewayService(null);
-
-        if (savedInstanceState == null) {
-            webView.loadUrl(GatewayApp.selectedProvider().url);
-        } else {
-            webView.restoreState(savedInstanceState);
-        }
 
         switchTab(
                 getIntent() != null
@@ -208,7 +200,7 @@ public final class MainActivity extends Activity {
 
         topSubtitle = UiKit.text(
                 this,
-                "多 AI 网页网关",
+                "原 AI Gateway 增强伴侣",
                 12.5f,
                 muted,
                 false);
@@ -361,7 +353,7 @@ public final class MainActivity extends Activity {
 
         TextView subtitle = UiKit.text(
                 this,
-                "网页登录保持原身份，统一输出 OpenAI 兼容接口。",
+                "原软件负责网页与登录；OmniGate 只提供 8787、公网 Relay、Key 与状态诊断。",
                 14f,
                 Color.argb(224, 255, 255, 255),
                 false);
@@ -387,7 +379,7 @@ public final class MainActivity extends Activity {
 
         TextView open = UiKit.text(
                 this,
-                "打开网页  ›",
+                "打开原核心  ›",
                 13.5f,
                 Color.WHITE,
                 true);
@@ -400,7 +392,7 @@ public final class MainActivity extends Activity {
         open.setBackground(UiKit.rounded(
                 Color.argb(38, 255, 255, 255),
                 UiKit.dp(this, 17)));
-        open.setOnClickListener(v -> switchTab(TAB_WEB));
+        open.setOnClickListener(v -> openOriginalGateway());
         footer.addView(open);
 
         hero.addView(footer, footerLp);
@@ -431,7 +423,7 @@ public final class MainActivity extends Activity {
 
         statusSubtitle = UiKit.text(
                 this,
-                "本机 API 与网页会话已就绪",
+                "Companion 8787 → 原核心 1601",
                 12.5f,
                 muted,
                 false);
@@ -446,7 +438,7 @@ public final class MainActivity extends Activity {
 
         TextView open = UiKit.pill(
                 this,
-                "打开网页",
+                "打开原核心",
                 primary,
                 primarySoft,
                 primarySoft,
@@ -1085,7 +1077,7 @@ public final class MainActivity extends Activity {
 
         TextView subtitle = UiKit.text(
                 this,
-                "将不同网页 AI 转换为统一的 OpenAI 兼容接口",
+                "模型名保持兼容；真正网页操作由原 AI Gateway 执行",
                 14f,
                 muted,
                 false);
@@ -1096,7 +1088,7 @@ public final class MainActivity extends Activity {
         LinearLayout info = UiKit.card(this, surfaceSoft, border);
         TextView infoText = UiKit.text(
                 this,
-                "Android WebView 独立网页登录：每家服务商保留自己的 Cookie 和登录态。切换服务商不会停止 8787 API 或公网穿透。",
+                "OmniGate Companion 不再创建第二套 WebView。DeepSeek、ChatGPT、Grok、GLM 的登录态、输入、上传、悬浮小窗和网页行为全部由原 AI Gateway 保留。"
                 13.5f,
                 muted,
                 false);
@@ -1209,62 +1201,78 @@ public final class MainActivity extends Activity {
 
     private View buildWebPage() {
         LinearLayout page = UiKit.vertical(this);
+        page.setPadding(
+                UiKit.dp(this, 18),
+                UiKit.dp(this, 18),
+                UiKit.dp(this, 18),
+                UiKit.dp(this, 28));
         page.setBackgroundColor(bg);
 
-        LinearLayout webBar = UiKit.horizontal(this);
-        webBar.setPadding(
-                UiKit.dp(this, 16),
-                UiKit.dp(this, 8),
-                UiKit.dp(this, 12),
-                UiKit.dp(this, 8));
-
-        webProviderTitle = UiKit.text(
+        TextView title = UiKit.text(
                 this,
-                GatewayApp.selectedProvider().displayName,
-                16f,
+                "原 AI Gateway",
+                27f,
                 text,
                 true);
-        webBar.addView(webProviderTitle, new LinearLayout.LayoutParams(
-                0,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                1f));
+        page.addView(title, UiKit.matchWrap());
 
-        TextView switchProvider = UiKit.pill(
+        TextView subtitle = UiKit.text(
                 this,
-                "切换服务商",
+                "冻结原网页核心 · com.deepseek2.app · 127.0.0.1:1601",
+                13.5f,
+                muted,
+                false);
+        LinearLayout.LayoutParams subtitleLp = UiKit.matchWrap();
+        subtitleLp.topMargin = UiKit.dp(this, 7);
+        page.addView(subtitle, subtitleLp);
+
+        LinearLayout card = UiKit.card(this, surface, border);
+        LinearLayout.LayoutParams cardParams = cardLp(20);
+        page.addView(card, cardParams);
+
+        TextView mode = UiKit.text(
+                this,
+                "OmniGate Companion 不接管网页",
+                19f,
                 primary,
-                primarySoft,
-                primarySoft,
                 true);
-        switchProvider.setOnClickListener(v -> switchTab(TAB_SESSIONS));
-        webBar.addView(switchProvider);
+        card.addView(mode, UiKit.matchWrap());
 
-        page.addView(webBar, UiKit.matchWrap());
+        TextView detail = UiKit.text(
+                this,
+                "原软件继续负责：登录 Cookie、GeckoView、文字输入、图片/文件上传、四服务商切换、原悬浮小窗口和网页会话。\n\n"
+                        + "Companion 只负责：8787 兼容入口、任意非空本机 Key、严格公网 Key、claua.de Relay、自定义公网地址和连接诊断。",
+                13.5f,
+                muted,
+                false);
+        detail.setLineSpacing(UiKit.dp(this, 4), 1f);
+        LinearLayout.LayoutParams detailLp = UiKit.matchWrap();
+        detailLp.topMargin = UiKit.dp(this, 12);
+        card.addView(detail, detailLp);
 
-        FrameLayout browserShell = new FrameLayout(this);
-        browserShell.setBackground(UiKit.stroked(
-                surface,
-                border,
-                UiKit.dp(this, 20),
-                Math.max(1, UiKit.dp(this, 1))));
-        browserShell.setPadding(
-                UiKit.dp(this, 1),
-                UiKit.dp(this, 1),
-                UiKit.dp(this, 1),
-                UiKit.dp(this, 1));
+        TextView status = UiKit.text(
+                this,
+                OriginalGatewayProxy.probe()
+                        ? "● 原核心 1601 已连接"
+                        : "○ 原核心 1601 未连接，请先启动原 AI Gateway",
+                14f,
+                OriginalGatewayProxy.probe() ? success : warning,
+                true);
+        LinearLayout.LayoutParams statusLp = UiKit.matchWrap();
+        statusLp.topMargin = UiKit.dp(this, 16);
+        card.addView(status, statusLp);
 
-        browserShell.addView(webView, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT));
-
-        LinearLayout.LayoutParams shellLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f);
-        shellLp.leftMargin = UiKit.dp(this, 12);
-        shellLp.rightMargin = UiKit.dp(this, 12);
-        shellLp.bottomMargin = UiKit.dp(this, 10);
-        page.addView(browserShell, shellLp);
+        TextView open = UiKit.pill(
+                this,
+                "打开原 AI Gateway",
+                Color.WHITE,
+                primary,
+                primary,
+                true);
+        open.setOnClickListener(v -> openOriginalGateway());
+        LinearLayout.LayoutParams openLp = UiKit.matchWrap();
+        openLp.topMargin = UiKit.dp(this, 16);
+        card.addView(open, openLp);
 
         return page;
     }
@@ -1298,7 +1306,7 @@ public final class MainActivity extends Activity {
         nav.addView(createNavItem(
                 TAB_WEB,
                 R.drawable.ic_nav_web,
-                "网页"),
+                "原核心"),
                 new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
 
         return nav;
@@ -1334,7 +1342,10 @@ public final class MainActivity extends Activity {
         labelLp.topMargin = UiKit.dp(this, 3);
         item.addView(textView, labelLp);
 
-        item.setOnClickListener(v -> switchTab(index));
+        item.setOnClickListener(v -> {
+            switchTab(index);
+            if (index == TAB_WEB) openOriginalGateway();
+        });
 
         navItems[index] = item;
         navIcons[index] = icon;
@@ -1402,11 +1413,9 @@ public final class MainActivity extends Activity {
 
     private void selectProvider(AiProvider provider, boolean openWeb) {
         GatewayApp.setSelectedProvider(provider);
-        if (relay != null) relay.openProvider(provider);
-        else webView.loadUrl(provider.url);
         refreshOverlayLabel();
         refreshUi();
-        if (openWeb) switchTab(TAB_WEB);
+        if (openWeb) openOriginalGateway();
     }
 
     private void refreshUi() {
@@ -1532,10 +1541,11 @@ public final class MainActivity extends Activity {
 
     private void showAbout() {
         String message =
-                "OmniGate 2.8\n\n"
-                        + "多网页 AI 统一网关\n"
-                        + "DeepSeek · ChatGPT · Grok · GLM\n\n"
-                        + "本地 API 端口：" + GatewayApp.PORT
+                "OmniGate Companion 1.0\n\n"
+                        + "原 AI Gateway 的旁路增强层\n"
+                        + "DeepSeek · ChatGPT · Grok · GLM 保留原实现\n\n"
+                        + "Companion API：" + GatewayApp.PORT
+                        + "\n原核心 API：1601"
                         + "\n默认公网：" + GatewayApp.OWN_PUBLIC_BASE
                         + "\nLegacy：deepseeks.dpdns.org 兼容模式"
                         + "\n支持自定义 HTTPS 域名、附件、长输出、自动换会话与工具调用兼容。";
@@ -1545,6 +1555,27 @@ public final class MainActivity extends Activity {
                 .setMessage(message)
                 .setPositiveButton("确定", null)
                 .show();
+    }
+
+    private void openOriginalGateway() {
+        try {
+            Intent launch = getPackageManager()
+                    .getLaunchIntentForPackage("com.deepseek2.app");
+            if (launch == null) {
+                Toast.makeText(
+                        this,
+                        "未检测到原 AI Gateway（com.deepseek2.app）",
+                        Toast.LENGTH_LONG).show();
+                return;
+            }
+            launch.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(launch);
+        } catch (Throwable e) {
+            Toast.makeText(
+                    this,
+                    "无法打开原 AI Gateway：" + e.getMessage(),
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     private void requestOrShowOverlay() {
@@ -1958,6 +1989,7 @@ public final class MainActivity extends Activity {
         setIntent(intent);
         if (intent != null && intent.getBooleanExtra("open_web", false)) {
             switchTab(TAB_WEB);
+            openOriginalGateway();
         }
         startGatewayService(GatewayService.ACTION_ENSURE_RUNNING);
         refreshUi();
@@ -1976,7 +2008,6 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        webView.saveState(outState);
         outState.putInt("active_tab", activeTab);
         super.onSaveInstanceState(outState);
     }
@@ -1993,10 +2024,6 @@ public final class MainActivity extends Activity {
 
         if (isFinishing()) {
             GatewayApp.setRelay(null);
-            if (webView != null) {
-                webView.stopLoading();
-                webView.destroy();
-            }
         }
 
         super.onDestroy();
