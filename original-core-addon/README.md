@@ -71,13 +71,15 @@ The adapter preserves the strict textual pseudo-tool-call compatibility, real im
 
 ## Source bundle
 
+The complete source bundle is delivered as the chat artifact:
+
 `OriginalCore-OmniGateAddon-v0.1-patch-source.zip`
 
 SHA-256:
 
 `8d78a4d4cee4d1b8499eaae60a249fe26075d4284a7783f260fded9d4bf0dcc0`
 
-The source archive intentionally contains no APK, signing keystore or private key.
+The GitHub connector does not preserve large binary ZIP uploads byte-for-byte, so this branch stores the reviewable contract/test/patch text instead of a corrupted archive. The source archive intentionally contains no APK, signing keystore or private key.
 
 ## Current migration boundary
 
