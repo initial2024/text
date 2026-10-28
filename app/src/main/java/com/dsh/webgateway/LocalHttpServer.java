@@ -135,15 +135,24 @@ public final class LocalHttpServer {
                 return;
             }
 
-            if (req.path.startsWith("/v1/")
-                    && requiresPublicAuth(req)
-                    && !authorized(req)) {
-                writeJson(out, 401, new JSONObject()
-                        .put("error", "unauthorized")
-                        .put("message", "Invalid API key")
-                        .put("authMode", "public")
-                        .put("accepted", "Bearer / X-API-Key / X-DSH-Gateway-Token"));
-                return;
+            if (req.path.startsWith("/v1/")) {
+                boolean publicRequest = requiresPublicAuth(req);
+                boolean allowed = publicRequest
+                        ? authorized(req)
+                        : hasAnyApiKey(req);
+
+                if (!allowed) {
+                    writeJson(out, 401, new JSONObject()
+                            .put("error", "unauthorized")
+                            .put("message", publicRequest
+                                    ? "Invalid API key"
+                                    : "API key required")
+                            .put("authMode", publicRequest
+                                    ? "public-exact"
+                                    : "localhost-any-nonempty")
+                            .put("accepted", "Bearer / X-API-Key / X-DSH-Gateway-Token"));
+                    return;
+                }
             }
 
             if ("GET".equals(req.method) && "/v1/models".equals(req.path)) {
@@ -173,6 +182,26 @@ public final class LocalHttpServer {
 
     private boolean requiresPublicAuth(Request req) {
         return "1".equals(req.headers.get("x-omnigate-public-relay"));
+    }
+
+    private boolean hasAnyApiKey(Request req) {
+        String auth = cleanHeaderValue(
+                req.headers.getOrDefault("authorization", ""));
+        if (!auth.isEmpty()) {
+            int space = auth.indexOf(' ');
+            if (space > 0) {
+                String scheme = auth.substring(0, space).trim();
+                String token = cleanHeaderValue(auth.substring(space + 1));
+                if ("bearer".equalsIgnoreCase(scheme) && !token.isEmpty()) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+
+        return !cleanHeaderValue(req.headers.get("x-api-key")).isEmpty()
+                || !cleanHeaderValue(req.headers.get("x-dsh-gateway-token")).isEmpty();
     }
 
     private boolean authorized(Request req) {
