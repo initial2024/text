@@ -214,9 +214,7 @@ public final class WebRelay {
         }
         for (Attachment a : toUpload) uploadAttachment(provider, a);
 
-        String prompt = rolloverCount > 0
-                ? env.rolloverPrompt.trim()
-                : env.prompt.trim();
+        String prompt = env.prompt.trim();
         if (prompt.isEmpty() && !toUpload.isEmpty()) {
             prompt = "请查看并分析我刚刚上传的附件。";
         }
@@ -654,6 +652,16 @@ public final class WebRelay {
         }
 
         out.append("【最近关键上下文】\n");
+        int lastUserIndex = -1;
+        for (int i = messages.length() - 1; i >= 0; i--) {
+            JSONObject candidate = messages.optJSONObject(i);
+            if (candidate != null
+                    && "user".equals(candidate.optString("role", ""))) {
+                lastUserIndex = i;
+                break;
+            }
+        }
+
         int start = Math.max(
                 0,
                 messages.length() - ROLLOVER_RECENT_MESSAGES);
@@ -670,7 +678,7 @@ public final class WebRelay {
             String text = messageTextForRollover(m);
             if (text.isEmpty()) continue;
 
-            int perMessage = "user".equals(role) && i == messages.length() - 1
+            int perMessage = "user".equals(role) && i == lastUserIndex
                     ? 5_000
                     : 2_400;
 
@@ -1180,8 +1188,7 @@ public final class WebRelay {
                 "})()";
 
         if (Boolean.TRUE.equals(evalBoolean(js))) {
-            Thread.sleep(500L);
-            return true;
+            return waitForFreshChatReady(provider, 15_000L);
         }
 
         final AiProvider target = provider;
@@ -1192,7 +1199,25 @@ public final class WebRelay {
         });
         if (!latch.await(5, TimeUnit.SECONDS)) return false;
         waitForProviderHost(target, 30_000L);
-        return true;
+        return waitForFreshChatReady(provider, 15_000L);
+    }
+
+    private boolean waitForFreshChatReady(
+            AiProvider provider,
+            long timeoutMs) throws Exception {
+        long until = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < until) {
+            try {
+                waitForComposer(2_500L);
+                PageState state = readState(provider);
+                if (!state.limit) {
+                    return true;
+                }
+            } catch (Throwable ignored) {
+            }
+            Thread.sleep(300L);
+        }
+        return false;
     }
 
     private PageState readState(AiProvider provider) throws Exception {
