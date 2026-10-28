@@ -590,7 +590,11 @@ public final class FloatingOverlayService extends Service {
             String tunnel = GatewayApp.tunnelEnabled()
                     ? GatewayApp.tunnelStatus()
                     : "公网穿透未开启";
-            panelTunnel.setText(relayReady + "  ·  " + tunnel);
+            panelTunnel.setText(
+                    relayReady
+                            + "  ·  "
+                            + tunnel
+                            + "  ·  自动续接已开启");
         }
     }
 
