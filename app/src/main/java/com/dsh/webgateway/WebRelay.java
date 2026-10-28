@@ -167,7 +167,7 @@ public final class WebRelay {
     private void waitForComposer(long timeout) throws Exception {
         long until = System.currentTimeMillis() + timeout;
         while (System.currentTimeMillis() < until) {
-            Boolean ok = evalBoolean("(() => !!document.querySelector('textarea, [contenteditable=\\"true\\"]'))()");
+            Boolean ok = evalBoolean("(() => !!document.querySelector('textarea, [contenteditable=\"true\"]'))()");
             if (Boolean.TRUE.equals(ok)) return;
             Thread.sleep(300L);
         }
@@ -204,7 +204,7 @@ public final class WebRelay {
                 "let e=document.querySelector('textarea');" +
                 "if(e){const s=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set; s.call(e," + JSONObject.quote(prompt) + "); e.focus(); e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + JSONObject.quote(prompt) + "}));" +
                 "setTimeout(()=>{let b=[...document.querySelectorAll('button,[role=button]')].find(x=>/发送|send/i.test((x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||''))); if(b&&!b.disabled)b.click(); else e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));},120); return 'OK';}" +
-                "e=document.querySelector('[contenteditable=\\"true\\"]'); if(!e)return 'NO_COMPOSER'; e.focus(); e.innerHTML=''; const p=document.createElement('p'); p.textContent=" + JSONObject.quote(prompt) + "; e.appendChild(p); e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + JSONObject.quote(prompt) + "})); setTimeout(()=>e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true})),120); return 'OK';" +
+                "e=document.querySelector('[contenteditable=\"true\"]'); if(!e)return 'NO_COMPOSER'; e.focus(); e.innerHTML=''; const p=document.createElement('p'); p.textContent=" + JSONObject.quote(prompt) + "; e.appendChild(p); e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + JSONObject.quote(prompt) + "})); setTimeout(()=>e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true})),120); return 'OK';" +
                 "})()";
         String result = eval(js, 10_000L);
         if (result == null || !result.contains("OK")) throw new IOException("send_failed: " + result);
