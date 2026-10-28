@@ -127,6 +127,7 @@ public final class SidecarProxyServer {
                         .put("listen", "127.0.0.1:8787")
                         .put("upstream", "127.0.0.1:" + OriginalCoreBridge.configuredPort())
                         .put("upstreamReachable", isUpstreamReachable())
+                        .put("portConflict", OriginalCoreBridge.isPortConflicted())
                         .put("originalApiStartStatus", OriginalCoreBridge.lastStartStatus())
                         .put("publicRelay", GatewayApp.tunnelEnabled())
                         .put("publicRelayStatus", GatewayApp.tunnelStatus()));
@@ -167,6 +168,15 @@ public final class SidecarProxyServer {
                 return;
             }
 
+            if (OriginalCoreBridge.isPortConflicted()) {
+                writeJson(out, 409, new JSONObject()
+                    .put("error", "native_proxy_port_conflict")
+                    .put("message", "Native API is configured to the same port 8787 as the proxy")
+                    .put("nativePort", OriginalCoreBridge.configuredPort())
+                    .put("proxyPort", LISTEN_PORT)
+                    .put("hint", "Tap Repair conflict and start native API in OmniGate Settings"));
+                return;
+            }
             if (!isUpstreamReachable()) {
                 writeJson(out, 503, new JSONObject()
                     .put("error", "native_api_unavailable")
@@ -188,6 +198,8 @@ public final class SidecarProxyServer {
         InputStream upstreamBody = null;
 
         try {
+            if (OriginalCoreBridge.isPortConflicted())
+                throw new IOException("native_proxy_port_conflict: 8787 -> 8787 prohibited");
             URL url = new URL(
                     "http://127.0.0.1:"
                             + OriginalCoreBridge.configuredPort()
@@ -317,14 +329,8 @@ public final class SidecarProxyServer {
     }
 
     public static boolean isUpstreamReachable() {
-        try (Socket socket = new Socket()) {
-            socket.connect(
-                    new InetSocketAddress("127.0.0.1", OriginalCoreBridge.configuredPort()),
-                    700);
-            return true;
-        } catch (IOException e) {
-            return false;
-        }
+        // Reject loopback self-proxy even though 127.0.0.1:8787 is listening.
+        return OriginalCoreBridge.isListening();
     }
 
     private boolean hasAnyLocalKey(Request request) {
