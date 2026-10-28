@@ -10,7 +10,8 @@ import android.os.Build;
 import android.os.IBinder;
 
 public final class GatewayService extends Service {
-    public static final String ACTION_RESTART_TUNNEL = "com.dsh.webgateway.RESTART_TUNNEL";
+    public static final String ACTION_RESTART_TUNNEL =
+            "com.dsh.webgateway.RESTART_TUNNEL";
     private static final String CHANNEL_ID = "dsh_web_gateway";
 
     private LocalHttpServer server;
@@ -67,6 +68,8 @@ public final class GatewayService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_RESTART_TUNNEL.equals(intent.getAction())) {
             syncTunnel();
+        } else {
+            refreshNotification();
         }
         return START_STICKY;
     }
@@ -95,31 +98,57 @@ public final class GatewayService extends Service {
                     CHANNEL_ID,
                     "DSH Web Gateway",
                     NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Keeps the DeepSeek Web gateway and optional public tunnel available");
-            getSystemService(NotificationManager.class).createNotificationChannel(channel);
+            channel.setDescription(
+                    "Keeps the selected web AI gateway and optional public tunnel available");
+            getSystemService(NotificationManager.class)
+                    .createNotificationChannel(channel);
         }
     }
 
     private Notification buildNotification() {
+        int immutable = Build.VERSION.SDK_INT >= 23
+                ? PendingIntent.FLAG_IMMUTABLE
+                : 0;
+
         Intent open = new Intent(this, MainActivity.class);
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
-        PendingIntent pi = PendingIntent.getActivity(this, 0, open, flags);
+        PendingIntent openPi = PendingIntent.getActivity(
+                this,
+                0,
+                open,
+                PendingIntent.FLAG_UPDATE_CURRENT | immutable);
+
+        Intent showOverlay = new Intent(this, FloatingOverlayService.class);
+        showOverlay.setAction(FloatingOverlayService.ACTION_SHOW);
+        PendingIntent overlayPi = PendingIntent.getService(
+                this,
+                1,
+                showOverlay,
+                PendingIntent.FLAG_UPDATE_CURRENT | immutable);
 
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
 
-        String text = "127.0.0.1:" + GatewayApp.PORT;
+        AiProvider provider = GatewayApp.selectedProvider();
+
+        StringBuilder text = new StringBuilder();
+        text.append(provider.displayName)
+                .append(" · 127.0.0.1:")
+                .append(GatewayApp.PORT);
         if (GatewayApp.tunnelEnabled()) {
-            text += " · " + GatewayApp.tunnelStatus();
+            text.append(" · ").append(GatewayApp.tunnelStatus());
         }
 
         return b.setContentTitle("DSH Web Gateway")
-                .setContentText(text)
+                .setContentText(text.toString())
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setOngoing(true)
-                .setContentIntent(pi)
+                .setContentIntent(openPi)
+                .addAction(
+                        new Notification.Action.Builder(
+                                null,
+                                "显示悬浮窗",
+                                overlayPi).build())
                 .build();
     }
 }
