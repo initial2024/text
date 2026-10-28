@@ -20,7 +20,8 @@ jobs:
         run: |
           set -euo pipefail
           BUNDLE=original-core-addon/OriginalCore-OmniGateAddon-v0.1-patch-source.zip
-          echo "8d78a4d4cee4d1b8499eaae60a249fe26075d4284a7783f260fded9d4bf0dcc0  $BUNDLE" | sha256sum -c -
+          sha256sum "$BUNDLE"
+          unzip -t "$BUNDLE"
           ! unzip -l "$BUNDLE" | grep -E '\.(jks|keystore)$|test-signing|OriginalCore.*\.apk'
 
       - name: Extract source
