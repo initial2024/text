@@ -252,9 +252,12 @@ public final class ApiQuickPanel {
             int nativePort=OriginalCoreBridge.configuredPort();
             boolean local=LocalProxyRuntime.isListening();
             boolean upstream=OriginalCoreBridge.isListening();
+            boolean nativeRunning=OriginalCoreBridge.nativeOwnerRunning();
             TextView a=text((local?"● 8787 在线":"○ 8787 未启动")+"    "+
-                (upstream?"● "+nativePort+" 在线":"○ "+nativePort+" 未就绪"),
-                11,upstream?0xFF147754:0xFF9B612F,true);
+                (nativeRunning && upstream
+                    ? "● 原版 "+nativePort+" 运行"
+                    : "○ 原版 "+nativePort+" 未就绪"),
+                11,nativeRunning && upstream?0xFF147754:0xFF9B612F,true);
             add(shell,a,7);
             TextView model=text("当前网页模型："+OriginalCoreBridge.activeProviderModel(),
                 11,0xFF4E5782,false);
@@ -267,6 +270,14 @@ public final class ApiQuickPanel {
                 render();
             });
             test.setOnClickListener(v->render());
+            Button recover=button("恢复原版 API（不关闭网页）",false);
+            add(shell,recover,6);
+            recover.setOnClickListener(v->{
+                String result=OriginalCoreBridge.requestExplicitNativeStart(activity);
+                lastState=result;
+                TextView notice=text(result,10,0xFF956132,false);
+                add(shell,notice,4);
+            });
             LinearLayout tools=horizontal(shell,7);
             Button settings=button("完整设置",false);
             Button copy=button("复制 API 地址",false);
