@@ -109,11 +109,11 @@ public final class OverlayTextClient {
                 }
 
                 int code = connection.getResponseCode();
-                InputStream input = code >= 400
+                InputStream upstreamBody = code >= 400
                     ? connection.getErrorStream() : connection.getInputStream();
                 ByteArrayOutputStream raw = new ByteArrayOutputStream();
-                if (input != null) {
-                    try (InputStream in = input) {
+                if (upstreamBody != null) {
+                    try (InputStream in = upstreamBody) {
                         byte[] buf = new byte[4096];
                         int n;
                         while ((n=in.read(buf))!=-1) {
