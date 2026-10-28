@@ -1088,7 +1088,7 @@ public final class MainActivity extends Activity {
         LinearLayout info = UiKit.card(this, surfaceSoft, border);
         TextView infoText = UiKit.text(
                 this,
-                "OmniGate Companion 不再创建第二套 WebView。DeepSeek、ChatGPT、Grok、GLM 的登录态、输入、上传、悬浮小窗和网页行为全部由原 AI Gateway 保留。"
+                "OmniGate Companion 不再创建第二套 WebView。DeepSeek、ChatGPT、Grok、GLM 的登录态、输入、上传、悬浮小窗和网页行为全部由原 AI Gateway 保留。",
                 13.5f,
                 muted,
                 false);
