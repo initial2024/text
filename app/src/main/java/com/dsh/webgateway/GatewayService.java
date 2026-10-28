@@ -10,35 +10,77 @@ import android.os.Build;
 import android.os.IBinder;
 
 public final class GatewayService extends Service {
+    public static final String ACTION_RESTART_TUNNEL = "com.dsh.webgateway.RESTART_TUNNEL";
     private static final String CHANNEL_ID = "dsh_web_gateway";
+
     private LocalHttpServer server;
+    private TunnelClient tunnelClient;
 
     @Override
     public void onCreate() {
         super.onCreate();
         createChannel();
-        startForeground(1601, buildNotification());
+        startForeground(GatewayApp.PORT, buildNotification());
         startServer();
+        syncTunnel();
     }
 
     private void startServer() {
         if (server != null) server.shutdown();
-        server = new LocalHttpServer(1601, GatewayApp.remoteEnabled());
+        server = new LocalHttpServer(GatewayApp.PORT);
         server.start();
+    }
+
+    private synchronized void syncTunnel() {
+        if (tunnelClient != null) {
+            tunnelClient.stop();
+            tunnelClient = null;
+        }
+
+        if (!GatewayApp.tunnelEnabled()) {
+            GatewayApp.setTunnelStatus("已停止");
+            refreshNotification();
+            return;
+        }
+
+        GatewayApp.setTunnelStatus("正在连接");
+        tunnelClient = new TunnelClient(
+                GatewayApp.tunnelToken(),
+                GatewayApp.tunnelPrefix(),
+                GatewayApp.PORT,
+                status -> {
+                    GatewayApp.setTunnelStatus(status);
+                    refreshNotification();
+                });
+        tunnelClient.start();
+        refreshNotification();
+    }
+
+    private void refreshNotification() {
+        try {
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) nm.notify(GatewayApp.PORT, buildNotification());
+        } catch (Throwable ignored) {}
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && "com.dsh.webgateway.RESTART_SERVER".equals(intent.getAction())) {
-            startServer();
-            getSystemService(NotificationManager.class).notify(1601, buildNotification());
+        if (intent != null && ACTION_RESTART_TUNNEL.equals(intent.getAction())) {
+            syncTunnel();
         }
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
-        if (server != null) server.shutdown();
+        if (tunnelClient != null) {
+            tunnelClient.stop();
+            tunnelClient = null;
+        }
+        if (server != null) {
+            server.shutdown();
+            server = null;
+        }
         super.onDestroy();
     }
 
@@ -49,8 +91,11 @@ public final class GatewayService extends Service {
 
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "DSH Web Gateway", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Keeps the DSH DeepSeek Web gateway available");
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "DSH Web Gateway",
+                    NotificationManager.IMPORTANCE_LOW);
+            channel.setDescription("Keeps the DeepSeek Web gateway and optional public tunnel available");
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
@@ -60,12 +105,18 @@ public final class GatewayService extends Service {
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
         PendingIntent pi = PendingIntent.getActivity(this, 0, open, flags);
+
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
-        String endpoint = GatewayApp.remoteEnabled() ? "remote/Tailscale enabled · :1601" : "127.0.0.1:1601";
+
+        String text = "127.0.0.1:" + GatewayApp.PORT;
+        if (GatewayApp.tunnelEnabled()) {
+            text += " · " + GatewayApp.tunnelStatus();
+        }
+
         return b.setContentTitle("DSH Web Gateway")
-                .setContentText(endpoint + " · DeepSeek Web relay")
+                .setContentText(text)
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setOngoing(true)
                 .setContentIntent(pi)
