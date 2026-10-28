@@ -1184,7 +1184,8 @@ public final class MainActivity extends Activity {
                         + "多网页 AI 统一网关\n"
                         + "DeepSeek · ChatGPT · Grok · GLM\n\n"
                         + "本地 API 端口：" + GatewayApp.PORT
-                        + "\n公网穿透：deepseeks.dpdns.org 兼容协议"
+                        + "\n默认公网：" + GatewayApp.OWN_PUBLIC_BASE
+                        + "\nLegacy：deepseeks.dpdns.org 兼容模式"
                         + "\n支持自定义 HTTPS 域名、附件、长输出、自动换会话与工具调用兼容。";
 
         new AlertDialog.Builder(this)
@@ -1243,72 +1244,93 @@ public final class MainActivity extends Activity {
 
         TextView defaultUrl = UiKit.text(
                 this,
-                "默认公网：\n" + GatewayApp.generatedPublicUrl(),
+                "OmniGate 默认公网：\n" + GatewayApp.OWN_PUBLIC_BASE + "/v1",
                 13.5f,
-                muted,
-                false);
+                primary2,
+                true);
         defaultUrl.setTextIsSelectable(true);
         box.addView(defaultUrl, UiKit.matchWrap());
 
+        EditText relayKey = new EditText(this);
+        relayKey.setSingleLine(true);
+        relayKey.setHint("Relay Key（手机 ↔ Cloudflare 配对密钥）");
+        relayKey.setText(GatewayApp.relayKey());
+        relayKey.setInputType(
+                InputType.TYPE_CLASS_TEXT
+                        | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        LinearLayout.LayoutParams keyLp = UiKit.matchWrap();
+        keyLp.topMargin = UiKit.dp(this, 14);
+        box.addView(relayKey, keyLp);
+
         EditText custom = new EditText(this);
         custom.setSingleLine(true);
-        custom.setHint("https://ai.example.com");
+        custom.setHint("可选：你以后自己的其他 https:// 域名");
         custom.setText(GatewayApp.customPublicUrl());
         custom.setInputType(
                 InputType.TYPE_CLASS_TEXT
                         | InputType.TYPE_TEXT_VARIATION_URI);
         LinearLayout.LayoutParams customLp = UiKit.matchWrap();
-        customLp.topMargin = UiKit.dp(this, 14);
+        customLp.topMargin = UiKit.dp(this, 10);
         box.addView(custom, customLp);
 
         new AlertDialog.Builder(this)
-                .setTitle("公网网址")
+                .setTitle("OmniGate 自有公网穿透")
                 .setMessage(
-                        "自定义网址必须真正转发到本机 Gateway，并通过 /__tunnel_probe 才会启用。")
+                        "默认使用 gw-33e850180248.claua.de。Relay Key 只用于手机和 Cloudflare Relay 配对；API Key 仍单独控制 /v1 访问。")
                 .setView(box)
-                .setNeutralButton("恢复默认", (dialog, which) -> {
-                    GatewayApp.setCustomPublicUrl("", false);
-                    refreshUi();
-                })
+                .setNeutralButton("Legacy 旧穿透", (dialog, which) ->
+                        showImportTunnelDialog())
                 .setNegativeButton("取消", null)
-                .setPositiveButton("验证并使用", (dialog, which) -> {
-                    String candidate = normalizeBaseUrl(
-                            custom.getText().toString());
-                    if (candidate == null) {
+                .setPositiveButton("保存并重连", (dialog, which) -> {
+                    try {
+                        GatewayApp.setTunnelBackend("own");
+                        GatewayApp.setRelayKey(
+                                relayKey.getText().toString());
+
+                        String rawCustom = custom.getText().toString().trim();
+                        if (rawCustom.isEmpty()) {
+                            GatewayApp.setCustomPublicUrl("", false);
+                        } else {
+                            String candidate = normalizeBaseUrl(rawCustom);
+                            if (candidate == null) {
+                                throw new IllegalArgumentException(
+                                        "自定义网址必须是有效的 https:// 地址");
+                            }
+                            GatewayApp.setCustomPublicUrl(candidate, false);
+                        }
+
+                        GatewayApp.setTunnelEnabled(true);
+                        startGatewayService(
+                                GatewayService.ACTION_RESTART_TUNNEL);
+                        refreshUi();
+
                         Toast.makeText(
                                 this,
-                                "请输入有效的 https:// 网址",
+                                "正在连接 OmniGate Cloudflare Relay",
                                 Toast.LENGTH_LONG).show();
-                        return;
-                    }
 
-                    if (!GatewayApp.tunnelEnabled()) {
+                        if (!rawCustom.isEmpty()) {
+                            String candidate = normalizeBaseUrl(rawCustom);
+                            new Thread(() -> {
+                                boolean ok = probe(candidate);
+                                runOnUiThread(() -> {
+                                    GatewayApp.setCustomPublicUrl(candidate, ok);
+                                    refreshUi();
+                                    Toast.makeText(
+                                            this,
+                                            ok
+                                                    ? "自定义网址验证通过"
+                                                    : "自定义网址尚未转发到当前 Relay，继续使用 claua.de 默认地址",
+                                            Toast.LENGTH_LONG).show();
+                                });
+                            }, "custom-url-probe").start();
+                        }
+                    } catch (Exception ex) {
                         Toast.makeText(
                                 this,
-                                "请先开启公网穿透",
+                                ex.getMessage(),
                                 Toast.LENGTH_LONG).show();
-                        return;
                     }
-
-                    GatewayApp.setCustomPublicUrl(candidate, false);
-                    Toast.makeText(
-                            this,
-                            "正在验证公网探针",
-                            Toast.LENGTH_SHORT).show();
-
-                    new Thread(() -> {
-                        boolean ok = probe(candidate);
-                        runOnUiThread(() -> {
-                            GatewayApp.setCustomPublicUrl(candidate, ok);
-                            refreshUi();
-                            Toast.makeText(
-                                    this,
-                                    ok
-                                            ? "自定义网址验证通过"
-                                            : "验证失败：网址尚未转发到当前 Gateway",
-                                    Toast.LENGTH_LONG).show();
-                        });
-                    }, "custom-url-probe").start();
                 })
                 .show();
     }
@@ -1344,6 +1366,7 @@ public final class MainActivity extends Activity {
                         GatewayApp.setTunnelIdentity(
                                 prefix.getText().toString().trim(),
                                 token.getText().toString().trim());
+                        GatewayApp.setTunnelBackend("legacy");
                         GatewayApp.setTunnelEnabled(true);
                         startGatewayService(
                                 GatewayService.ACTION_RESTART_TUNNEL);
@@ -1401,6 +1424,31 @@ public final class MainActivity extends Activity {
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(
+                    baseUrl + "/__relay_health").openConnection();
+            conn.setConnectTimeout(10_000);
+            conn.setReadTimeout(10_000);
+            conn.setRequestMethod("GET");
+            if (conn.getResponseCode() == 200) {
+                try (InputStream in = conn.getInputStream()) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    byte[] buffer = new byte[2048];
+                    int n;
+                    while ((n = in.read(buffer)) >= 0
+                            && out.size() < 16 * 1024) {
+                        out.write(buffer, 0, n);
+                    }
+                    JSONObject body = new JSONObject(
+                            out.toString(StandardCharsets.UTF_8.name()));
+                    if (body.optBoolean("ok")) return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+
+        try {
+            conn = (HttpURLConnection) new URL(
                     baseUrl + "/__tunnel_probe").openConnection();
             conn.setConnectTimeout(10_000);
             conn.setReadTimeout(10_000);
@@ -1408,18 +1456,15 @@ public final class MainActivity extends Activity {
             if (conn.getResponseCode() != 200) return false;
 
             try (InputStream in = conn.getInputStream()) {
-                ByteArrayOutputStream out =
-                        new ByteArrayOutputStream();
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
                 byte[] buffer = new byte[2048];
                 int n;
                 while ((n = in.read(buffer)) >= 0
                         && out.size() < 16 * 1024) {
                     out.write(buffer, 0, n);
                 }
-
                 JSONObject body = new JSONObject(
-                        out.toString(
-                                StandardCharsets.UTF_8.name()));
+                        out.toString(StandardCharsets.UTF_8.name()));
                 return LocalHttpServer.PROBE_VALUE.equals(
                         body.optString("probe"));
             }
