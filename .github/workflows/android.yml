@@ -101,7 +101,9 @@ jobs:
           grep -F 'x-omnigate-public-relay' app/src/main/java/com/dsh/webgateway/LocalHttpServer.java
           grep -F 'X-OmniGate-Public-Relay' app/src/main/java/com/dsh/webgateway/CloudflareRelayClient.java
           grep -F 'X-OmniGate-Public-Relay' app/src/main/java/com/dsh/webgateway/TunnelClient.java
-          grep -F '本机 127.0.0.1 直连无需鉴权' app/src/main/java/com/dsh/webgateway/MainActivity.java
+          grep -F 'localhost-any-nonempty' app/src/main/java/com/dsh/webgateway/LocalHttpServer.java
+          grep -F 'hasAnyApiKey(req)' app/src/main/java/com/dsh/webgateway/LocalHttpServer.java
+          grep -F '所有 /v1 请求都需要填写 API Key' app/src/main/java/com/dsh/webgateway/MainActivity.java
           if grep -n 'held < 600L' app/src/main/java/com/dsh/webgateway/FloatingOverlayService.java | grep -q 'openMainActivity'; then exit 1; fi
 
       - name: Build unsigned release
@@ -129,7 +131,7 @@ jobs:
           set -euo pipefail
           UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
           ALIGNED="app/build/outputs/apk/release/OmniGate-aligned.apk"
-          FINAL="app/build/outputs/apk/release/OmniGate-v2.8.3.apk"
+          FINAL="app/build/outputs/apk/release/OmniGate-v2.8.4.apk"
           BT="${{ steps.bt.outputs.dir }}"
           test -f "$UNSIGNED"
           "$BT/zipalign" -p -f -v 4 "$UNSIGNED" "$ALIGNED" > zipalign.txt
@@ -144,11 +146,11 @@ jobs:
         run: |
           set -euo pipefail
           BT="${{ steps.bt.outputs.dir }}"
-          FINAL="app/build/outputs/apk/release/OmniGate-v2.8.3.apk"
+          FINAL="app/build/outputs/apk/release/OmniGate-v2.8.4.apk"
           "$BT/aapt2" dump badging "$FINAL" | tee aapt-badging.txt
           grep -F "package: name='com.dsh.webgateway'" aapt-badging.txt
-          grep -F "versionCode='283'" aapt-badging.txt
-          grep -F "versionName='2.8.3'" aapt-badging.txt
+          grep -F "versionCode='284'" aapt-badging.txt
+          grep -F "versionName='2.8.4'" aapt-badging.txt
           grep -F "minSdkVersion:'26'" aapt-badging.txt
           grep -F "targetSdkVersion:'35'" aapt-badging.txt
 
@@ -157,7 +159,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "# OmniGate 2.8.3 build verification"
+            echo "# OmniGate 2.8.4 build verification"
             echo
             echo "Commit: $GITHUB_SHA"
             echo
@@ -178,9 +180,9 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: OmniGate-v2.8.3-apk
+          name: OmniGate-v2.8.4-apk
           path: |
-            app/build/outputs/apk/release/OmniGate-v2.8.3.apk
+            app/build/outputs/apk/release/OmniGate-v2.8.4.apk
             BUILD_VERIFICATION.md
             SHA256SUMS.txt
           if-no-files-found: error
@@ -193,9 +195,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="omnigate-v2.8.3-test"
+          TAG="omnigate-v2.8.4-test"
           gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
-          gh release create "$TAG"             app/build/outputs/apk/release/OmniGate-v2.8.3.apk             BUILD_VERIFICATION.md             SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "OmniGate 2.8.3 test build"             --notes "Temporary OmniGate Android 16/vivo acceptance build. One-time test signing key; do not treat this signing identity as the final update channel."             --prerelease
+          gh release create "$TAG"             app/build/outputs/apk/release/OmniGate-v2.8.4.apk             BUILD_VERIFICATION.md             SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "OmniGate 2.8.4 test build"             --notes "Temporary OmniGate Android 16/vivo acceptance build. One-time test signing key; do not treat this signing identity as the final update channel."             --prerelease
 
       - name: Upload diagnostics on failure
         if: failure()
