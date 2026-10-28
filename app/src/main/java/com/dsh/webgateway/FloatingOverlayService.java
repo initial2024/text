@@ -469,7 +469,7 @@ public final class FloatingOverlayService extends Service {
     private String maskedApiKey() {
         String key = GatewayApp.apiKey();
         if (key.length() <= 10) return "API Key · ••••••••";
-        return "API Key · "
+        return "公网 Key · "
                 + key.substring(0, 4)
                 + "••••••••"
                 + key.substring(key.length() - 4);
