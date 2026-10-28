@@ -8,6 +8,7 @@ import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.lang.ref.WeakReference;
 
 /** Narrow bridge to the original, untouched native API owner.
  *
@@ -21,6 +22,10 @@ public final class OriginalCoreBridge {
     public static final String REQUEST_START =
         "com.omnigate.integrated.REQUEST_START_NATIVE_API";
     private static volatile String lastStartStatus = "尚未请求启动原 API";
+    public static final String REQUEST_NATIVE_OVERLAY =
+        "com.omnigate.integrated.REQUEST_ORIGINAL_OVERLAY";
+    private static volatile WeakReference<Activity> originalMain =
+        new WeakReference<>(null);
 
     private OriginalCoreBridge() {}
 
@@ -54,6 +59,45 @@ public final class OriginalCoreBridge {
             return value instanceof String ? (String)value : "";
         } catch (Throwable ignored) {
             return "";
+        }
+    }
+
+    /** Provider selected in the original third-party application, not the UI spinner. */
+    public static String activeProviderModel() {
+        try {
+            Context ctx = GatewayApp.applicationContext();
+            if (ctx == null) return "";
+            Object prefs = preferences();
+            Object provider = prefs.getClass().getMethod("provider", Context.class)
+                .invoke(prefs, ctx);
+            if (provider == null) return "";
+            Object model = provider.getClass().getMethod("getModel").invoke(provider);
+            return model instanceof String ? (String)model : "";
+        } catch (Throwable ex) {
+            return "";
+        }
+    }
+
+    public static boolean originalHostAlive() {
+        Activity a = originalMain.get();
+        return a != null && !a.isFinishing() && !a.isDestroyed();
+    }
+
+    public static void onOriginalMainDestroyed(Activity a) {
+        if (originalMain.get() == a) originalMain.clear();
+    }
+
+    public static String requestOriginalOverlay(Activity settings) {
+        try {
+            Intent intent = new Intent();
+            intent.setClassName(settings.getPackageName(),
+                "com.deepseek2.app.ui.MainActivity");
+            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            intent.putExtra(REQUEST_NATIVE_OVERLAY, true);
+            settings.startActivity(intent);
+            return "已打开原核心；正在请求原版悬浮窗权限或悬浮入口";
+        } catch (Throwable ex) {
+            return "原版悬浮窗入口不可用：" + ex.getClass().getSimpleName();
         }
     }
 
@@ -123,9 +167,24 @@ public final class OriginalCoreBridge {
 
     /** MainActivity already calls startServer() from onCreate; do NOT restart it. */
     public static void onOriginalMainResumed(Activity activity) {
+        originalMain = new WeakReference<>(activity);
         Intent intent = activity.getIntent();
-        if (intent == null || !intent.getBooleanExtra(REQUEST_START, false))
-            return;
+        if (intent == null) return;
+        if (intent.getBooleanExtra(REQUEST_NATIVE_OVERLAY, false)) {
+            intent.removeExtra(REQUEST_NATIVE_OVERLAY);
+            activity.getWindow().getDecorView().post(() -> {
+                if (activity.isFinishing() || activity.isDestroyed()) return;
+                try {
+                    Method original = activity.getClass().getDeclaredMethod("requestOverlay");
+                    original.setAccessible(true);
+                    original.invoke(activity);
+                    lastStartStatus = "已调用原版 requestOverlay，若需系统悬浮窗权限请在手机确认";
+                } catch (Throwable ex) {
+                    lastStartStatus = "原版悬浮窗无法开启：" + ex.getClass().getSimpleName();
+                }
+            });
+        }
+        if (!intent.getBooleanExtra(REQUEST_START, false)) return;
         intent.removeExtra(REQUEST_START);
         activity.getWindow().getDecorView().postDelayed(() -> {
             if (activity.isDestroyed() || activity.isFinishing()) return;
