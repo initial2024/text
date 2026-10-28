@@ -17,6 +17,9 @@ public final class GatewayApp {
         if (ctx == null) throw new IllegalArgumentException("context null");
         context = ctx.getApplicationContext();
     }
+    public static Context applicationContext() {
+        return context;
+    }
     private static SharedPreferences prefs() {
         Context c=context;
         if (c==null) throw new IllegalStateException("OmniGate integrated context not initialized");
