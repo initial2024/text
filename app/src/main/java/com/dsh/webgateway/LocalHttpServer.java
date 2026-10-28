@@ -135,10 +135,14 @@ public final class LocalHttpServer {
                 return;
             }
 
-            if (req.path.startsWith("/v1/") && !authorized(req)) {
+            if (req.path.startsWith("/v1/")
+                    && requiresPublicAuth(req)
+                    && !authorized(req)) {
                 writeJson(out, 401, new JSONObject()
                         .put("error", "unauthorized")
-                        .put("message", "Use the Gateway API key as Bearer token."));
+                        .put("message", "Invalid API key")
+                        .put("authMode", "public")
+                        .put("accepted", "Bearer / X-API-Key / X-DSH-Gateway-Token"));
                 return;
             }
 
@@ -167,12 +171,44 @@ public final class LocalHttpServer {
         }
     }
 
+    private boolean requiresPublicAuth(Request req) {
+        return "1".equals(req.headers.get("x-omnigate-public-relay"));
+    }
+
     private boolean authorized(Request req) {
         String expected = GatewayApp.apiKey();
-        String auth = req.headers.getOrDefault("authorization", "");
-        if (("Bearer " + expected).equals(auth)) return true;
-        return expected.equals(req.headers.get("x-api-key"))
-                || expected.equals(req.headers.get("x-dsh-gateway-token"));
+        if (expected == null || expected.isEmpty()) return false;
+
+        String auth = cleanHeaderValue(
+                req.headers.getOrDefault("authorization", ""));
+        if (!auth.isEmpty()) {
+            if (expected.equals(auth)) return true;
+
+            int space = auth.indexOf(' ');
+            if (space > 0) {
+                String scheme = auth.substring(0, space).trim();
+                String token = cleanHeaderValue(auth.substring(space + 1));
+                if ("bearer".equalsIgnoreCase(scheme)
+                        && expected.equals(token)) {
+                    return true;
+                }
+            }
+        }
+
+        String xApiKey = cleanHeaderValue(req.headers.get("x-api-key"));
+        String xDsh = cleanHeaderValue(req.headers.get("x-dsh-gateway-token"));
+        return expected.equals(xApiKey) || expected.equals(xDsh);
+    }
+
+    private String cleanHeaderValue(String value) {
+        if (value == null) return "";
+        String v = value.trim();
+        if (v.length() >= 2
+                && ((v.startsWith("\"") && v.endsWith("\""))
+                || (v.startsWith("'") && v.endsWith("'")))) {
+            v = v.substring(1, v.length() - 1).trim();
+        }
+        return v;
     }
 
     private void handleChat(Request req, OutputStream out) throws Exception {
