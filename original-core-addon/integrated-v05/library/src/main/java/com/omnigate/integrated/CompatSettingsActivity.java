@@ -188,7 +188,7 @@ public final class CompatSettingsActivity extends Activity {
         hero.setPadding(dp(19), dp(17), dp(19), dp(18));
         margin(page, hero, 14);
         margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
-        margin(hero, text("API 控制台   /   v0.5.8", 13, 0xFFE5E7FF, false), 7);
+        margin(hero, text("API 控制台   /   v0.5.9", 13, 0xFFE5E7FF, false), 7);
         margin(hero, text("本地优先 · 手动启停 · 网页注入保持不变", 12, 0xFFD6E9FF, false), 0);
 
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
@@ -213,13 +213,17 @@ public final class CompatSettingsActivity extends Activity {
         margin(connection, healthState, 5);
         upstreamGuide = text("", 12, 0xFF91601C, false);
         margin(connection, upstreamGuide, 8);
-        Button originalApi = button(connection, "启动原核心 API（自动读取端口）", true);
+        Button originalApi = button(connection, "修复端口冲突并启动原 API", true);
         originalApi.setOnClickListener(v -> {
-            try {
-                OriginalCoreBridge.requestExplicitNativeStart(this);
-            } catch (RuntimeException ex) {
-                toast("原核心 API 请求失败：" + ex.getClass().getSimpleName());
+            String outcome = OriginalCoreBridge.requestExplicitNativeStart(this);
+            if (outcome.contains("失败") || outcome.contains("停止启动") ||
+                    outcome.contains("无法") || outcome.contains("不一致")) {
+                upstreamGuide.setText(outcome);
+                toast(outcome);
+            } else {
+                upstreamGuide.setText(outcome);
             }
+            updateState();
         });
         Button originalPage = button(connection, "返回原 AI 网页", false);
         originalPage.setOnClickListener(v -> {
@@ -315,12 +319,18 @@ public final class CompatSettingsActivity extends Activity {
         localBadge.setText(local ? "● 本地 8787 · 已监听" : "○ 本地 8787 · 已停止");
         localBadge.setTextColor(local ? 0xFF136A48 : 0xFF664D87);
         localBadge.setBackground(background(local ? 0xFFE0F7ED : 0xFFF1EDF7, 12, 0));
-        upstreamBadge.setText(upstream ? "● 原核心 " + nativePort + " · 可连接" : "● 原核心 " + nativePort + " · 不可连接");
+        boolean conflicted = OriginalCoreBridge.isPortConflicted();
+        upstreamBadge.setText(conflicted
+            ? "● 端口冲突：原核心和代理都配置为 8787"
+            : upstream ? "● 原核心 " + nativePort + " · 可连接"
+            : "● 原核心 " + nativePort + " · 不可连接");
         upstreamBadge.setTextColor(upstream ? 0xFF136A48 : 0xFF966317);
         upstreamBadge.setBackground(background(upstream ? 0xFFE0F7ED : 0xFFFFF3E1, 12, 0));
         serviceState.setText(local ? "监听已开启；等待真实上游应答" : "服务未启动；点击“启动 8787”");
-        upstreamGuide.setText(upstream ? "原生端口 " + nativePort + " TCP 已连通，仍需模型回复验证。" :
-            "原生端口 " + nativePort + " 未响应；附件仅在手机中选取。点击“启动原核心 API”，在原管理页检查端口，然后点 API 悬浮入口重新查看。状态：" + OriginalCoreBridge.lastStartStatus());
+        upstreamGuide.setText(conflicted
+            ? "发现 8787→8787 自循环！之前的绿色“原核心”状态实际上可能只是代理自身。点击“修复端口冲突并启动原 API”将原核心设置恢复为 1601，然后进入原管理页启动。"
+            : upstream ? "原生端口 " + nativePort + " TCP 已连通，仍需模型回复验证。"
+            : "原生端口 " + nativePort + " 未响应，附件仅在手机中选取。请点击“修复端口冲突并启动原 API”，并在原管理页检查服务状态：" + OriginalCoreBridge.lastStartStatus());
     }
 
     private void startLocalServer() {
@@ -359,10 +369,15 @@ public final class CompatSettingsActivity extends Activity {
                     JSONObject reply = new JSONObject(b.toString("UTF-8"));
                     boolean alive = code == 200 && reply.optBoolean("ok", false);
                     boolean upstream = reply.optBoolean("upstreamReachable", false);
-                    result = alive
-                        ? (upstream ? "● 8787 工作正常 · 1601 TCP 已连通（待验证模型回复）"
-                                    : "● 8787 工作正常 · 1601 不可连接（模型与附件尚不可用）")
-                        : "HTTP " + code + " · 本地健康检查未通过";
+                    boolean conflict = reply.optBoolean("portConflict", false);
+                int target = OriginalCoreBridge.configuredPort();
+                result = alive
+                    ? (conflict
+                        ? "● 8787 正常，但原核心同样配置为 8787：端口冲突！请修复后重新检测。"
+                        : upstream
+                            ? "● 8787 正常 · 上游 " + target + " TCP 连通（待模型响应）"
+                            : "● 8787 正常 · 上游 " + target + " 不可连接（模型与附件暂不可用）")
+                    : "HTTP " + code + " · 本地健康检查未通过";
                 }
             } catch (Exception e) {
                 result = "不可访问: " + e.getClass().getSimpleName()
