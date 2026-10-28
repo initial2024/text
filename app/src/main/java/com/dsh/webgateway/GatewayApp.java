@@ -29,10 +29,25 @@ public final class GatewayApp extends Application {
     }
 
     private static SharedPreferences prefs() {
-        if (instance == null) {
-            throw new IllegalStateException("Application not initialized");
-        }
+        if (instance == null) throw new IllegalStateException("Application not initialized");
         return instance.getSharedPreferences("gateway", MODE_PRIVATE);
+    }
+
+    public static AiProvider selectedProvider() {
+        return AiProvider.fromId(prefs().getString("provider", AiProvider.DEEPSEEK.id));
+    }
+
+    public static void setSelectedProvider(AiProvider provider) {
+        if (provider == null) provider = AiProvider.DEEPSEEK;
+        prefs().edit().putString("provider", provider.id).apply();
+    }
+
+    public static boolean overlayEnabled() {
+        return prefs().getBoolean("overlay_enabled", false);
+    }
+
+    public static void setOverlayEnabled(boolean enabled) {
+        prefs().edit().putBoolean("overlay_enabled", enabled).apply();
     }
 
     public static boolean tunnelEnabled() {
@@ -46,14 +61,9 @@ public final class GatewayApp extends Application {
     public static String tunnelPrefix() {
         SharedPreferences p = prefs();
         String value = p.getString("tunnel_prefix", null);
-        if (value != null && !value.trim().isEmpty()) {
-            return value.trim().toLowerCase(Locale.ROOT);
-        }
+        if (value != null && !value.trim().isEmpty()) return value.trim().toLowerCase(Locale.ROOT);
 
-        String compact = UUID.randomUUID()
-                .toString()
-                .replace("-", "")
-                .toLowerCase(Locale.ROOT);
+        String compact = UUID.randomUUID().toString().replace("-", "").toLowerCase(Locale.ROOT);
         value = "gw-" + compact.substring(0, 12);
         p.edit().putString("tunnel_prefix", value).apply();
         return value;
@@ -62,9 +72,7 @@ public final class GatewayApp extends Application {
     public static String tunnelToken() {
         SharedPreferences p = prefs();
         String value = p.getString("tunnel_token", null);
-        if (value != null && !value.trim().isEmpty()) {
-            return value.trim();
-        }
+        if (value != null && !value.trim().isEmpty()) return value.trim();
 
         value = UUID.randomUUID().toString().replace("-", "")
                 + UUID.randomUUID().toString().replace("-", "");
@@ -108,9 +116,7 @@ public final class GatewayApp extends Application {
 
     public static String effectivePublicUrl() {
         String custom = customPublicUrl();
-        if (customPublicUrlVerified() && !custom.isEmpty()) {
-            return custom;
-        }
+        if (customPublicUrlVerified() && !custom.isEmpty()) return custom;
         return generatedPublicUrl();
     }
 
@@ -125,9 +131,7 @@ public final class GatewayApp extends Application {
     public static String apiKey() {
         SharedPreferences p = prefs();
         String value = p.getString("api_key", null);
-        if (value != null && value.length() >= 32) {
-            return value;
-        }
+        if (value != null && value.length() >= 32) return value;
 
         value = "dsh-"
                 + UUID.randomUUID().toString().replace("-", "")
