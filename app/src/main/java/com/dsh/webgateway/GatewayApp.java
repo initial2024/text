@@ -11,7 +11,7 @@ public final class GatewayApp extends Application {
     public static final String TUNNEL_SUFFIX = ".deepseeks.dpdns.org";
 
     private static volatile WebRelay relay;
-    private static volatile GatewayApp instance;
+    private static volatile GatewayApp instance;\n    private static volatile String tunnelStatus = "已停止";
 
     @Override
     public void onCreate() {
@@ -97,6 +97,14 @@ public final class GatewayApp extends Application {
         String custom = customPublicUrl();
         if (customPublicUrlVerified() && !custom.isEmpty()) return custom;
         return generatedPublicUrl();
+    }
+
+    public static String tunnelStatus() {
+        return tunnelStatus;
+    }
+
+    public static void setTunnelStatus(String value) {
+        tunnelStatus = value == null ? "" : value;
     }
 
     public static String apiKey() {
