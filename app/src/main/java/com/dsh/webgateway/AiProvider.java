@@ -15,24 +15,24 @@ public enum AiProvider {
     CHATGPT(
             "chatgpt",
             "ChatGPT",
-            "ChatGPT 网页版 · GPT 对话与文件能力",
+            "ChatGPT 网页版 · GPT 对话能力",
             "https://chatgpt.com/",
             "chatgpt-web",
             Arrays.asList("chatgpt-web", "chatgpt", "gpt-web", "gpt")),
     GROK(
             "grok",
             "Grok",
-            "Grok 网页版 · 实时搜索与文件能力",
+            "Grok 网页版 · Fast模型与实时搜索",
             "https://grok.com/",
-            "grok-web",
-            Arrays.asList("grok-web", "grok")),
+            "grok-web-fast",
+            Arrays.asList("grok-web-fast", "grok-web", "grok")),
     GLM(
             "glm",
             "GLM",
-            "智谱清言网页版 · GLM Flash 与联网模式",
+            "智谱清言网页版 · GLM-Flash与联网模式",
             "https://chatglm.cn/",
-            "glm-web",
-            Arrays.asList("glm-web", "glm", "chatglm", "chatglm-web"));
+            "glm-web-flash",
+            Arrays.asList("glm-web-flash", "glm-web", "glm", "chatglm", "chatglm-web"));
 
     public final String id;
     public final String displayName;
