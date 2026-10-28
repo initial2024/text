@@ -73,9 +73,16 @@ jobs:
           grep -F 'OWN_PUBLIC_BASE = "https://gw-33e850180248.claua.de"' app/src/main/java/com/dsh/webgateway/GatewayApp.java
           grep -F 'OWN_RELAY_WS = "wss://gw-33e850180248.claua.de/__device"' app/src/main/java/com/dsh/webgateway/GatewayApp.java
 
-          # Original overlay is delegated back to com.deepseek2.app.
-          grep -F 'com.deepseek2.app.action.SHOW_OVERLAY' app/src/main/java/com/dsh/webgateway/MainActivity.java
-          grep -F 'com.deepseek2.app.ui.OverlayService' app/src/main/java/com/dsh/webgateway/MainActivity.java
+          # Original browser/overlay remains inside com.deepseek2.app.
+          # The original OverlayService is exported=false, so Companion must
+          # launch only the exported ProviderActivity and never target that service.
+          grep -F '<package android:name="com.deepseek2.app" />' app/src/main/AndroidManifest.xml
+          grep -F 'com.deepseek2.app.ui.ProviderActivity' app/src/main/java/com/dsh/webgateway/MainActivity.java
+          grep -F 'com.deepseek2.app.ui.ProviderActivity' app/src/main/java/com/dsh/webgateway/GatewayService.java
+          if grep -F 'com.deepseek2.app.ui.OverlayService' app/src/main/java/com/dsh/webgateway/MainActivity.java; then
+            echo "Companion must not call original non-exported OverlayService" >&2
+            exit 1
+          fi
           if grep -F 'SYSTEM_ALERT_WINDOW' app/src/main/AndroidManifest.xml; then
             echo "Companion must not request its own overlay permission" >&2
             exit 1
@@ -85,8 +92,8 @@ jobs:
             exit 1
           fi
 
-          grep -F 'versionCode 300' app/build.gradle
-          grep -F "versionName '1.0.0'" app/build.gradle
+          grep -F 'versionCode 301' app/build.gradle
+          grep -F "versionName '1.0.1'" app/build.gradle
           grep -F 'OmniGate Companion' app/src/main/res/values/strings.xml
 
       - name: Build unsigned release
@@ -121,7 +128,7 @@ jobs:
           set -euo pipefail
           UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
           ALIGNED="app/build/outputs/apk/release/OmniGate-Companion-aligned.apk"
-          FINAL="app/build/outputs/apk/release/OmniGate-Companion-v1.0.0.apk"
+          FINAL="app/build/outputs/apk/release/OmniGate-Companion-v1.0.1.apk"
           BT="${{ steps.bt.outputs.dir }}"
           "$BT/zipalign" -p -f -v 4 "$UNSIGNED" "$ALIGNED" > zipalign.txt
           "$BT/zipalign" -c -v 4 "$ALIGNED" >> zipalign.txt
@@ -141,11 +148,11 @@ jobs:
         run: |
           set -euo pipefail
           BT="${{ steps.bt.outputs.dir }}"
-          FINAL="app/build/outputs/apk/release/OmniGate-Companion-v1.0.0.apk"
+          FINAL="app/build/outputs/apk/release/OmniGate-Companion-v1.0.1.apk"
           "$BT/aapt2" dump badging "$FINAL" | tee aapt-badging.txt
           grep -F "package: name='com.dsh.webgateway'" aapt-badging.txt
-          grep -F "versionCode='300'" aapt-badging.txt
-          grep -F "versionName='1.0.0'" aapt-badging.txt
+          grep -F "versionCode='301'" aapt-badging.txt
+          grep -F "versionName='1.0.1'" aapt-badging.txt
           grep -F "application-label:'OmniGate Companion'" aapt-badging.txt
           grep -F "minSdkVersion:'26'" aapt-badging.txt
           grep -F "targetSdkVersion:'35'" aapt-badging.txt
@@ -154,7 +161,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "# OmniGate Companion 1.0.0 build verification"
+            echo "# OmniGate Companion 1.0.1 build verification"
             echo
             echo "Commit: $GITHUB_SHA"
             echo
@@ -178,9 +185,9 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OmniGate-Companion-v1.0.0-apk
+          name: OmniGate-Companion-v1.0.1-apk
           path: |
-            app/build/outputs/apk/release/OmniGate-Companion-v1.0.0.apk
+            app/build/outputs/apk/release/OmniGate-Companion-v1.0.1.apk
             BUILD_VERIFICATION.md
             SHA256SUMS.txt
           if-no-files-found: error
@@ -192,13 +199,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="omnigate-companion-v1.0.0-test"
+          TAG="omnigate-companion-v1.0.1-test"
           gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
           gh release create "$TAG" \
-            app/build/outputs/apk/release/OmniGate-Companion-v1.0.0.apk \
+            app/build/outputs/apk/release/OmniGate-Companion-v1.0.1.apk \
             BUILD_VERIFICATION.md \
             SHA256SUMS.txt \
             --target "$GITHUB_SHA" \
-            --title "OmniGate Companion 1.0.0 test build" \
+            --title "OmniGate Companion 1.0.1 test build" \
             --notes "Sidecar/proxy for the frozen original AI Gateway core. Does not reimplement browser automation. Test-signed; runtime validation required." \
             --prerelease
