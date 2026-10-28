@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.Intent;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.lang.reflect.InvocationTargetException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -58,7 +57,37 @@ public final class OriginalCoreBridge {
         }
     }
 
+    public static boolean isPortConflicted() {
+        // The 8787 listener is owned by OmniGate proxy, never native ApiServer.
+        return configuredPort() == SidecarProxyServer.LISTEN_PORT;
+    }
+
+    public static boolean repairNativePortOnExplicitClick() {
+        if (!isPortConflicted()) return true;
+        Context ctx = GatewayApp.applicationContext();
+        if (ctx == null) {
+            lastStartStatus = "缺少应用上下文，不能修复原生端口";
+            return false;
+        }
+        try {
+            Object p = preferences();
+            p.getClass().getMethod("setPort", Context.class, int.class)
+                .invoke(p, ctx, FALLBACK_PORT);
+            if (configuredPort() != FALLBACK_PORT) {
+                lastStartStatus = "写入原生端口后读回不一致；停止启动";
+                return false;
+            }
+            lastStartStatus = "已由用户确认将原核心端口 8787 改为 1601";
+            return true;
+        } catch (Throwable ex) {
+            lastStartStatus = "原核心端口修复失败：" +
+                ex.getClass().getSimpleName() + "；请在原设置手动改为 1601";
+            return false;
+        }
+    }
+
     public static boolean isListening() {
+        if (isPortConflicted()) return false;
         try (Socket socket = new Socket()) {
             socket.connect(new InetSocketAddress(
                 InetAddress.getByName("127.0.0.1"), configuredPort()), 550);
@@ -72,24 +101,27 @@ public final class OriginalCoreBridge {
         return lastStartStatus;
     }
 
-    public static void requestExplicitNativeStart(Activity settings) {
+    public static String requestExplicitNativeStart(Activity settings) {
+        // Never allow the proxy's own port to masquerade as native API health.
+        if (!repairNativePortOnExplicitClick()) return lastStartStatus;
         if (isListening()) {
-            lastStartStatus = "原 API 端口 " + configuredPort() + " 已可连接";
-            return;
+            lastStartStatus = "原生 API " + configuredPort() + " TCP 已连通（待模型验证）";
+            return lastStartStatus;
         }
         try {
             Intent request = new Intent();
             request.setClassName(settings.getPackageName(),
                 "com.deepseek2.app.ui.MainActivity");
             request.putExtra(REQUEST_START, true);
-            lastStartStatus = "正在打开原核心管理页并请求启动";
+            lastStartStatus = "正在打开原管理页；原 MainActivity.onCreate 会自动 startServer";
             settings.startActivity(request);
-        } catch (Exception e) {
-            lastStartStatus = "原核心管理页面不可用：" + e.getClass().getSimpleName();
+        } catch (Throwable e) {
+            lastStartStatus = "无法打开原管理页：" + e.getClass().getSimpleName();
         }
+        return lastStartStatus;
     }
 
-    /** Callback runs only after a user-initiated Intent reached MainActivity. */
+    /** MainActivity already calls startServer() from onCreate; do NOT restart it. */
     public static void onOriginalMainResumed(Activity activity) {
         Intent intent = activity.getIntent();
         if (intent == null || !intent.getBooleanExtra(REQUEST_START, false))
@@ -97,28 +129,11 @@ public final class OriginalCoreBridge {
         intent.removeExtra(REQUEST_START);
         activity.getWindow().getDecorView().postDelayed(() -> {
             if (activity.isDestroyed() || activity.isFinishing()) return;
-            if (isListening()) {
-                lastStartStatus = "原核心端口 " + configuredPort() + " 已监听";
-                return;
-            }
-            try {
-                // startServer() is private in the frozen native MainActivity.
-                // Invoke only on this initialized, foreground Activity.
-                Method start = activity.getClass().getDeclaredMethod("startServer");
-                start.setAccessible(true);
-                start.invoke(activity);
-                lastStartStatus = "已调用原核心 startServer；请检查端口 "
-                    + configuredPort() + " 是否真正可连接";
-            } catch (InvocationTargetException ex) {
-                Throwable cause = ex.getTargetException();
-                lastStartStatus = "原核心启动异常：" +
-                    (cause == null ? "InvocationTargetException" :
-                        cause.getClass().getSimpleName());
-            } catch (Throwable ex) {
-                lastStartStatus = "原核心启动失败：" +
-                    ex.getClass().getSimpleName() + "；请在原管理页手动启动";
-            }
+            lastStartStatus = isListening()
+                ? "原生 API " + configuredPort() + " 已监听（需文本响应验收）"
+                : "已打开原管理页，但原生端口 " + configuredPort() +
+                  " 未监听；请检查原页启动状态和网站登录";
             GatewayApp.setLocalApiStatus(lastStartStatus);
-        }, 400);
+        }, 900);
     }
 }
