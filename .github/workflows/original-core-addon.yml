@@ -1,0 +1,60 @@
+name: Original Core Add-on static gate
+
+on:
+  push:
+    branches: [ original-core-addon ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify source bundle hash and confidentiality boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUNDLE=original-core-addon/OriginalCore-OmniGateAddon-v0.1-patch-source.zip
+          echo "8d78a4d4cee4d1b8499eaae60a249fe26075d4284a7783f260fded9d4bf0dcc0  $BUNDLE" | sha256sum -c -
+          ! unzip -l "$BUNDLE" | grep -E '\.(jks|keystore)$|test-signing|OriginalCore.*\.apk'
+
+      - name: Extract source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/original-core-addon
+          mkdir -p /tmp/original-core-addon
+          unzip -q original-core-addon/OriginalCore-OmniGateAddon-v0.1-patch-source.zip -d /tmp/original-core-addon
+
+      - name: Frozen original-function and no-random-interruption gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/original-core-addon/original-core-addon
+          python3 verify_bridge_contract.py
+          node --check patch/bridge.js
+          node tests/no_interrupt.test.js
+
+      - name: DSH protocol gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/original-core-addon/original-core-addon/dsh-plugin
+          node test/parser.test.mjs
+          node test/protocol.test.mjs
+
+      - name: Baseline contract assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/original-core-addon/original-core-addon
+          grep -F '"port": 1601' BASELINE_LOCK.json
+          grep -F 'MAX_AUTO_ROLLOVERS = 3' patch/bridge.js
+          grep -F 'GENERATION_ACTIVITY_GRACE_MS = 10000' patch/bridge.js
+          grep -F 'TIMEOUT_SECONDS = 3600' patch/patch_dex_3600.py
+          grep -F "http://127.0.0.1:1601/v1/chat/completions" dsh-plugin/lib/index.js
