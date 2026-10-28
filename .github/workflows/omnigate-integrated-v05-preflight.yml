@@ -1,0 +1,88 @@
+name: OmniGate Integrated v0.5 compile and fixed-signing preflight
+on:
+  push:
+    branches:
+      - work/omnigate-integrated-v05
+    paths:
+      - '.github/workflows/omnigate-integrated-v05-preflight.yml'
+      - 'original-core-addon/integrated-v05/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: omnigate-v05-preflight
+  cancel-in-progress: false
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout isolated candidate
+        uses: actions/checkout@v4
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -d "$SDK_ROOT"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'platforms;android-35' 'build-tools;35.0.0'
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+      - name: Compile integration library without secrets
+        shell: bash
+        working-directory: original-core-addon/integrated-v05
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :library:assembleRelease
+          test -s library/build/outputs/aar/library-release.aar
+          unzip -t library/build/outputs/aar/library-release.aar
+          sha256sum library/build/outputs/aar/library-release.aar | tee library-release.sha256
+      - name: Package compile-only evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniGate-v05-compile-only-NOT-APK
+          path: |
+            original-core-addon/integrated-v05/library/build/outputs/aar/library-release.aar
+            original-core-addon/integrated-v05/library-release.sha256
+          retention-days: 3
+          if-no-files-found: error
+  fixed-signing-identity-preflight:
+    needs: compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify existing secret certificate without exporting private key
+        shell: bash
+        env:
+          OMNIGATE_KEYSTORE_B64: ${{ secrets.OMNIGATE_KEYSTORE_B64 }}
+          OMNIGATE_KEYSTORE_PASSWORD: ${{ secrets.OMNIGATE_KEYSTORE_PASSWORD }}
+          OMNIGATE_KEY_ALIAS: ${{ secrets.OMNIGATE_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$OMNIGATE_KEYSTORE_B64" || { echo "BLOCKED: keystore secret missing"; exit 41; }
+          test -n "$OMNIGATE_KEYSTORE_PASSWORD" || { echo "BLOCKED: password secret missing"; exit 42; }
+          test -n "$OMNIGATE_KEY_ALIAS" || { echo "BLOCKED: alias secret missing"; exit 43; }
+          KEYFILE="$(mktemp -t omnigate-v05-XXXXXX.p12)"
+          trap 'rm -f "$KEYFILE"' EXIT
+          printf '%s' "$OMNIGATE_KEYSTORE_B64" | base64 --decode > "$KEYFILE"
+          keytool -list -v -keystore "$KEYFILE" -storepass "$OMNIGATE_KEYSTORE_PASSWORD" -alias "$OMNIGATE_KEY_ALIAS" \
+            | grep -F 'SHA256: BF:DC:4D:E8:53:80:66:D2:9E:CD:17:E8:0A:B6:51:D3:8A:E3:C4:40:71:3F:96:51:BD:8C:E1:C8:10:15:D2:7D' >/dev/null
+          echo 'FIXED_CERT_IDENTITY=PASS'
+          echo 'SINGLE_APK_BUILT=NO'
+          echo 'SINGLE_APK_SIGNED=NO'
