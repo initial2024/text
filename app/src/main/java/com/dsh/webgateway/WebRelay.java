@@ -173,7 +173,7 @@ public final class WebRelay {
         }
         for (Attachment a : toUpload) uploadAttachment(a);
 
-        sendPrompt(env.prompt);
+        sendPrompt(provider, env.prompt);
 
         long start = System.currentTimeMillis();
         long lastGeneratingAt = start;
@@ -338,12 +338,49 @@ public final class WebRelay {
     private void waitForComposer(long timeoutMs) throws Exception {
         long until = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < until) {
+            String selector = composerSelector(activeProvider);
             Boolean ok = evalBoolean(
-                    "(() => !!document.querySelector('textarea,[contenteditable=true],[contenteditable=plaintext-only]'))()");
+                    "(() => !!document.querySelector(" + JSONObject.quote(selector) + "))()");
             if (Boolean.TRUE.equals(ok)) return;
             Thread.sleep(300L);
         }
-        throw new IOException("composer_not_ready_or_login_required: " + activeProvider.displayName);
+        throw new IOException(
+                "composer_not_ready_or_login_required: " + activeProvider.displayName);
+    }
+
+    private String composerSelector(AiProvider provider) {
+        if (provider == AiProvider.DEEPSEEK) return "textarea";
+        if (provider == AiProvider.CHATGPT) return "#prompt-textarea";
+        if (provider == AiProvider.GROK) {
+            return "[contenteditable='true'][aria-label='Ask Grok anything']";
+        }
+        return "#search-input-box textarea.scroll-display-none";
+    }
+
+    private String sendButtonSelector(AiProvider provider) {
+        if (provider == AiProvider.DEEPSEEK) {
+            return "[data-testid='chat-send-button'],button[aria-label*='Send'],button[aria-label*='发送']";
+        }
+        if (provider == AiProvider.CHATGPT) {
+            return "button[data-testid='send-button'],button[aria-label='Send prompt']";
+        }
+        if (provider == AiProvider.GROK) {
+            return "button[data-testid='chat-submit']";
+        }
+        return "#search-input-box .enter";
+    }
+
+    private String generatingSelector(AiProvider provider) {
+        if (provider == AiProvider.DEEPSEEK) {
+            return "[data-testid='chat-stop-button'],.ds-stop-button,button[aria-label*='Stop']";
+        }
+        if (provider == AiProvider.CHATGPT) {
+            return "button[data-testid='stop-button'],button[aria-label='Stop answering']";
+        }
+        if (provider == AiProvider.GROK) {
+            return "button[aria-label='Stop model response']";
+        }
+        return ".searching,.glmsChatAvatar.isLoading,.markdown-body .loadingGif";
     }
 
     private void uploadAttachment(Attachment a) throws Exception {
@@ -396,37 +433,44 @@ public final class WebRelay {
         throw new IOException("ATTACHMENT_UPLOAD_FAILED: no DOM evidence for " + a.name);
     }
 
-    private void sendPrompt(String prompt) throws Exception {
+    private void sendPrompt(AiProvider provider, String prompt) throws Exception {
         String quoted = JSONObject.quote(prompt);
-        String js = "(() => {" +
-                "let e=document.querySelector('textarea');" +
-                "if(e){" +
-                "const d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');" +
-                "if(d&&d.set)d.set.call(e," + quoted + ");else e.value=" + quoted + ";" +
-                "e.focus();" +
-                "e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + quoted + "}));" +
-                "setTimeout(()=>{" +
-                "let b=[...document.querySelectorAll('button,[role=button]')].find(x=>/发送|send|提交|submit/i.test((x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||'')+' '+(x.innerText||''))&&!/stop|停止/i.test((x.getAttribute('aria-label')||'')+' '+(x.innerText||'')));" +
-                "if(b&&!b.disabled)b.click();" +
-                "else e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));" +
-                "},160);" +
-                "return 'OK';" +
-                "}" +
-                "e=document.querySelector('[contenteditable=true],[contenteditable=plaintext-only]');" +
-                "if(!e)return 'NO_COMPOSER';" +
-                "e.focus();" +
-                "e.innerHTML='';" +
-                "const p=document.createElement('p');" +
-                "p.textContent=" + quoted + ";" +
-                "e.appendChild(p);" +
-                "e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + quoted + "}));" +
-                "setTimeout(()=>{" +
-                "let b=[...document.querySelectorAll('button,[role=button]')].find(x=>/发送|send|提交|submit/i.test((x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||'')+' '+(x.innerText||''))&&!/stop|停止/i.test((x.getAttribute('aria-label')||'')+' '+(x.innerText||'')));" +
-                "if(b&&!b.disabled)b.click();" +
-                "else e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));" +
-                "},160);" +
-                "return 'OK';" +
-                "})()";
+        String composer = JSONObject.quote(composerSelector(provider));
+        String send = JSONObject.quote(sendButtonSelector(provider));
+        boolean contentEditable =
+                provider == AiProvider.CHATGPT || provider == AiProvider.GROK;
+
+        String js;
+        if (contentEditable) {
+            js = "(() => {" +
+                    "const e=document.querySelector(" + composer + ");" +
+                    "if(!e)return 'NO_COMPOSER';" +
+                    "e.focus();e.innerHTML='';" +
+                    "const p=document.createElement('p');p.textContent=" + quoted + ";e.appendChild(p);" +
+                    "try{e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + quoted + "}));}" +
+                    "catch(_){e.dispatchEvent(new Event('input',{bubbles:true}));}" +
+                    "let tries=0;const submit=()=>{" +
+                    "const b=document.querySelector(" + send + ");" +
+                    "if(b&&!b.disabled){b.click();return;}" +
+                    "if(++tries<50){setTimeout(submit,80);return;}" +
+                    "e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));" +
+                    "};submit();return 'OK';})()";
+        } else {
+            js = "(() => {" +
+                    "const e=document.querySelector(" + composer + ");" +
+                    "if(!e)return 'NO_COMPOSER';" +
+                    "const d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');" +
+                    "if(d&&d.set)d.set.call(e," + quoted + ");else e.value=" + quoted + ";" +
+                    "e.focus();" +
+                    "try{e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + quoted + "}));}" +
+                    "catch(_){e.dispatchEvent(new Event('input',{bubbles:true}));}" +
+                    "let tries=0;const submit=()=>{" +
+                    "const b=document.querySelector(" + send + ");" +
+                    "if(b&&!b.disabled){b.click();return;}" +
+                    "if(++tries<50){setTimeout(submit,80);return;}" +
+                    "e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));" +
+                    "};setTimeout(submit,80);return 'OK';})()";
+        }
 
         String result = eval(js, 10_000L);
         if (result == null || !result.contains("OK")) {
@@ -462,33 +506,23 @@ public final class WebRelay {
     private PageState readState(AiProvider provider) throws Exception {
         List<String> answerSelectors = answerSelectors(provider);
         List<String> thinkingSelectors = thinkingSelectors(provider);
+        String generating = JSONObject.quote(generatingSelector(provider));
 
         String js = "(() => {" +
                 "const vis=e=>{" +
                 "if(!e||!e.isConnected)return false;" +
-                "const r=e.getBoundingClientRect();" +
-                "const s=getComputedStyle(e);" +
-                "return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';" +
-                "};" +
+                "const r=e.getBoundingClientRect();const s=getComputedStyle(e);" +
+                "return r.width>0&&r.height>0&&s.display!=='none'&&s.visibility!=='hidden';};" +
                 "const last=sels=>{" +
-                "for(const sel of sels){" +
-                "let a=[];try{a=[...document.querySelectorAll(sel)].filter(vis);}catch(_){continue;}" +
-                "for(let i=a.length-1;i>=0;i--){" +
-                "const t=(a[i].innerText||a[i].textContent||'').trim();" +
-                "if(t)return t;" +
-                "}" +
-                "}" +
-                "return '';" +
-                "};" +
+                "for(const sel of sels){let a=[];try{a=[...document.querySelectorAll(sel)].filter(vis);}catch(_){continue;}" +
+                "for(let i=a.length-1;i>=0;i--){const t=(a[i].innerText||a[i].textContent||'').trim();if(t)return t;}}" +
+                "return '';};" +
                 "const answer=last(" + new JSONArray(answerSelectors).toString() + ");" +
                 "const thinking=last(" + new JSONArray(thinkingSelectors).toString() + ");" +
-                "const stopText=e=>(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'')+' '+(e.innerText||'');" +
-                "const generating=[...document.querySelectorAll('button,[role=button]')].some(e=>vis(e)&&/停止|停止生成|stop generating|stop response|cancel generation|stop/i.test(stopText(e)))" +
-                "||!!document.querySelector('[data-testid=stop-button],[data-testid*=stop],.ds-stop-button');" +
+                "const generating=[...document.querySelectorAll(" + generating + ")].some(vis);" +
                 "const body=(document.body&&document.body.innerText)||'';" +
                 "const limit=/对话.{0,12}(达到|已达|超过).{0,12}(上限|限制)|上下文.{0,12}(达到|超过|已满|限制)|请.{0,12}(新建|开启).{0,12}对话|conversation.{0,30}(too long|reached.{0,10}limit|limit reached)|maximum context|context.{0,20}(window|length).{0,20}(limit|exceed|full)|start a new chat|new chat to continue/i.test(body);" +
-                "return JSON.stringify({answer,thinking,generating,limit,body:body.slice(-5000)});" +
-                "})()";
+                "return JSON.stringify({answer,thinking,generating,limit,body:body.slice(-5000)});})()";
 
         String encoded = eval(js, 10_000L);
         if (encoded == null) throw new IOException("state_read_failed");
@@ -506,51 +540,43 @@ public final class WebRelay {
     private List<String> answerSelectors(AiProvider provider) {
         if (provider == AiProvider.DEEPSEEK) {
             return Arrays.asList(
-                    ".answer-content-wrap:not(.text-advance-thinking-content) .markdown-body",
                     ".ds-markdown",
-                    "[class*=answer] .markdown-body",
-                    "[data-message-author-role='assistant']");
+                    ".answer-content-wrap:not(.text-advance-thinking-content) .markdown-body");
         }
         if (provider == AiProvider.CHATGPT) {
             return Arrays.asList(
                     "[data-message-author-role='assistant']",
-                    "[data-message-author-role='assistant'] .markdown",
-                    "[data-message-author-role='assistant'] [class*=markdown]",
-                    "[data-role='assistant']");
+                    "[data-message-author-role='assistant'] .markdown");
         }
         if (provider == AiProvider.GROK) {
             return Arrays.asList(
-                    "[data-testid*=assistant]",
-                    "[data-role='assistant']",
-                    "[class*=assistant][class*=message]",
-                    "[class*=response] [class*=markdown]",
-                    "[class*=response]");
+                    "[data-testid='assistant-message'] .response-content-markdown",
+                    "[data-testid='assistant-message']");
         }
         return Arrays.asList(
-                "[data-role='assistant']",
-                "[class*=assistant] .markdown-body",
-                "[class*=assistant] [class*=content]",
-                "[class*=message-content] .markdown-body",
+                ".answer-content-wrap:not(.text-advance-thinking-content) .markdown-body",
                 ".markdown-body");
     }
 
     private List<String> thinkingSelectors(AiProvider provider) {
         if (provider == AiProvider.DEEPSEEK) {
             return Arrays.asList(
-                    ".thinking-content .markdown-body",
-                    ".text-advance-thinking-content .markdown-body",
-                    "[class*=thinking] .markdown-body");
+                    ".ds-think-content",
+                    ".thinking-content .markdown-body");
         }
         if (provider == AiProvider.CHATGPT) {
             return Arrays.asList(
-                    "[data-testid*=reasoning]",
-                    "[class*=reasoning] [class*=markdown]",
-                    "[class*=thinking] [class*=markdown]");
+                    "[data-testid*='reasoning']",
+                    "[class*='reasoning'] [class*='markdown']");
+        }
+        if (provider == AiProvider.GROK) {
+            return Arrays.asList(
+                    "[data-testid='assistant-message'] .thinking-container",
+                    "[class*='thinking']");
         }
         return Arrays.asList(
-                "[data-testid*=reasoning]",
-                "[class*=reasoning]",
-                "[class*=thinking]");
+                ".thinking-content .markdown-body",
+                "[class*='thinking']");
     }
 
     private String suffixDelta(String previous, String current) {
