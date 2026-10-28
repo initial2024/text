@@ -1,0 +1,7 @@
+# OmniGate permanent signing material - NEVER COMMIT
+*.jks
+*.keystore
+*.p12
+*.pfx
+*signing-secrets*.txt
+*keystore*.b64
