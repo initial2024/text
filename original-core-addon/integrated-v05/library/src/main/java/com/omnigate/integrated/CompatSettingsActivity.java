@@ -205,6 +205,7 @@ public final class CompatSettingsActivity extends Activity {
             LocalProxyRuntime.stop();
             serviceState.setText("服务已停止");
             healthState.setText("未连接");
+            updateState();
         });
         Button health = button(connection, "检测 /health 连接", false);
         health.setOnClickListener(v -> probeHealth());
@@ -341,7 +342,13 @@ public final class CompatSettingsActivity extends Activity {
                         if (b.size() >= 8192) break;
                         b.write(buf, 0, Math.min(n, 8192 - b.size()));
                     }
-                    result = "HTTP " + code + " · " + b.toString("UTF-8");
+                    JSONObject reply = new JSONObject(b.toString("UTF-8"));
+                    boolean alive = code == 200 && reply.optBoolean("ok", false);
+                    boolean upstream = reply.optBoolean("upstreamReachable", false);
+                    result = alive
+                        ? (upstream ? "● 8787 工作正常 · 1601 TCP 已连通（待验证模型回复）"
+                                    : "● 8787 工作正常 · 1601 不可连接（模型与附件尚不可用）")
+                        : "HTTP " + code + " · 本地健康检查未通过";
                 }
             } catch (Exception e) {
                 result = "不可访问: " + e.getClass().getSimpleName()
@@ -350,7 +357,14 @@ public final class CompatSettingsActivity extends Activity {
                 if (c != null) c.disconnect();
             }
             String captured = result;
-            main.post(() -> { if (!isDestroyed()) healthState.setText(captured); });
+            main.post(() -> {
+                if (!isDestroyed()) {
+                    healthState.setText(captured);
+                    healthState.setTextColor(captured.contains("8787 工作正常")
+                        ? 0xFF216B51 : 0xFFA65831);
+                    updateState();
+                }
+            });
         }, "omnigate-health").start();
     }
 
