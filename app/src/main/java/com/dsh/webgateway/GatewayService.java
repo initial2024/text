@@ -16,6 +16,7 @@ public final class GatewayService extends Service {
 
     private LocalHttpServer server;
     private TunnelClient tunnelClient;
+    private CloudflareRelayClient cloudflareRelay;
 
     @Override
     public void onCreate() {
@@ -37,6 +38,14 @@ public final class GatewayService extends Service {
             tunnelClient.stop();
             tunnelClient = null;
         }
+        if (cloudflareRelay != null) {
+            cloudflareRelay.stop();
+            cloudflareRelay = null;
+        }
+        if (cloudflareRelay != null) {
+            cloudflareRelay.stop();
+            cloudflareRelay = null;
+        }
 
         if (!GatewayApp.tunnelEnabled()) {
             GatewayApp.setTunnelStatus("已停止");
@@ -44,16 +53,38 @@ public final class GatewayService extends Service {
             return;
         }
 
-        GatewayApp.setTunnelStatus("正在连接");
-        tunnelClient = new TunnelClient(
-                GatewayApp.tunnelToken(),
-                GatewayApp.tunnelPrefix(),
-                GatewayApp.PORT,
-                status -> {
-                    GatewayApp.setTunnelStatus(status);
-                    refreshNotification();
-                });
-        tunnelClient.start();
+        if ("legacy".equals(GatewayApp.tunnelBackend())) {
+            GatewayApp.setTunnelStatus("Legacy 正在连接");
+            tunnelClient = new TunnelClient(
+                    GatewayApp.tunnelToken(),
+                    GatewayApp.tunnelPrefix(),
+                    GatewayApp.PORT,
+                    status -> {
+                        GatewayApp.setTunnelStatus("Legacy · " + status);
+                        refreshNotification();
+                    });
+            tunnelClient.start();
+        } else {
+            String relayKey = GatewayApp.relayKey();
+            if (relayKey.isEmpty()) {
+                GatewayApp.setTunnelStatus("需要配置 Relay Key");
+                refreshNotification();
+                return;
+            }
+
+            GatewayApp.setTunnelStatus("OmniGate Relay 正在连接");
+            cloudflareRelay = new CloudflareRelayClient(
+                    GatewayApp.OWN_RELAY_WS,
+                    GatewayApp.OWN_PUBLIC_BASE,
+                    relayKey,
+                    GatewayApp.PORT,
+                    status -> {
+                        GatewayApp.setTunnelStatus(status);
+                        refreshNotification();
+                    });
+            cloudflareRelay.start();
+        }
+
         refreshNotification();
     }
 
