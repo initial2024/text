@@ -57,7 +57,10 @@ public final class CompatBootstrapProvider extends ContentProvider {
                 @Override public void onActivityPaused(Activity a) {}
                 @Override public void onActivityStopped(Activity a) {}
                 @Override public void onActivitySaveInstanceState(Activity a, Bundle b) {}
-                @Override public void onActivityDestroyed(Activity a) {}
+                @Override public void onActivityDestroyed(Activity a) {
+                    if ("com.deepseek2.app.ui.MainActivity".equals(a.getClass().getName()))
+                        OriginalCoreBridge.onOriginalMainDestroyed(a);
+                }
             });
         return true;
     }
