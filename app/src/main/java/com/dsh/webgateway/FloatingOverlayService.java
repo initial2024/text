@@ -70,7 +70,8 @@ public final class FloatingOverlayService extends Service {
 
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(providerColor(GatewayApp.selectedProvider()));\n        bg.setStroke(dp(2), Color.argb(110, 255, 255, 255));
+        bg.setColor(providerColor(GatewayApp.selectedProvider()));
+        bg.setStroke(dp(2), Color.argb(110, 255, 255, 255));
         bubble.setBackground(bg);
 
         int size = dp(44);
