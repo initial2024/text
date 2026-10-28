@@ -94,14 +94,30 @@ jobs:
           test -x "$BT/aapt2"
           echo "dir=$BT" >> "$GITHUB_OUTPUT"
 
-      - name: Create ephemeral test signing key
+      - name: Restore fixed OmniGate signing identity
         shell: bash
+        env:
+          OMNIGATE_KEYSTORE_B64: ${{ secrets.OMNIGATE_KEYSTORE_B64 }}
+          OMNIGATE_KEYSTORE_PASSWORD: ${{ secrets.OMNIGATE_KEYSTORE_PASSWORD }}
+          OMNIGATE_KEY_ALIAS: ${{ secrets.OMNIGATE_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          keytool -genkeypair -v             -keystore sidecar-test.jks             -storepass changeit             -keypass changeit             -alias sidecar             -keyalg RSA -keysize 3072 -validity 3650             -dname "CN=OmniGate Sidecar GitHub Test,O=Temporary Test Build,L=Local,C=US"
+          test -n "$OMNIGATE_KEYSTORE_B64" || { echo "missing OMNIGATE_KEYSTORE_B64"; exit 41; }
+          test -n "$OMNIGATE_KEYSTORE_PASSWORD" || { echo "missing OMNIGATE_KEYSTORE_PASSWORD"; exit 42; }
+          test -n "$OMNIGATE_KEY_ALIAS" || { echo "missing OMNIGATE_KEY_ALIAS"; exit 43; }
+          printf '%s' "$OMNIGATE_KEYSTORE_B64" | base64 --decode > omnigate-fixed-signing.p12
+          chmod 600 omnigate-fixed-signing.p12
+          keytool -list -v \
+            -keystore omnigate-fixed-signing.p12 \
+            -storepass "$OMNIGATE_KEYSTORE_PASSWORD" \
+            -alias "$OMNIGATE_KEY_ALIAS" > fixed-signing-cert.txt
+          grep -F 'SHA256: BF:DC:4D:E8:53:80:66:D2:9E:CD:17:E8:0A:B6:51:D3:8A:E3:C4:40:71:3F:96:51:BD:8C:E1:C8:10:15:D2:7D' fixed-signing-cert.txt
 
-      - name: Zipalign and sign
+      - name: Zipalign and sign with fixed identity
         shell: bash
+        env:
+          OMNIGATE_KEYSTORE_PASSWORD: ${{ secrets.OMNIGATE_KEYSTORE_PASSWORD }}
+          OMNIGATE_KEY_ALIAS: ${{ secrets.OMNIGATE_KEY_ALIAS }}
         run: |
           set -euo pipefail
           BT="${{ steps.bt.outputs.dir }}"
@@ -111,10 +127,21 @@ jobs:
           test -f "$UNSIGNED"
           "$BT/zipalign" -p -f -v 4 "$UNSIGNED" "$ALIGNED" > zipalign-sidecar.txt
           "$BT/zipalign" -c -v 4 "$ALIGNED" >> zipalign-sidecar.txt
-          "$BT/apksigner" sign             --ks sidecar-test.jks --ks-key-alias sidecar             --ks-pass pass:changeit --key-pass pass:changeit             --v1-signing-enabled true             --v2-signing-enabled true             --v3-signing-enabled true             --out "$FINAL" "$ALIGNED"
+          "$BT/apksigner" sign \
+            --ks omnigate-fixed-signing.p12 \
+            --ks-key-alias "$OMNIGATE_KEY_ALIAS" \
+            --ks-pass env:OMNIGATE_KEYSTORE_PASSWORD \
+            --key-pass env:OMNIGATE_KEYSTORE_PASSWORD \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$FINAL" "$ALIGNED"
           "$BT/apksigner" verify --verbose --print-certs "$FINAL" | tee apksigner-sidecar.txt
           grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' apksigner-sidecar.txt
+          grep -F 'Verified using v3 scheme (APK Signature Scheme v3): true' apksigner-sidecar.txt
+          grep -Fi 'BF:DC:4D:E8:53:80:66:D2:9E:CD:17:E8:0A:B6:51:D3:8A:E3:C4:40:71:3F:96:51:BD:8C:E1:C8:10:15:D2:7D' apksigner-sidecar.txt
           sha256sum "$FINAL" | tee SIDECAR_SHA256SUMS.txt
+          rm -f omnigate-fixed-signing.p12
 
       - name: Inspect Sidecar manifest
         shell: bash
@@ -175,7 +202,7 @@ jobs:
           set -euo pipefail
           TAG="original-core-sidecar-v0.1.0-test"
           gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
-          gh release create "$TAG"             app/build/outputs/apk/release/OmniGate-Sidecar-v0.1.0.apk             SIDECAR_VERIFICATION.md             SIDECAR_SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "OmniGate Sidecar v0.1.0 test build"             --notes "Separate companion for frozen original AI Gateway. Proxies 8787 to original 1601 and does not replace provider browser automation. Ephemeral test signing key."             --prerelease
+          gh release create "$TAG"             app/build/outputs/apk/release/OmniGate-Sidecar-v0.1.0.apk             SIDECAR_VERIFICATION.md             SIDECAR_SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "OmniGate Sidecar v0.1.0 test build"             --notes "Separate companion for frozen original AI Gateway. Proxies 8787 to original 1601 and does not replace provider browser automation. Fixed OmniGate signing identity; certificate SHA-256 BF:DC:4D:E8:53:80:66:D2:9E:CD:17:E8:0A:B6:51:D3:8A:E3:C4:40:71:3F:96:51:BD:8C:E1:C8:10:15:D2:7D."             --prerelease
 
       - name: Upload diagnostics on failure
         if: failure()
@@ -187,6 +214,7 @@ jobs:
             app/build/outputs/**
             SIDECAR_VERIFICATION.md
             apksigner-sidecar.txt
+            fixed-signing-cert.txt
             sidecar-badging.txt
           if-no-files-found: ignore
           retention-days: 7
