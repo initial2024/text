@@ -96,7 +96,8 @@ jobs:
           test -x "$BT/apksigner"
           test -x "$BT/aapt2"
           echo "dir=$BT" >> "$GITHUB_OUTPUT"
-          tar -czf android-signing-tools-35.0.0.tar.gz             -C "$BT"             apksigner             zipalign             lib/apksigner.jar
+          test -f "$BT/lib64/libc++.so"
+          tar -czf android-signing-tools-35.0.0.tar.gz             -C "$BT"             apksigner             zipalign             lib/apksigner.jar             lib64/libc++.so
           sha256sum android-signing-tools-35.0.0.tar.gz | tee ANDROID_SIGNING_TOOLS_SHA256.txt
 
       - name: Restore fixed OmniGate signing identity
