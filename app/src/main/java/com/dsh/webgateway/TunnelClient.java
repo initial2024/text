@@ -177,10 +177,14 @@ public final class TunnelClient {
 
             for (Map.Entry<String, String> entry : request.headers.entrySet()) {
                 String key = entry.getKey();
-                if ("authorization".equals(key) || "content-type".equals(key)) {
+                if ("authorization".equals(key)
+                        || "content-type".equals(key)
+                        || "x-api-key".equals(key)
+                        || "x-dsh-gateway-token".equals(key)) {
                     conn.setRequestProperty(key, entry.getValue());
                 }
             }
+            conn.setRequestProperty("X-OmniGate-Public-Relay", "1");
 
             if (request.body.length > 0 &&
                     ("POST".equals(request.method) || "PUT".equals(request.method) || "PATCH".equals(request.method))) {
