@@ -8,6 +8,7 @@ import java.util.UUID;
 
 public final class GatewayApp extends Application {
     public static final int PORT = 8787;
+    public static final int ORIGINAL_CORE_PORT = 1601;
     public static final String OWN_PUBLIC_BASE = "https://gw-33e850180248.claua.de";
     public static final String OWN_RELAY_WS = "wss://gw-33e850180248.claua.de/__device";
     public static final String TUNNEL_SUFFIX = ".deepseeks.dpdns.org";
@@ -198,6 +199,22 @@ public final class GatewayApp extends Application {
         String value = newRandomApiKey();
         prefs().edit().putString("api_key", value).apply();
         return value;
+    }
+
+    public static String upstreamApiKey() {
+        String value = prefs().getString("upstream_api_key", "");
+        return value == null ? "" : value.trim();
+    }
+
+    public static void setUpstreamApiKey(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (normalized.length() > 256) {
+            throw new IllegalArgumentException("原核心 API Key 不能超过 256 个字符");
+        }
+        if (normalized.indexOf('\n') >= 0 || normalized.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException("原核心 API Key 不能包含换行");
+        }
+        prefs().edit().putString("upstream_api_key", normalized).apply();
     }
 
     private static String newRandomApiKey() {
