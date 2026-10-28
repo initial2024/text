@@ -65,15 +65,15 @@ public final class FloatingOverlayService extends Service {
         bubble = new TextView(this);
         bubble.setGravity(Gravity.CENTER);
         bubble.setTextColor(Color.WHITE);
-        bubble.setTextSize(16f);
-        bubble.setElevation(dp(8));
+        bubble.setTextSize(14.5f);
+        bubble.setElevation(dp(10));
 
         GradientDrawable bg = new GradientDrawable();
         bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(Color.rgb(25, 118, 210));
+        bg.setColor(providerColor(GatewayApp.selectedProvider()));\n        bg.setStroke(dp(2), Color.argb(110, 255, 255, 255));
         bubble.setBackground(bg);
 
-        int size = dp(48);
+        int size = dp(44);
         int type = Build.VERSION.SDK_INT >= 26
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
@@ -104,6 +104,11 @@ public final class FloatingOverlayService extends Service {
     private void updateBubbleLabel() {
         if (bubble == null) return;
         AiProvider p = GatewayApp.selectedProvider();
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(providerColor(p));
+        bg.setStroke(dp(2), Color.argb(110, 255, 255, 255));
+        bubble.setBackground(bg);
         String label;
         switch (p) {
             case CHATGPT: label = "G"; break;
@@ -113,7 +118,17 @@ public final class FloatingOverlayService extends Service {
             default: label = "D"; break;
         }
         bubble.setText(label);
-        bubble.setContentDescription(p.displayName + " Gateway；点击打开，长按隐藏");
+        bubble.setContentDescription("OmniGate · " + p.displayName + "；点击打开，长按隐藏");
+    }
+
+    private int providerColor(AiProvider provider) {
+        switch (provider) {
+            case CHATGPT: return Color.rgb(16, 163, 127);
+            case GROK: return Color.rgb(28, 29, 33);
+            case GLM: return Color.rgb(42, 99, 235);
+            case DEEPSEEK:
+            default: return Color.rgb(19, 103, 245);
+        }
     }
 
     private void hideBubble() {
