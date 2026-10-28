@@ -30,3 +30,15 @@ Stop on signature mismatch, missing SDK/signing key, irreversible original core 
 
 ## Output
 One `OmniGate-Integrated-v0.5.apk` only if ALL build/sign gates pass. Otherwise provide `source-candidate.zip` and a precise blocking report. Do not merge PR or deploy without explicit authorization.
+
+## Mandatory post-crash DEX gate (2026-10-28)
+Android bugreport of v0.5.3 showed `Out-of-order string_ids`, followed by `ClassNotFoundException` for the original `Application`. Directly replacing DEX string values while preserving the existing `string_ids` ordering corrupted the main DEX despite a valid APK signature.
+
+**Fail closed before sign or artifact publication:**
+
+- Run `python3 original-core-addon/integrated-v05/tools/test_dex_integrity.py` on each compiler pipeline change.
+- Run `python3 original-core-addon/integrated-v05/tools/check_dex_integrity.py PATH_TO_CANDIDATE.apk` on **every** assembled APK, testing all classes*.dex members (string ordering, SHA-1, Adler32, ZIP CRC). If using D8-only output, stage it as `classes.dex` in a temporary ZIP and run the same gate.
+- Never perform raw byte-level package-name replacement inside a DEX string table and then merely update checksum. Use full DEX reassembly from source (D8/R8 or a structured DEX assembler), with independently validated class defs, references and indices.
+- Preserve original launcher and Application class definitions and verify manifest references. ClassNotFound alone may be downstream of invalid DEX loading; inspect *suppressed* exceptions in logcat.
+- **Runtime gate**: actual user-device cold launch remains mandatory even if DEX/order/signature all pass. Currently v0.5.4 is `PASS_STATIC_DEX_FORMAT_DEVICE_LAUNCH_UNCONFIRMED`. No untested v0.5.5, new splash or Sidecar service release.
+- Separate `com.dsh.android` crash in the same device bugreport is a different package and must not be attributed to `com.omnigate.core`.
