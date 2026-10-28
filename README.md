@@ -1,55 +1,112 @@
-# DSH Web Gateway 2.5.0
+# DSH Web Gateway 2.6.0
 
-A clean, reproducible Android gateway for DSH that relays OpenAI-compatible local requests to the logged-in DeepSeek web page.
+A clean Android rebuild of the DSH → DeepSeek Web gateway.
+
+The app keeps the DeepSeek website login as the model identity and exposes an OpenAI-compatible local/public endpoint for DSH. It does not use the DeepSeek API.
 
 ## Why this repository exists
 
-Directly repacking the old 169 MB APK produced installation failures on Android 16/vivo. This project rebuilds the gateway from source using the official Android Gradle plugin, then runs `zipalign` and `apksigner` from Android build-tools in GitHub Actions.
+Directly repacking the old 169 MB APK produced Android 16/vivo installation failures. This repository rebuilds the gateway from source with the Android Gradle plugin and validates the APK using official Android build-tools.
 
-## Runtime contract
+Package: `com.dsh.webgateway`
 
-- Package: `com.dsh.webgateway` (side-by-side with the old AI Gateway)
-- Local endpoint: `http://127.0.0.1:1601`
-- `GET /health`
-- `GET /v1/models`
-- `POST /v1/chat/completions`
-- Default model: `deepseek-chat`
-- Browser identity: DeepSeek website login/cookies, no DeepSeek API key
-- Hard generation timeout: 600 seconds
-- Generation-end grace: 5 seconds
-- Request body limit: 32 MiB
-- Attachment envelope compatible with the DSH web relay provider
-- Auto rollover: detects conversation/context limit, creates at most one fresh chat, then replays the current full DSH prompt and attachments
+It is intentionally different from the old package, so this test build can coexist with the old AI Gateway.
 
-## Remote / Tailscale mode
+## Local API
 
-Remote access is **off by default**.
+The original gateway port is restored:
 
-When enabled in the app:
-- the server binds `0.0.0.0:1601`;
-- the UI displays a detected Tailscale `100.64.0.0/10` IPv4 address when available;
-- LAN IPv4 is also shown for diagnostics;
-- every non-loopback HTTP request must provide the generated token using either:
-  - `Authorization: Bearer <token>`, or
-  - `X-DSH-Gateway-Token: <token>`.
-- loopback requests from DSH on the same phone do not require the token.
-
-For a remote DSH/OpenAI-compatible client, use:
-- Base URL: `http://<tailscale-ip>:1601/v1`
+- Local Base URL: `http://127.0.0.1:8787/v1`
 - Model: `deepseek-chat`
-- API key: the token displayed in the app.
+- Health: `GET /health`
+- Models: `GET /v1/models`
+- Chat: `POST /v1/chat/completions`
+- Tunnel probe: `GET /__tunnel_probe`
 
-This is direct tailnet access, not a public Tailscale Funnel. Public Funnel/Serve setup requires the Tailscale CLI on a supported machine.
+The server remains bound to loopback. It is not exposed directly to Wi-Fi/LAN.
 
-## Security / failure policy
+## Original public tunnel
 
-- Default mode binds only to `127.0.0.1`.
-- Remote mode is explicit and token-protected.
-- Attachment upload is fail-closed: if real file-input / upload DOM evidence is not observed, the prompt is not silently sent without the file.
-- Automatic rollover is capped at once per submission to avoid loops.
+The rebuild restores the original reverse-tunnel design found in the old APK:
 
-## Build
+- public suffix: `.deepseeks.dpdns.org`
+- generated prefix: `gw-` + 12 lowercase random hex-like UUID characters
+- tunnel registration identity: a persistent random prefix plus a persistent tunnel token
+- tunnel transport: TLS
+- tunnel server: `57.183.5.186:9000`
+- pinned server-certificate SHA-256 fingerprint is retained from the old APK
+- registration line: `REGISTER <token> <prefix>`
+- public address: `https://<prefix>.deepseeks.dpdns.org`
 
-Every push to `main` runs `.github/workflows/android.yml`. The workflow builds a release APK, aligns it, signs it using the official Android `apksigner`, verifies signature schemes and package metadata, and uploads the APK plus verification report as a workflow artifact.
+When the public-tunnel switch is off, the TLS tunnel client is stopped while the local API remains available.
 
-This repository is temporary and may be deleted after device acceptance.
+### Restoring an old public URL
+
+A URL such as:
+
+`https://gw-33e850180248.deepseeks.dpdns.org`
+
+contains the prefix but not the private tunnel token. Restoring exactly the same old public URL requires both the old prefix and its matching old `tunnel_token`.
+
+The app therefore has an **Import old tunnel identity** action that accepts the old prefix and token, then reconnects using that identity.
+
+Without the old token the rebuild generates a new `gw-xxxxxxxxxxxx.deepseeks.dpdns.org` address.
+
+## Custom public domain
+
+The app can save a custom HTTPS URL, but it does not trust the text alone.
+
+A custom URL becomes the active displayed/copied public Base URL only after:
+
+`GET https://your-domain.example/__tunnel_probe`
+
+returns this gateway's expected probe value.
+
+This means the user's DNS/reverse-proxy layer must actually forward the custom domain to the working gateway tunnel before the app marks it verified.
+
+## API authentication
+
+The gateway generates a persistent API key.
+
+Requests to `/v1/*` require the key through:
+
+`Authorization: Bearer <API_KEY>`
+
+or an accepted API-key header.
+
+The health and tunnel-probe endpoints remain unauthenticated so connectivity/domain verification can work.
+
+## Relay behavior
+
+- DeepSeek website login/cookies provide the identity.
+- Hard generation timeout: 600 seconds.
+- Generation-end grace: 5 seconds.
+- Request-body limit: 32 MiB.
+- JPG/PNG/PDF/Word and other DSH attachments are relayed through a real browser `File` / `DataTransfer` flow.
+- Attachment delivery is fail-closed: if upload evidence is not observed, the text prompt is not silently sent without its file.
+- Full DSH message roles/context are reconstructed for plain OpenAI-compatible requests.
+- When DeepSeek reports a conversation/context limit, the gateway may create one fresh DeepSeek chat and replay the current full DSH prompt/attachments.
+- Automatic rollover is capped at one per submission.
+
+## GitHub build gate
+
+`.github/workflows/android.yml` must pass all of these before the APK is published:
+
+- source-contract checks,
+- Gradle `assembleRelease`,
+- `zipalign -c -v 4`,
+- official `apksigner` v2 verification,
+- package/version/minSdk/targetSdk inspection,
+- SHA-256 generation.
+
+Successful 2.6.0 test builds are published as a temporary prerelease.
+
+## Signing warning
+
+The current public-repository build uses a one-time test signing key created inside the workflow.
+
+It is suitable for installation/runtime acceptance only. It is not the permanent update-signing channel.
+
+After device acceptance, move a stable signing key into a private secret/signing environment before producing an APK intended for future in-place updates.
+
+This repository is temporary. Do not delete it until the user explicitly requests deletion after installation/testing.
