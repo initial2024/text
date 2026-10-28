@@ -7,11 +7,11 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.dsh.webgateway'
+        applicationId 'com.omnigate.sidecar'
         minSdk 26
         targetSdk 35
-        versionCode 286
-        versionName '2.8.6'
+        versionCode 100
+        versionName '0.1.0'
     }
 
     buildTypes {
@@ -25,7 +25,6 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
-
 
 dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
