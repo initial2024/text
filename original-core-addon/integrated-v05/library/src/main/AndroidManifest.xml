@@ -13,5 +13,8 @@
         </service>
         <activity android:name="com.omnigate.integrated.CompatSettingsActivity"
             android:exported="false"/>
+        <activity android:name="com.omnigate.integrated.OverlayDocumentPickerActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
     </application>
 </manifest>
