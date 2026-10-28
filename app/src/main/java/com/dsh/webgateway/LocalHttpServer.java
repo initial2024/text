@@ -24,15 +24,15 @@ import java.util.concurrent.Executors;
 public final class LocalHttpServer {
     private static final String TAG = "DSH-Gateway";
     private static final int MAX_BODY = 32 * 1024 * 1024;
+    public static final String PROBE_VALUE = "392125113473d61e8aaba950e010d41453ceb63597a7b047";
+
     private final int port;
-    private final boolean remoteEnabled;
     private final ExecutorService pool = Executors.newCachedThreadPool();
     private volatile boolean running;
     private ServerSocket serverSocket;
 
-    public LocalHttpServer(int port, boolean remoteEnabled) {
+    public LocalHttpServer(int port) {
         this.port = port;
-        this.remoteEnabled = remoteEnabled;
     }
 
     public void start() {
@@ -51,8 +51,7 @@ public final class LocalHttpServer {
 
     private void acceptLoop() {
         try {
-            InetAddress bind = InetAddress.getByName(remoteEnabled ? "0.0.0.0" : "127.0.0.1");
-            serverSocket = new ServerSocket(port, 16, bind);
+            serverSocket = new ServerSocket(port, 16, InetAddress.getByName("127.0.0.1"));
             while (running) {
                 Socket socket = serverSocket.accept();
                 socket.setSoTimeout(620_000);
@@ -75,33 +74,43 @@ public final class LocalHttpServer {
                 return;
             }
 
-            boolean remoteRequest = !s.getInetAddress().isLoopbackAddress();
-            if (remoteRequest && !authorized(req)) {
-                writeJson(out, 401, new JSONObject()
-                        .put("error", "unauthorized")
-                        .put("message", "Use the Gateway access token as a Bearer token / API key."));
+            if ("GET".equals(req.method) && "/__tunnel_probe".equals(req.path)) {
+                writeJson(out, 200, new JSONObject().put("probe", PROBE_VALUE));
                 return;
             }
 
             if ("GET".equals(req.method) && "/health".equals(req.path)) {
-                JSONObject health = new JSONObject();
-                health.put("ok", true);
-                health.put("port", port);
-                health.put("browserReady", GatewayApp.relay() != null);
-                health.put("remoteEnabled", remoteEnabled);
-                health.put("tailscaleIp", GatewayApp.tailscaleIpv4());
+                JSONObject health = new JSONObject()
+                        .put("ok", true)
+                        .put("port", port)
+                        .put("browserReady", GatewayApp.relay() != null)
+                        .put("tunnelEnabled", GatewayApp.tunnelEnabled())
+                        .put("publicUrl", GatewayApp.generatedPublicUrl());
                 writeJson(out, 200, health);
                 return;
             }
+
+            if (req.path.startsWith("/v1/") && !authorized(req)) {
+                writeJson(out, 401, new JSONObject()
+                        .put("error", "unauthorized")
+                        .put("message", "Use the Gateway API key as Bearer token."));
+                return;
+            }
+
             if ("GET".equals(req.method) && "/v1/models".equals(req.path)) {
-                JSONObject model = new JSONObject().put("id", "deepseek-chat").put("object", "model").put("owned_by", "web");
+                JSONObject model = new JSONObject()
+                        .put("id", "deepseek-chat")
+                        .put("object", "model")
+                        .put("owned_by", "deepseek-web");
                 writeJson(out, 200, new JSONObject().put("object", "list").put("data", new JSONArray().put(model)));
                 return;
             }
+
             if ("POST".equals(req.method) && "/v1/chat/completions".equals(req.path)) {
                 handleChat(req, out);
                 return;
             }
+
             writeJson(out, 404, new JSONObject().put("error", "not_found"));
         } catch (Throwable e) {
             Log.e(TAG, "request failed", e);
@@ -109,19 +118,22 @@ public final class LocalHttpServer {
     }
 
     private boolean authorized(Request req) {
-        if (!remoteEnabled) return false;
-        String expected = GatewayApp.accessToken();
-        String authorization = req.headers.getOrDefault("authorization", "");
-        if (("Bearer " + expected).equals(authorization)) return true;
-        return expected.equals(req.headers.get("x-dsh-gateway-token"));
+        String expected = GatewayApp.apiKey();
+        String auth = req.headers.getOrDefault("authorization", "");
+        if (("Bearer " + expected).equals(auth)) return true;
+        return expected.equals(req.headers.get("x-api-key")) ||
+                expected.equals(req.headers.get("x-dsh-gateway-token"));
     }
 
     private void handleChat(Request req, OutputStream out) throws Exception {
         WebRelay relay = GatewayApp.relay();
         if (relay == null) {
-            writeJson(out, 503, new JSONObject().put("error", "browser_not_ready").put("message", "Open DSH Web Gateway and load DeepSeek first."));
+            writeJson(out, 503, new JSONObject()
+                    .put("error", "browser_not_ready")
+                    .put("message", "Open DSH Web Gateway and load DeepSeek first."));
             return;
         }
+
         JSONObject body;
         try {
             body = new JSONObject(new String(req.body, StandardCharsets.UTF_8));
@@ -129,22 +141,35 @@ public final class LocalHttpServer {
             writeJson(out, 400, new JSONObject().put("error", "invalid_json"));
             return;
         }
+
         boolean stream = body.optBoolean("stream", false);
         if (stream) {
             writeSseHeaders(out);
             WebRelay.Result result = relay.submit(body, new WebRelay.StreamSink() {
-                @Override public void reasoning(String delta) throws IOException { sendSseDelta(out, "reasoning_content", delta); }
-                @Override public void text(String delta) throws IOException { sendSseDelta(out, "content", delta); }
-                @Override public void heartbeat() throws IOException { out.write(": keepalive\n\n".getBytes(StandardCharsets.UTF_8)); out.flush(); }
+                @Override public void reasoning(String delta) throws IOException {
+                    sendSseDelta(out, "reasoning_content", delta);
+                }
+                @Override public void text(String delta) throws IOException {
+                    sendSseDelta(out, "content", delta);
+                }
+                @Override public void heartbeat() throws IOException {
+                    out.write(": keepalive\n\n".getBytes(StandardCharsets.UTF_8));
+                    out.flush();
+                }
             });
+
             if (result.error != null) {
                 JSONObject err = new JSONObject().put("error", result.error);
                 out.write(("data: " + err + "\n\n").getBytes(StandardCharsets.UTF_8));
             } else {
-                JSONObject done = new JSONObject();
-                done.put("id", "web-gateway");
-                done.put("object", "chat.completion.chunk");
-                done.put("choices", new JSONArray().put(new JSONObject().put("index", 0).put("delta", new JSONObject()).put("finish_reason", "stop")));
+                JSONObject done = new JSONObject()
+                        .put("id", "web-gateway")
+                        .put("object", "chat.completion.chunk")
+                        .put("choices", new JSONArray().put(
+                                new JSONObject()
+                                        .put("index", 0)
+                                        .put("delta", new JSONObject())
+                                        .put("finish_reason", "stop")));
                 out.write(("data: " + done + "\n\n").getBytes(StandardCharsets.UTF_8));
             }
             out.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
@@ -152,11 +177,25 @@ public final class LocalHttpServer {
         } else {
             WebRelay.Result result = relay.submit(body, null);
             if (result.error != null) {
-                writeJson(out, 502, new JSONObject().put("error", "relay_failed").put("message", result.error));
+                writeJson(out, 502, new JSONObject()
+                        .put("error", "relay_failed")
+                        .put("message", result.error));
             } else {
-                JSONObject message = new JSONObject().put("role", "assistant").put("content", result.answer);
-                JSONObject choice = new JSONObject().put("index", 0).put("message", message).put("finish_reason", "stop");
-                JSONObject response = new JSONObject().put("id", "web-gateway").put("object", "chat.completion").put("model", "deepseek-chat").put("choices", new JSONArray().put(choice));
+                JSONObject message = new JSONObject()
+                        .put("role", "assistant")
+                        .put("content", result.answer);
+                if (!result.reasoning.isEmpty()) {
+                    message.put("reasoning_content", result.reasoning);
+                }
+                JSONObject choice = new JSONObject()
+                        .put("index", 0)
+                        .put("message", message)
+                        .put("finish_reason", "stop");
+                JSONObject response = new JSONObject()
+                        .put("id", "web-gateway")
+                        .put("object", "chat.completion")
+                        .put("model", "deepseek-chat")
+                        .put("choices", new JSONArray().put(choice));
                 writeJson(out, 200, response);
             }
         }
@@ -166,8 +205,15 @@ public final class LocalHttpServer {
         if (value == null || value.isEmpty()) return;
         try {
             JSONObject delta = new JSONObject().put(key, value);
-            JSONObject choice = new JSONObject().put("index", 0).put("delta", delta).put("finish_reason", JSONObject.NULL);
-            JSONObject event = new JSONObject().put("id", "web-gateway").put("object", "chat.completion.chunk").put("choices", new JSONArray().put(choice));
+            JSONObject choice = new JSONObject()
+                    .put("index", 0)
+                    .put("delta", delta)
+                    .put("finish_reason", JSONObject.NULL);
+            JSONObject event = new JSONObject()
+                    .put("id", "web-gateway")
+                    .put("object", "chat.completion.chunk")
+                    .put("model", "deepseek-chat")
+                    .put("choices", new JSONArray().put(choice));
             out.write(("data: " + event + "\n\n").getBytes(StandardCharsets.UTF_8));
             out.flush();
         } catch (Exception e) {
@@ -181,14 +227,22 @@ public final class LocalHttpServer {
         String[] lines = head.split("\\r?\\n");
         String[] first = lines[0].split(" ");
         if (first.length < 2) throw new IOException("bad request line");
+
         Map<String,String> headers = new HashMap<>();
         for (int i = 1; i < lines.length; i++) {
             int c = lines[i].indexOf(':');
-            if (c > 0) headers.put(lines[i].substring(0,c).trim().toLowerCase(Locale.ROOT), lines[i].substring(c+1).trim());
+            if (c > 0) {
+                headers.put(
+                        lines[i].substring(0, c).trim().toLowerCase(Locale.ROOT),
+                        lines[i].substring(c + 1).trim());
+            }
         }
+
         int length = 0;
-        try { length = Integer.parseInt(headers.getOrDefault("content-length", "0")); } catch (NumberFormatException ignored) {}
+        try { length = Integer.parseInt(headers.getOrDefault("content-length", "0")); }
+        catch (NumberFormatException ignored) {}
         if (length < 0 || length > MAX_BODY) throw new IOException("request body too large");
+
         byte[] body = new byte[length];
         int off = 0;
         while (off < length) {
@@ -212,14 +266,16 @@ public final class LocalHttpServer {
             if (state == 4) break;
         }
         if (b.size() == 0) return null;
-        return b.toString(StandardCharsets.ISO_8859_1.name()).replaceFirst("\\r?\\n\\r?\\n$", "");
+        return b.toString(StandardCharsets.ISO_8859_1.name())
+                .replaceFirst("\\r?\\n\\r?\\n$", "");
     }
 
     private void writeSseHeaders(OutputStream out) throws IOException {
         String headers = "HTTP/1.1 200 OK\r\n" +
                 "Content-Type: text/event-stream; charset=utf-8\r\n" +
                 "Cache-Control: no-cache\r\n" +
-                "Connection: close\r\n" + corsHeaders() + "\r\n";
+                "Connection: close\r\n" +
+                corsHeaders() + "\r\n";
         out.write(headers.getBytes(StandardCharsets.ISO_8859_1));
         out.flush();
     }
@@ -233,24 +289,29 @@ public final class LocalHttpServer {
         else if (code == 404) status = "Not Found";
         else if (code == 503) status = "Service Unavailable";
         else status = "Bad Gateway";
+
         String headers = "HTTP/1.1 " + code + " " + status + "\r\n" +
                 "Content-Type: application/json; charset=utf-8\r\n" +
                 "Content-Length: " + bytes.length + "\r\n" +
-                "Connection: close\r\n" + corsHeaders() + "\r\n";
+                "Connection: close\r\n" +
+                corsHeaders() + "\r\n";
         out.write(headers.getBytes(StandardCharsets.ISO_8859_1));
         out.write(bytes);
         out.flush();
     }
 
     private void writeEmpty(OutputStream out, int code, String status) throws IOException {
-        String headers = "HTTP/1.1 " + code + " " + status + "\r\nContent-Length: 0\r\nConnection: close\r\n" + corsHeaders() + "\r\n";
+        String headers = "HTTP/1.1 " + code + " " + status + "\r\n" +
+                "Content-Length: 0\r\n" +
+                "Connection: close\r\n" +
+                corsHeaders() + "\r\n";
         out.write(headers.getBytes(StandardCharsets.ISO_8859_1));
         out.flush();
     }
 
     private String corsHeaders() {
         return "Access-Control-Allow-Origin: *\r\n" +
-                "Access-Control-Allow-Headers: Authorization, X-DSH-Gateway-Token, Content-Type\r\n" +
+                "Access-Control-Allow-Headers: Authorization, X-Api-Key, X-DSH-Gateway-Token, Content-Type\r\n" +
                 "Access-Control-Allow-Methods: GET,POST,OPTIONS\r\n";
     }
 
@@ -259,8 +320,12 @@ public final class LocalHttpServer {
         final String path;
         final Map<String,String> headers;
         final byte[] body;
+
         Request(String method, String path, Map<String,String> headers, byte[] body) {
-            this.method = method; this.path = path; this.headers = headers; this.body = body;
+            this.method = method;
+            this.path = path;
+            this.headers = headers;
+            this.body = body;
         }
     }
 }
