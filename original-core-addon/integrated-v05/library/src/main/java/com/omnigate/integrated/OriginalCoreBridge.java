@@ -10,6 +10,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.json.JSONObject;
 
 /** Narrow bridge to the original, untouched native API owner.
  *
@@ -101,6 +102,25 @@ public final class OriginalCoreBridge {
         } catch (Throwable ex) {
             return "原版悬浮窗入口不可用：" + ex.getClass().getSimpleName();
         }
+    }
+
+    /** Read only. Caller must run on a worker thread, not the UI thread.
+     * The original WebDriver.diagnose() requests the built-in Gecko bridge
+     * "diagnose" operation. Do NOT log page text, cookies or chat history.
+     */
+    public static JSONObject diagnoseCurrentPage() throws Exception {
+        Activity owner=originalMain.get();
+        if(owner==null || owner.isFinishing() || owner.isDestroyed())
+            throw new IllegalStateException("original_activity_missing");
+        Field field=owner.getClass().getDeclaredField("driver");
+        field.setAccessible(true);
+        Object driver=field.get(owner);
+        if(driver==null) throw new IllegalStateException("original_driver_null");
+        Method method=driver.getClass().getMethod("diagnose");
+        Object value=method.invoke(driver);
+        if(!(value instanceof JSONObject))
+            throw new IllegalStateException("gecko_bridge_no_diagnosis");
+        return (JSONObject)value;
     }
 
     /** Original frozen MainActivity.server is the actual ownership evidence. */
