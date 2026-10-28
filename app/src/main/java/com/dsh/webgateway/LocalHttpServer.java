@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -35,30 +36,71 @@ public final class LocalHttpServer {
         this.port = port;
     }
 
-    public void start() {
-        if (running) return;
-        running = true;
-        Thread t = new Thread(this::acceptLoop, "gateway-http");
-        t.setDaemon(true);
-        t.start();
+    public synchronized boolean start() {
+        if (isListening()) return true;
+
+        try {
+            ServerSocket socket = new ServerSocket();
+            socket.setReuseAddress(true);
+            socket.bind(
+                    new InetSocketAddress(
+                            InetAddress.getByName("127.0.0.1"),
+                            port),
+                    16);
+            serverSocket = socket;
+            running = true;
+
+            Thread t = new Thread(this::acceptLoop, "gateway-http");
+            t.setDaemon(true);
+            t.start();
+            Log.i(TAG, "HTTP server listening on 127.0.0.1:" + port);
+            return true;
+        } catch (IOException e) {
+            running = false;
+            try {
+                if (serverSocket != null) serverSocket.close();
+            } catch (IOException ignored) {}
+            serverSocket = null;
+            Log.e(TAG, "HTTP server bind failed", e);
+            return false;
+        }
     }
 
-    public void shutdown() {
+    public synchronized boolean isListening() {
+        return running
+                && serverSocket != null
+                && serverSocket.isBound()
+                && !serverSocket.isClosed();
+    }
+
+    public synchronized void shutdown() {
         running = false;
-        try { if (serverSocket != null) serverSocket.close(); } catch (IOException ignored) {}
+        try {
+            if (serverSocket != null) serverSocket.close();
+        } catch (IOException ignored) {}
+        serverSocket = null;
         pool.shutdownNow();
     }
 
     private void acceptLoop() {
         try {
-            serverSocket = new ServerSocket(port, 16, InetAddress.getByName("127.0.0.1"));
             while (running) {
-                Socket socket = serverSocket.accept();
+                ServerSocket listening = serverSocket;
+                if (listening == null || listening.isClosed()) break;
+                Socket socket = listening.accept();
                 socket.setSoTimeout(620_000);
                 pool.execute(() -> handle(socket));
             }
         } catch (IOException e) {
             if (running) Log.e(TAG, "HTTP server stopped", e);
+        } finally {
+            synchronized (this) {
+                running = false;
+                try {
+                    if (serverSocket != null) serverSocket.close();
+                } catch (IOException ignored) {}
+                serverSocket = null;
+            }
         }
     }
 
