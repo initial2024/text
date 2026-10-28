@@ -255,3 +255,25 @@ A REGISTER `OK` is not sufficient for PASS.
 4. Cloudflare side stores/validates only the SHA-256 hash of the pairing key.
 5. Public requests without a connected Android device return a device-offline error rather than silently falling back to legacy.
 6. Legacy `deepseeks.dpdns.org` mode is user-selected only.
+
+
+## P. Automatic conversation rollover / continuation
+
+1. Automatic rollover is enabled by default and has no user-facing disable toggle.
+2. `MAX_ROLLOVER=3`; the implementation must fail closed after three continuation chats rather than loop indefinitely.
+3. Context-limit detection must run:
+   - before sending,
+   - after a send failure,
+   - during response polling.
+4. On a confirmed limit, OmniGate must create a fresh provider chat and continue the same task automatically.
+5. The continuation prompt must not replay the full original conversation. It must:
+   - preserve system/developer constraints within a bounded budget,
+   - preserve recent user/assistant/tool context,
+   - preserve the current unfinished task,
+   - omit Base64 attachment payloads,
+   - mention attachment names/types only.
+6. Only current-turn attachments are re-uploaded after rollover; historical attachment payloads are not duplicated.
+7. If a partial answer existed before the limit, the new chat is instructed to continue rather than repeat it from the beginning.
+8. The UI must state that automatic continuation is enabled by default.
+9. A second or third context limit must continue through the same bounded handoff logic.
+10. Runtime PASS requires a real provider-side context-limit reproduction; build/static checks alone are not an E2E PASS.
