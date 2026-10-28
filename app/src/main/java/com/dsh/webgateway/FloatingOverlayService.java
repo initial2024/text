@@ -56,7 +56,9 @@ public final class FloatingOverlayService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        String action = intent == null ? ACTION_SHOW : intent.getAction();
+        String action = intent == null
+                ? (GatewayApp.overlayEnabled() ? ACTION_SHOW : ACTION_HIDE)
+                : intent.getAction();
 
         if (ACTION_HIDE.equals(action)) {
             hidePanel();
