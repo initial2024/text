@@ -131,12 +131,34 @@ public final class GatewayApp extends Application {
     public static String apiKey() {
         SharedPreferences p = prefs();
         String value = p.getString("api_key", null);
-        if (value != null && value.length() >= 32) return value;
+        if (value != null && value.length() >= 12) return value;
 
-        value = "dsh-"
-                + UUID.randomUUID().toString().replace("-", "")
-                + UUID.randomUUID().toString().replace("-", "");
+        value = newRandomApiKey();
         p.edit().putString("api_key", value).apply();
         return value;
+    }
+
+    public static void setApiKey(String value) {
+        if (value == null) throw new IllegalArgumentException("API Key 不能为空");
+        String normalized = value.trim();
+        if (normalized.length() < 12 || normalized.length() > 256) {
+            throw new IllegalArgumentException("API Key 长度必须为 12–256 个字符");
+        }
+        if (normalized.indexOf('\n') >= 0 || normalized.indexOf('\r') >= 0) {
+            throw new IllegalArgumentException("API Key 不能包含换行");
+        }
+        prefs().edit().putString("api_key", normalized).apply();
+    }
+
+    public static String resetApiKey() {
+        String value = newRandomApiKey();
+        prefs().edit().putString("api_key", value).apply();
+        return value;
+    }
+
+    private static String newRandomApiKey() {
+        return "og-"
+                + UUID.randomUUID().toString().replace("-", "")
+                + UUID.randomUUID().toString().replace("-", "");
     }
 }
