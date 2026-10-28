@@ -124,3 +124,21 @@ The default public endpoint is now:
 This path is backed by a dedicated Cloudflare Worker + Durable Object relay and does not depend on the legacy `deepseeks.dpdns.org` TCP relay. The Android app connects outbound over WebSocket; the Cloudflare relay keeps only the SHA-256 hash of the pairing key. Legacy tunnel support remains available as an explicit compatibility fallback.
 
 The polished 2.8.1 UI uses a branded gradient overview panel, separate copyable credential rows, icon-only copy/reveal/edit controls, a relay topology card, provider selection cards, dark mode resources, a branded splash animation, and a 44dp floating provider control.
+
+
+## Automatic continuation when a provider conversation reaches its limit
+
+Automatic continuation is enabled by default for DeepSeek, ChatGPT, Grok and GLM.
+
+When the provider page reports a conversation/context limit, OmniGate:
+
+1. detects the limit before send, after send failure, or while polling a response;
+2. creates a fresh conversation for the same provider;
+3. builds a bounded continuation handoff instead of replaying the entire old history;
+4. preserves system/developer constraints, recent dialogue, current task and tool context;
+5. omits Base64 attachment payloads from the handoff;
+6. re-uploads only current-turn attachments;
+7. tells the new conversation to continue unfinished work without asking the user to repeat information;
+8. can roll over up to three times before failing closed.
+
+This is a continuity mechanism, not a claim that provider-side context limits can be bypassed indefinitely.
