@@ -1,0 +1,27 @@
+{
+  "source_apk": "base(2).apk",
+  "source_sha256": "3c84b6f74317321f200313a29580997204549b851e67e7b9a388476b8171842e",
+  "package": "com.deepseek2.app",
+  "verified_components": {
+    "launcher": {
+      "class": "com.deepseek2.app.ui.ProviderActivity",
+      "exported": true,
+      "intent_action": "android.intent.action.MAIN",
+      "intent_category": "android.intent.category.LAUNCHER"
+    },
+    "main_activity": {
+      "class": "com.deepseek2.app.ui.MainActivity",
+      "exported": false
+    },
+    "overlay_service": {
+      "class": "com.deepseek2.app.ui.OverlayService",
+      "exported": false,
+      "stopWithTask": false
+    }
+  },
+  "policy": {
+    "companion_may_launch_exported_launcher": true,
+    "companion_may_start_overlay_service_directly": false,
+    "reason": "Preserve the original app security/export boundary; the original process must own its floating-window lifecycle."
+  }
+}
