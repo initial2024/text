@@ -8,10 +8,15 @@ import java.util.UUID;
 
 public final class GatewayApp extends Application {
     public static final int PORT = 8787;
+    public static final int COMPAT_PORT = 1601;
     public static final String TUNNEL_SUFFIX = ".deepseeks.dpdns.org";
+    public static final String LEGACY_PREFIX = "gw-33e850180248";
+    public static final String LEGACY_PUBLIC_URL =
+            "https://gw-33e850180248.deepseeks.dpdns.org";
 
     private static volatile WebRelay relay;
-    private static volatile GatewayApp instance;\n    private static volatile String tunnelStatus = "已停止";
+    private static volatile GatewayApp instance;
+    private static volatile String tunnelStatus = "已停止";
 
     @Override
     public void onCreate() {
@@ -40,11 +45,22 @@ public final class GatewayApp extends Application {
         prefs().edit().putBoolean("tunnel_enabled", enabled).apply();
     }
 
+    public static boolean hasStoredTunnelIdentity() {
+        String prefix = prefs().getString("tunnel_prefix", null);
+        String token = prefs().getString("tunnel_token", null);
+        return prefix != null && !prefix.trim().isEmpty() &&
+                token != null && !token.trim().isEmpty();
+    }
+
     public static String tunnelPrefix() {
         SharedPreferences p = prefs();
         String value = p.getString("tunnel_prefix", null);
-        if (value != null && !value.trim().isEmpty()) return value.trim().toLowerCase(Locale.ROOT);
-        String compact = UUID.randomUUID().toString().replace("-", "").toLowerCase(Locale.ROOT);
+        if (value != null && !value.trim().isEmpty()) {
+            return value.trim().toLowerCase(Locale.ROOT);
+        }
+        String compact = UUID.randomUUID().toString()
+                .replace("-", "")
+                .toLowerCase(Locale.ROOT);
         value = "gw-" + compact.substring(0, 12);
         p.edit().putString("tunnel_prefix", value).apply();
         return value;
@@ -54,49 +70,47 @@ public final class GatewayApp extends Application {
         SharedPreferences p = prefs();
         String value = p.getString("tunnel_token", null);
         if (value != null && !value.trim().isEmpty()) return value.trim();
-        value = UUID.randomUUID().toString().replace("-", "") +
-                UUID.randomUUID().toString().replace("-", "");
+        value = newTunnelToken();
         p.edit().putString("tunnel_token", value).apply();
         return value;
     }
 
+    private static String newTunnelToken() {
+        return UUID.randomUUID().toString().replace("-", "") +
+                UUID.randomUUID().toString().replace("-", "");
+    }
+
     public static void setTunnelIdentity(String prefix, String token) {
-        if (prefix == null || !prefix.matches("gw-[a-zA-Z0-9-]{3,48}")) {
-            throw new IllegalArgumentException("invalid tunnel prefix");
+        String normalizedPrefix = prefix == null
+                ? ""
+                : prefix.trim().toLowerCase(Locale.ROOT);
+        String normalizedToken = token == null ? "" : token.trim();
+
+        if (!normalizedPrefix.matches("gw-[a-z0-9]{3,48}")) {
+            throw new IllegalArgumentException("prefix 必须以 gw- 开头且只含小写字母/数字");
         }
-        if (token == null || token.length() < 32 || token.length() > 256) {
-            throw new IllegalArgumentException("invalid tunnel token");
+        if (!normalizedToken.matches("[A-Za-z0-9_-]{32,256}")) {
+            throw new IllegalArgumentException("token 格式无效");
         }
+
         prefs().edit()
-                .putString("tunnel_prefix", prefix.toLowerCase(Locale.ROOT))
-                .putString("tunnel_token", token.trim())
+                .putString("tunnel_prefix", normalizedPrefix)
+                .putString("tunnel_token", normalizedToken)
+                .apply();
+    }
+
+    public static void generateNewTunnelIdentity() {
+        String compact = UUID.randomUUID().toString()
+                .replace("-", "")
+                .toLowerCase(Locale.ROOT);
+        prefs().edit()
+                .putString("tunnel_prefix", "gw-" + compact.substring(0, 12))
+                .putString("tunnel_token", newTunnelToken())
                 .apply();
     }
 
     public static String generatedPublicUrl() {
         return "https://" + tunnelPrefix() + TUNNEL_SUFFIX;
-    }
-
-    public static String customPublicUrl() {
-        String value = prefs().getString("custom_public_url", "");
-        return value == null ? "" : value.trim();
-    }
-
-    public static boolean customPublicUrlVerified() {
-        return prefs().getBoolean("custom_public_url_verified", false);
-    }
-
-    public static void setCustomPublicUrl(String value, boolean verified) {
-        prefs().edit()
-                .putString("custom_public_url", value == null ? "" : value.trim())
-                .putBoolean("custom_public_url_verified", verified)
-                .apply();
-    }
-
-    public static String effectivePublicUrl() {
-        String custom = customPublicUrl();
-        if (customPublicUrlVerified() && !custom.isEmpty()) return custom;
-        return generatedPublicUrl();
     }
 
     public static String tunnelStatus() {
