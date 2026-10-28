@@ -4,6 +4,5 @@
         <item name="android:windowSplashScreenBackground">@color/og_bg</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_omnigate_mark</item>
         <item name="android:windowSplashScreenAnimationDuration">250</item>
-        <item name="android:postSplashScreenTheme">@style/Theme.OmniGate</item>
     </style>
 </resources>
