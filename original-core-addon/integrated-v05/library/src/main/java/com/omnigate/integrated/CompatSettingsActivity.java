@@ -6,7 +6,7 @@ import android.content.Intent;
 import android.os.Build;
 import android.view.View;
 import android.widget.*;
-import android.graphics.Color;
+import android.text.InputType;
 
 /** Minimal no-R-resource settings. The original app remains the launcher. */
 public final class CompatSettingsActivity extends Activity {
@@ -19,9 +19,9 @@ public final class CompatSettingsActivity extends Activity {
         addText(root,"本地 API Key: 任意非空值；公网接口必须验证独立密钥");
         addText(root,"默认模型: deepseek-chat / chatgpt-web / grok-web-fast / glm-web-flash");
         addText(root,"状态: "+GatewayApp.localApiStatus());
-        EditText up=field(root,"原核心 1601 API Key（留空则不转发 Authorization）",GatewayApp.upstreamApiKey());
-        EditText pub=field(root,"公网 API Key（独立于本地任意 Key）",GatewayApp.apiKey());
-        EditText relay=field(root,"Relay 配对 Key（>=24 字符）",GatewayApp.relayKey());
+        EditText up=secretField(root,"原核心 1601 API Key（留空则不转发 Authorization）",GatewayApp.upstreamApiKey());
+        EditText pub=secretField(root,"公网 API Key（独立于本地任意 Key）",GatewayApp.apiKey());
+        EditText relay=secretField(root,"Relay 配对 Key（>=24 字符）",GatewayApp.relayKey());
         Switch enabled=new Switch(this);enabled.setText("启用公网 Relay（默认关闭）");enabled.setChecked(GatewayApp.tunnelEnabled());root.addView(enabled);
         Button save=new Button(this);save.setText("保存配置并重启兼容服务");root.addView(save);
         save.setOnClickListener(v->{
@@ -37,7 +37,7 @@ public final class CompatSettingsActivity extends Activity {
         });
     }
     private void addText(LinearLayout root,String msg){TextView t=new TextView(this);t.setText(msg);t.setTextSize(14);t.setPadding(0,12,0,12);root.addView(t);}
-    private EditText field(LinearLayout root,String label,String value){
-        addText(root,label); EditText v=new EditText(this);v.setSingleLine(true);v.setText(value);root.addView(v);return v;
+    private EditText secretField(LinearLayout root,String label,String value){
+        addText(root,label); EditText v=new EditText(this);v.setSingleLine(true);v.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);v.setText(value);root.addView(v);return v;
     }
 }
