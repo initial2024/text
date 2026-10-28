@@ -18,12 +18,21 @@ public final class GatewayService extends Service {
         super.onCreate();
         createChannel();
         startForeground(1601, buildNotification());
-        server = new LocalHttpServer(1601);
+        startServer();
+    }
+
+    private void startServer() {
+        if (server != null) server.shutdown();
+        server = new LocalHttpServer(1601, GatewayApp.remoteEnabled());
         server.start();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && "com.dsh.webgateway.RESTART_SERVER".equals(intent.getAction())) {
+            startServer();
+            getSystemService(NotificationManager.class).notify(1601, buildNotification());
+        }
         return START_STICKY;
     }
 
@@ -41,7 +50,7 @@ public final class GatewayService extends Service {
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "DSH Web Gateway", NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Keeps the local loopback browser gateway available on 127.0.0.1:1601");
+            channel.setDescription("Keeps the DSH DeepSeek Web gateway available");
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
@@ -54,8 +63,9 @@ public final class GatewayService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
+        String endpoint = GatewayApp.remoteEnabled() ? "remote/Tailscale enabled · :1601" : "127.0.0.1:1601";
         return b.setContentTitle("DSH Web Gateway")
-                .setContentText("127.0.0.1:1601 · DeepSeek Web relay")
+                .setContentText(endpoint + " · DeepSeek Web relay")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setOngoing(true)
                 .setContentIntent(pi)
