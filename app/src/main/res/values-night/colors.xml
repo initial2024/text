@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="og_bg">#0B1018</color>
+    <color name="og_surface">#141B26</color>
+    <color name="og_surface_soft">#1D2633</color>
+    <color name="og_text">#F3F6FB</color>
+    <color name="og_muted">#98A2B2</color>
+    <color name="og_border">#293446</color>
+    <color name="og_primary">#8A7CFF</color>
+    <color name="og_primary_2">#5AA0FF</color>
+    <color name="og_primary_soft">#252A49</color>
+    <color name="og_success">#36D485</color>
+    <color name="og_warning">#FFC15A</color>
+    <color name="og_danger">#FF6B77</color>
+    <color name="og_icon_bg">#5B4CF5</color>
+    <color name="og_white">#FFFFFFFF</color>
+</resources>
