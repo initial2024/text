@@ -135,39 +135,97 @@ public final class WebRelay {
 
     private Envelope parseEnvelope(JSONObject request) throws Exception {
         JSONArray messages = request.optJSONArray("messages");
-        String raw = "";
-        if (messages != null) {
-            for (int i = messages.length() - 1; i >= 0; i--) {
-                JSONObject m = messages.optJSONObject(i);
-                if (m == null) continue;
-                Object content = m.opt("content");
-                if (content instanceof String) { raw = (String) content; break; }
+        if (messages == null || messages.length() == 0) {
+            throw new IOException("messages is empty");
+        }
+
+        String envelopeRaw = null;
+        for (int i = messages.length() - 1; i >= 0; i--) {
+            JSONObject m = messages.optJSONObject(i);
+            if (m == null) continue;
+            Object content = m.opt("content");
+            if (content instanceof String) {
+                String s = (String) content;
+                if (s.contains(PREFIX) && s.contains(SUFFIX)) {
+                    envelopeRaw = s;
+                    break;
+                }
             }
         }
-        if (raw.isEmpty()) throw new IOException("no textual message content");
-        int a = raw.indexOf(PREFIX);
-        int b = raw.indexOf(SUFFIX, a < 0 ? 0 : a + PREFIX.length());
-        if (a < 0 || b < 0) return new Envelope(raw, new ArrayList<>());
-        String encoded = raw.substring(a + PREFIX.length(), b).trim();
-        byte[] decoded = Base64.decode(encoded, Base64.DEFAULT);
-        JSONObject payload = new JSONObject(new String(decoded, StandardCharsets.UTF_8));
-        String prompt = payload.optString("prompt", "");
-        List<Attachment> attachments = new ArrayList<>();
-        JSONArray arr = payload.optJSONArray("attachments");
-        if (arr != null) {
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject x = arr.optJSONObject(i);
-                if (x == null) continue;
-                attachments.add(new Attachment(x.optString("id"), x.optString("name", "attachment.bin"), x.optString("mime", "application/octet-stream"), x.optString("data"), x.optBoolean("current", false)));
+
+        if (envelopeRaw != null) {
+            int a = envelopeRaw.indexOf(PREFIX);
+            int b = envelopeRaw.indexOf(SUFFIX, a + PREFIX.length());
+            String encoded = envelopeRaw.substring(a + PREFIX.length(), b).trim();
+            byte[] decoded = Base64.decode(encoded, Base64.DEFAULT);
+            JSONObject payload = new JSONObject(new String(decoded, StandardCharsets.UTF_8));
+            String prompt = payload.optString("prompt", "");
+            if (prompt.isEmpty()) prompt = buildPrompt(messages);
+
+            List<Attachment> attachments = new ArrayList<>();
+            JSONArray arr = payload.optJSONArray("attachments");
+            if (arr != null) {
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject x = arr.optJSONObject(i);
+                    if (x == null) continue;
+                    attachments.add(new Attachment(
+                            x.optString("id"),
+                            x.optString("name", "attachment.bin"),
+                            x.optString("mime", "application/octet-stream"),
+                            x.optString("data"),
+                            x.optBoolean("current", false)));
+                }
             }
+            return new Envelope(prompt, attachments);
         }
-        return new Envelope(prompt, attachments);
+
+        return new Envelope(buildPrompt(messages), new ArrayList<>());
+    }
+
+    private String buildPrompt(JSONArray messages) {
+        StringBuilder out = new StringBuilder();
+        out.append("You are continuing a conversation relayed from DSH. Preserve the roles, tool context, and prior decisions below.\n\n");
+
+        for (int i = 0; i < messages.length(); i++) {
+            JSONObject m = messages.optJSONObject(i);
+            if (m == null) continue;
+            String role = m.optString("role", "unknown");
+            out.append("<<<").append(role.toUpperCase()).append(">>>\n");
+
+            Object content = m.opt("content");
+            if (content instanceof String) {
+                out.append((String) content);
+            } else if (content instanceof JSONArray) {
+                JSONArray parts = (JSONArray) content;
+                for (int j = 0; j < parts.length(); j++) {
+                    JSONObject part = parts.optJSONObject(j);
+                    if (part == null) continue;
+                    String type = part.optString("type");
+                    if ("text".equals(type) || "input_text".equals(type)) {
+                        out.append(part.optString("text"));
+                    } else {
+                        out.append("[content part: ").append(part.toString()).append("]");
+                    }
+                }
+            } else if (content != null && content != JSONObject.NULL) {
+                out.append(String.valueOf(content));
+            }
+
+            if (m.has("tool_calls")) {
+                out.append("\nTOOL_CALLS=").append(m.optJSONArray("tool_calls"));
+            }
+            if (m.has("tool_call_id")) {
+                out.append("\nTOOL_CALL_ID=").append(m.optString("tool_call_id"));
+            }
+            out.append("\n<<<END_").append(role.toUpperCase()).append(">>>\n\n");
+        }
+        return out.toString();
     }
 
     private void waitForComposer(long timeout) throws Exception {
         long until = System.currentTimeMillis() + timeout;
         while (System.currentTimeMillis() < until) {
-            Boolean ok = evalBoolean("(() => !!document.querySelector('textarea, [contenteditable=\"true\"]'))()");
+            Boolean ok = evalBoolean("(() => !!document.querySelector('textarea, [contenteditable=true]'))()");
             if (Boolean.TRUE.equals(ok)) return;
             Thread.sleep(300L);
         }
@@ -204,7 +262,7 @@ public final class WebRelay {
                 "let e=document.querySelector('textarea');" +
                 "if(e){const s=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set; s.call(e," + JSONObject.quote(prompt) + "); e.focus(); e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + JSONObject.quote(prompt) + "}));" +
                 "setTimeout(()=>{let b=[...document.querySelectorAll('button,[role=button]')].find(x=>/发送|send/i.test((x.getAttribute('aria-label')||'')+' '+(x.getAttribute('title')||''))); if(b&&!b.disabled)b.click(); else e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));},120); return 'OK';}" +
-                "e=document.querySelector('[contenteditable=\"true\"]'); if(!e)return 'NO_COMPOSER'; e.focus(); e.innerHTML=''; const p=document.createElement('p'); p.textContent=" + JSONObject.quote(prompt) + "; e.appendChild(p); e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + JSONObject.quote(prompt) + "})); setTimeout(()=>e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true})),120); return 'OK';" +
+                "e=document.querySelector('[contenteditable=true]'); if(!e)return 'NO_COMPOSER'; e.focus(); e.innerHTML=''; const p=document.createElement('p'); p.textContent=" + JSONObject.quote(prompt) + "; e.appendChild(p); e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + JSONObject.quote(prompt) + "})); setTimeout(()=>e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true})),120); return 'OK';" +
                 "})()";
         String result = eval(js, 10_000L);
         if (result == null || !result.contains("OK")) throw new IOException("send_failed: " + result);
