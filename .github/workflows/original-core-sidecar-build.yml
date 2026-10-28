@@ -1,0 +1,192 @@
+name: Build Original Core Sidecar APK
+
+on:
+  push:
+    branches: [ original-core-addon ]
+  workflow_dispatch:
+
+concurrency:
+  group: original-core-sidecar
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-sidecar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Locate and install Android SDK packages
+        id: sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -d "$SDK_ROOT"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "root=$SDK_ROOT" >> "$GITHUB_OUTPUT"
+
+      - name: Sidecar architecture contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F "applicationId 'com.omnigate.sidecar'" app/build.gradle
+          grep -F "versionCode 100" app/build.gradle
+          grep -F "versionName '0.1.0'" app/build.gradle
+          grep -F 'android:name=".SidecarActivity"' app/src/main/AndroidManifest.xml
+          grep -F 'android:name=".SidecarService"' app/src/main/AndroidManifest.xml
+          ! grep -F 'android:name=".MainActivity"' app/src/main/AndroidManifest.xml
+          ! grep -F 'android:name=".GatewayService"' app/src/main/AndroidManifest.xml
+          ! grep -F 'android:name=".FloatingOverlayService"' app/src/main/AndroidManifest.xml
+          grep -F 'LISTEN_PORT = 8787' app/src/main/java/com/dsh/webgateway/SidecarProxyServer.java
+          grep -F 'UPSTREAM_PORT = 1601' app/src/main/java/com/dsh/webgateway/SidecarProxyServer.java
+          grep -F 'upstream.setReadTimeout(0)' app/src/main/java/com/dsh/webgateway/SidecarProxyServer.java
+          grep -F '原 1601 回答继续后台完成' app/src/main/java/com/dsh/webgateway/SidecarProxyServer.java
+          grep -F 'while ((n = upstreamBody.read(buffer)) >= 0)' app/src/main/java/com/dsh/webgateway/SidecarProxyServer.java
+          grep -F 'localhost-any-nonempty' app/src/main/java/com/dsh/webgateway/SidecarProxyServer.java
+          grep -F 'public-exact' app/src/main/java/com/dsh/webgateway/SidecarProxyServer.java
+          grep -F 'X-OmniGate-Public-Relay' app/src/main/java/com/dsh/webgateway/CloudflareRelayClient.java
+          grep -F 'SidecarProxyServer.LISTEN_PORT' app/src/main/java/com/dsh/webgateway/SidecarService.java
+          grep -F '原 AI Gateway 1601 可达' app/src/main/java/com/dsh/webgateway/SidecarActivity.java
+          grep -F '不截停原网页对话' app/src/main/java/com/dsh/webgateway/SidecarActivity.java
+          ! grep -E 'WebRelay|sendPrompt|uploadAttachment|clickStop|stopGenerating|cancelGeneration' app/src/main/java/com/dsh/webgateway/SidecarProxyServer.java app/src/main/java/com/dsh/webgateway/SidecarService.java app/src/main/java/com/dsh/webgateway/SidecarActivity.java
+
+      - name: Frozen original-core static gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node original-core-addon/tests/no_interrupt.test.js
+          grep -F '"port": 1601' original-core-addon/BASELINE_LOCK.json
+          grep -F 'TIMEOUT_SECONDS = 3600' original-core-addon/patch/patch_dex_3600.py
+          grep -F 'Do not stop a live generation to roll over.' original-core-addon/patch/bridge-addon.patch
+
+      - name: Build unsigned release
+        run: gradle --no-daemon :app:assembleRelease
+
+      - name: Locate Android build tools
+        id: bt
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="${{ steps.sdk.outputs.root }}/build-tools/35.0.0"
+          test -x "$BT/zipalign"
+          test -x "$BT/apksigner"
+          test -x "$BT/aapt2"
+          echo "dir=$BT" >> "$GITHUB_OUTPUT"
+
+      - name: Create ephemeral test signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -v             -keystore sidecar-test.jks             -storepass changeit             -keypass changeit             -alias sidecar             -keyalg RSA -keysize 3072 -validity 3650             -dname "CN=OmniGate Sidecar GitHub Test,O=Temporary Test Build,L=Local,C=US"
+
+      - name: Zipalign and sign
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="${{ steps.bt.outputs.dir }}"
+          UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="app/build/outputs/apk/release/OmniGate-Sidecar-aligned.apk"
+          FINAL="app/build/outputs/apk/release/OmniGate-Sidecar-v0.1.0.apk"
+          test -f "$UNSIGNED"
+          "$BT/zipalign" -p -f -v 4 "$UNSIGNED" "$ALIGNED" > zipalign-sidecar.txt
+          "$BT/zipalign" -c -v 4 "$ALIGNED" >> zipalign-sidecar.txt
+          "$BT/apksigner" sign             --ks sidecar-test.jks --ks-key-alias sidecar             --ks-pass pass:changeit --key-pass pass:changeit             --v1-signing-enabled true             --v2-signing-enabled true             --v3-signing-enabled true             --out "$FINAL" "$ALIGNED"
+          "$BT/apksigner" verify --verbose --print-certs "$FINAL" | tee apksigner-sidecar.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' apksigner-sidecar.txt
+          sha256sum "$FINAL" | tee SIDECAR_SHA256SUMS.txt
+
+      - name: Inspect Sidecar manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="${{ steps.bt.outputs.dir }}"
+          FINAL="app/build/outputs/apk/release/OmniGate-Sidecar-v0.1.0.apk"
+          "$BT/aapt2" dump badging "$FINAL" | tee sidecar-badging.txt
+          grep -F "package: name='com.omnigate.sidecar'" sidecar-badging.txt
+          grep -F "versionCode='100'" sidecar-badging.txt
+          grep -F "versionName='0.1.0'" sidecar-badging.txt
+          grep -F "application-label:'OmniGate Sidecar'" sidecar-badging.txt
+          grep -F "launchable-activity: name='com.dsh.webgateway.SidecarActivity'" sidecar-badging.txt
+          grep -F "minSdkVersion:'26'" sidecar-badging.txt
+          grep -F "targetSdkVersion:'35'" sidecar-badging.txt
+
+      - name: Write verification report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "# OmniGate Sidecar v0.1.0 verification"
+            echo
+            echo "Commit: $GITHUB_SHA"
+            echo
+            echo "Architecture: 127.0.0.1:8787 -> frozen original AI Gateway 127.0.0.1:1601"
+            echo "Provider DOM/WebView automation: not owned by Sidecar"
+            echo "Downstream disconnect policy: continue draining upstream to natural EOF"
+            echo
+            echo "## SHA256"
+            cat SIDECAR_SHA256SUMS.txt 2>/dev/null || true
+            echo
+            echo "## Signature"
+            cat apksigner-sidecar.txt 2>/dev/null || true
+            echo
+            echo "## Manifest"
+            cat sidecar-badging.txt 2>/dev/null || true
+          } > SIDECAR_VERIFICATION.md
+
+      - name: Upload Sidecar artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniGate-Sidecar-v0.1.0
+          path: |
+            app/build/outputs/apk/release/OmniGate-Sidecar-v0.1.0.apk
+            SIDECAR_VERIFICATION.md
+            SIDECAR_SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish Sidecar prerelease
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="original-core-sidecar-v0.1.0-test"
+          gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
+          gh release create "$TAG"             app/build/outputs/apk/release/OmniGate-Sidecar-v0.1.0.apk             SIDECAR_VERIFICATION.md             SIDECAR_SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "OmniGate Sidecar v0.1.0 test build"             --notes "Separate companion for frozen original AI Gateway. Proxies 8787 to original 1601 and does not replace provider browser automation. Ephemeral test signing key."             --prerelease
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: original-core-sidecar-failure
+          path: |
+            app/build/reports/**
+            app/build/outputs/**
+            SIDECAR_VERIFICATION.md
+            apksigner-sidecar.txt
+            sidecar-badging.txt
+          if-no-files-found: ignore
+          retention-days: 7
