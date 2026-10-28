@@ -61,6 +61,15 @@ jobs:
           grep -F 'HARD_TIMEOUT_MS = 600_000L' app/src/main/java/com/dsh/webgateway/WebRelay.java
           grep -F 'MAX_ROLLOVER = 1' app/src/main/java/com/dsh/webgateway/WebRelay.java
           grep -F 'ATTACHMENT_UPLOAD_FAILED' app/src/main/java/com/dsh/webgateway/WebRelay.java
+          grep -F 'CHATGPT(' app/src/main/java/com/dsh/webgateway/AiProvider.java
+          grep -F 'GROK(' app/src/main/java/com/dsh/webgateway/AiProvider.java
+          grep -F 'GLM(' app/src/main/java/com/dsh/webgateway/AiProvider.java
+          grep -F 'chatgpt-web' app/src/main/java/com/dsh/webgateway/AiProvider.java
+          grep -F 'grok-web' app/src/main/java/com/dsh/webgateway/AiProvider.java
+          grep -F 'glm-web' app/src/main/java/com/dsh/webgateway/AiProvider.java
+          grep -F 'SYSTEM_ALERT_WINDOW' app/src/main/AndroidManifest.xml
+          grep -F 'FloatingOverlayService' app/src/main/AndroidManifest.xml
+          grep -F '48' app/src/main/java/com/dsh/webgateway/FloatingOverlayService.java
 
       - name: Build unsigned release
         run: gradle --no-daemon :app:assembleRelease
@@ -87,7 +96,7 @@ jobs:
           set -euo pipefail
           UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
           ALIGNED="app/build/outputs/apk/release/dsh-web-gateway-aligned.apk"
-          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk"
+          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.7.0.apk"
           BT="${{ steps.bt.outputs.dir }}"
           test -f "$UNSIGNED"
           "$BT/zipalign" -p -f -v 4 "$UNSIGNED" "$ALIGNED" > zipalign.txt
@@ -102,11 +111,11 @@ jobs:
         run: |
           set -euo pipefail
           BT="${{ steps.bt.outputs.dir }}"
-          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk"
+          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.7.0.apk"
           "$BT/aapt2" dump badging "$FINAL" | tee aapt-badging.txt
           grep -F "package: name='com.dsh.webgateway'" aapt-badging.txt
-          grep -F "versionCode='260'" aapt-badging.txt
-          grep -F "versionName='2.6.0'" aapt-badging.txt
+          grep -F "versionCode='270'" aapt-badging.txt
+          grep -F "versionName='2.7.0'" aapt-badging.txt
           grep -F "minSdkVersion:'26'" aapt-badging.txt
           grep -F "targetSdkVersion:'35'" aapt-badging.txt
 
@@ -115,7 +124,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "# DSH Web Gateway 2.6.0 build verification"
+            echo "# DSH Web Gateway 2.7.0 build verification"
             echo
             echo "Commit: $GITHUB_SHA"
             echo
@@ -136,9 +145,9 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: dsh-web-gateway-v2.6.0-apk
+          name: dsh-web-gateway-v2.7.0-apk
           path: |
-            app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk
+            app/build/outputs/apk/release/dsh-web-gateway-v2.7.0.apk
             BUILD_VERIFICATION.md
             SHA256SUMS.txt
           if-no-files-found: error
@@ -151,9 +160,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="gateway-v2.6.0-test"
+          TAG="gateway-v2.7.0-test"
           gh release delete "$TAG" --yes --cleanup-tag >/dev/null 2>&1 || true
-          gh release create "$TAG"             app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk             BUILD_VERIFICATION.md             SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "DSH Web Gateway 2.6.0 test build"             --notes "Temporary Android 16/vivo acceptance build. One-time test signing key; do not treat this signing identity as the final update channel."             --prerelease
+          gh release create "$TAG"             app/build/outputs/apk/release/dsh-web-gateway-v2.7.0.apk             BUILD_VERIFICATION.md             SHA256SUMS.txt             --target "$GITHUB_SHA"             --title "DSH Web Gateway 2.7.0 test build"             --notes "Temporary Android 16/vivo acceptance build. One-time test signing key; do not treat this signing identity as the final update channel."             --prerelease
 
       - name: Upload diagnostics on failure
         if: failure()
