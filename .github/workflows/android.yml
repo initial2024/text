@@ -27,12 +27,29 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Install Android SDK packages from runner SDK
+      - name: Locate and install Android SDK packages
+        id: sdk
         shell: bash
         run: |
           set -euo pipefail
-          echo y | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_ROOT" ]; then
+            echo "Android SDK root not found: $SDK_ROOT"
+            exit 1
+          fi
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)"
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "sdkmanager not found under $SDK_ROOT/cmdline-tools"
+            find "$SDK_ROOT" -maxdepth 4 -type f -name sdkmanager -print || true
+            exit 1
+          fi
+          echo "SDK_ROOT=$SDK_ROOT"
+          echo "SDKMANAGER=$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "root=$SDK_ROOT" >> "$GITHUB_OUTPUT"
 
       - name: Build unsigned release
         run: gradle --no-daemon :app:assembleRelease
@@ -42,7 +59,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BT="$ANDROID_HOME/build-tools/35.0.0"
+          BT="${{ steps.sdk.outputs.root }}/build-tools/35.0.0"
           test -x "$BT/zipalign"
           test -x "$BT/apksigner"
           echo "dir=$BT" >> "$GITHUB_OUTPUT"
