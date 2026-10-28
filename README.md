@@ -1,4 +1,4 @@
-# OmniGate 2.8.0
+# OmniGate 2.8.1
 
 OmniGate is a clean Android rebuild of the original AI Gateway with a new product identity and a more complete UI, while preserving the original provider/model compatibility contract.
 
@@ -113,3 +113,14 @@ Every push to `main` runs the Android release gate:
 7. temporary prerelease.
 
 See `QA_AGENT.md` for the independent acceptance contract.
+
+
+## Default OmniGate Relay
+
+The default public endpoint is now:
+
+`https://gw-33e850180248.claua.de/v1`
+
+This path is backed by a dedicated Cloudflare Worker + Durable Object relay and does not depend on the legacy `deepseeks.dpdns.org` TCP relay. The Android app connects outbound over WebSocket; the Cloudflare relay keeps only the SHA-256 hash of the pairing key. Legacy tunnel support remains available as an explicit compatibility fallback.
+
+The polished 2.8.1 UI uses a branded gradient overview panel, separate copyable credential rows, icon-only copy/reveal/edit controls, a relay topology card, provider selection cards, dark mode resources, a branded splash animation, and a 44dp floating provider control.
