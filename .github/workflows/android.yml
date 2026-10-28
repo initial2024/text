@@ -122,6 +122,8 @@ jobs:
           grep -F 'previous partial response' /dev/null >/dev/null 2>&1 || true
           grep -F 'beforeSend.limit' app/src/main/java/com/dsh/webgateway/WebRelay.java
           grep -F 'failedState.limit' app/src/main/java/com/dsh/webgateway/WebRelay.java
+          grep -F 'String prompt = env.prompt.trim();' app/src/main/java/com/dsh/webgateway/WebRelay.java
+          grep -F 'waitForFreshChatReady' app/src/main/java/com/dsh/webgateway/WebRelay.java
           grep -F 'if (a.current) toUpload.add(a);' app/src/main/java/com/dsh/webgateway/WebRelay.java
           grep -F '自动续接：默认开启' app/src/main/java/com/dsh/webgateway/MainActivity.java
           grep -F '自动续接已开启' app/src/main/java/com/dsh/webgateway/FloatingOverlayService.java
