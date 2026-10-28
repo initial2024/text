@@ -1,0 +1,27 @@
+{
+  "baseline_apk": {
+    "name": "base2-no-truncate-600s.apk",
+    "sha256": "16d78e8a33452571ae18ee13dcd792bd06a4e9b4d185ebda004c14295a88a355"
+  },
+  "allowed_non_signature_changes": [
+    "assets/ai_gateway_bridge/bridge.js",
+    "classes.dex"
+  ],
+  "baseline_entries": {
+    "assets/ai_gateway_bridge/bridge.js": "f828989d613d366e7894d2bc635a9fa834ec440dfd9d15e61750bf9eb97b4122",
+    "classes.dex": "9ed048ebd701150ec1a051f41b5098a37b45334cf402711e39ca338aada9b4e5",
+    "AndroidManifest.xml": "bbbdeca7281de8c086c60e56c1f991331607deeb18a9f685eb12e540403d1d93"
+  },
+  "verified_local_api": {
+    "host": "127.0.0.1",
+    "port": 1601,
+    "path": "/v1/chat/completions"
+  },
+  "models": [
+    "deepseek-chat",
+    "chatgpt-web",
+    "grok-web-fast",
+    "glm-web-flash"
+  ],
+  "native_disconnect_patch": "FORBIDDEN_UNTIL_VERIFIED_DISASSEMBLY"
+}
