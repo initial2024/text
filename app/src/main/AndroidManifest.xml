@@ -4,7 +4,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:name=".GatewayApp"
@@ -17,36 +16,22 @@
         android:usesCleartextTraffic="true">
 
         <activity
-            android:name=".SplashActivity"
+            android:name=".SidecarActivity"
             android:exported="true"
-            android:theme="@style/Theme.OmniGate.Splash">
+            android:theme="@style/Theme.OmniGate">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".AttachmentPickerActivity"
-            android:exported="false"
-            android:theme="@style/Theme.OmniGate.Transparent" />
-
-        <activity
-            android:name=".MainActivity"
-            android:exported="false"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenSize" />
-
         <service
-            android:name=".FloatingOverlayService"
-            android:exported="false" />
-
-        <service
-            android:name=".GatewayService"
+            android:name=".SidecarService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-started local loopback web AI gateway" />
+                android:value="User-started loopback compatibility proxy from port 8787 to the original AI Gateway on port 1601" />
         </service>
     </application>
 </manifest>
