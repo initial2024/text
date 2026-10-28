@@ -22,7 +22,6 @@ public final class SidecarService extends Service {
 
     private static volatile boolean serviceAlive;
 
-    private SidecarProxyServer proxy;
     private CloudflareRelayClient cloudflareRelay;
 
     private final Handler watchdogHandler =
@@ -53,32 +52,11 @@ public final class SidecarService extends Service {
     }
 
     private synchronized void ensureProxyAlive() {
-        if (proxy != null && proxy.isListening()) {
-            GatewayApp.setLocalApiStatus(
-                    "Sidecar 运行中 · 127.0.0.1:8787 → 1601");
-            return;
-        }
-
-        if (proxy != null) {
-            proxy.shutdown();
-            proxy = null;
-        }
-
-        SidecarProxyServer candidate = new SidecarProxyServer(status -> {
-            GatewayApp.setLocalApiStatus(status);
-            refreshNotification();
-        });
-
-        if (candidate.start()) {
-            proxy = candidate;
-            GatewayApp.setLocalApiStatus(
-                    "Sidecar 运行中 · 127.0.0.1:8787 → 1601");
+        if (LocalProxyRuntime.start()) {
+            GatewayApp.setLocalApiStatus("8787 正在监听 · 原 1601 上游需单独确认");
         } else {
-            candidate.shutdown();
-            GatewayApp.setLocalApiStatus(
-                    "8787 启动失败 · 正在重试");
+            GatewayApp.setLocalApiStatus(LocalProxyRuntime.status());
         }
-
         refreshNotification();
     }
 
@@ -149,10 +127,7 @@ public final class SidecarService extends Service {
             cloudflareRelay = null;
         }
 
-        if (proxy != null) {
-            proxy.shutdown();
-            proxy = null;
-        }
+        LocalProxyRuntime.stop();
 
         GatewayApp.setLocalApiStatus("Sidecar 服务已停止");
         GatewayApp.setTunnelStatus("公网 Relay 已停止");
