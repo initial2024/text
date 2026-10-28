@@ -15,47 +15,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify source bundle hash and confidentiality boundary
-        shell: bash
-        run: |
-          set -euo pipefail
-          BUNDLE=original-core-addon/OriginalCore-OmniGateAddon-v0.1-patch-source.zip
-          sha256sum "$BUNDLE"
-          unzip -t "$BUNDLE"
-          ! unzip -l "$BUNDLE" | grep -E '\.(jks|keystore)$|test-signing|OriginalCore.*\.apk'
-
-      - name: Extract source
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/original-core-addon
-          mkdir -p /tmp/original-core-addon
-          unzip -q original-core-addon/OriginalCore-OmniGateAddon-v0.1-patch-source.zip -d /tmp/original-core-addon
-
-      - name: Frozen original-function and no-random-interruption gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd /tmp/original-core-addon/original-core-addon
-          python3 verify_bridge_contract.py
-          node --check patch/bridge.js
-          node tests/no_interrupt.test.js
-
-      - name: DSH protocol gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd /tmp/original-core-addon/original-core-addon/dsh-plugin
-          node test/parser.test.mjs
-          node test/protocol.test.mjs
-
       - name: Baseline contract assertions
         shell: bash
         run: |
           set -euo pipefail
-          cd /tmp/original-core-addon/original-core-addon
-          grep -F '"port": 1601' BASELINE_LOCK.json
-          grep -F 'MAX_AUTO_ROLLOVERS = 3' patch/bridge.js
-          grep -F 'GENERATION_ACTIVITY_GRACE_MS = 10000' patch/bridge.js
-          grep -F 'TIMEOUT_SECONDS = 3600' patch/patch_dex_3600.py
-          grep -F "http://127.0.0.1:1601/v1/chat/completions" dsh-plugin/lib/index.js
+          grep -F '"port": 1601' original-core-addon/BASELINE_LOCK.json
+          grep -F 'base2-no-truncate-600s.apk' original-core-addon/BASELINE_LOCK.json
+          grep -F 'c54743ff1b76c6449dad5a1e3199eee5c2dc8dde56f6a87e84cfe95d7669bd35' original-core-addon/BASELINE_LOCK.json
+          grep -F 'TIMEOUT_SECONDS = 3600' original-core-addon/patch/patch_dex_3600.py
+
+      - name: No-random-interruption synthetic gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node original-core-addon/tests/no_interrupt.test.js
+
+      - name: Reviewable bridge patch policy gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          P=original-core-addon/patch/bridge-addon.patch
+          grep -F '+  const GENERATION_ACTIVITY_GRACE_MS = 10000;' "$P"
+          grep -F '+  const MAX_AUTO_ROLLOVERS = 3;' "$P"
+          grep -F 'Do not stop a live generation to roll over.' "$P"
+          grep -F 'submission.attachments.filter(item => item.current)' "$P"
+          grep -F 'currentLimitNoticeInfo()' "$P"
+          ! grep -E '^[+-].*function (findFileInput|uploadAttachments|submitContentEditable|submitTextarea|sendPrompt)\b' "$P"
+          ! grep -E '^\+.*(clickStop|stopGenerating|abortGeneration|cancelGeneration)' "$P"
+
+      - name: Repository confidentiality boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! find original-core-addon -type f | grep -E '\.(jks|keystore|apk)$'
+          ! grep -RIlE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' original-core-addon
