@@ -86,3 +86,41 @@ The GitHub connector does not preserve large binary ZIP uploads byte-for-byte, s
 The working original core is the priority. Later custom features such as the `claua.de` public relay, 8787 compatibility and local arbitrary-nonempty-key behavior should be reintroduced as sidecars/add-ons without replacing the original GeckoView/provider automation.
 
 The rewritten 2.8.x line remains on `main` only as prior experimental work; new core work belongs on this branch.
+
+
+## OmniGate Sidecar v0.1.0
+
+The sidecar is a separate Android package: `com.omnigate.sidecar`.
+
+Architecture:
+
+`Minis / DSH -> 127.0.0.1:8787 -> Sidecar -> frozen original AI Gateway 127.0.0.1:1601`
+
+The sidecar deliberately does not own GeckoView or provider DOM automation.
+
+Continuity rule:
+
+- Sidecar upstream read timeout is disabled.
+- If the 8787 downstream client disconnects during a response, Sidecar keeps reading the original 1601 response to natural EOF and discards bytes that no longer have a client.
+- This prevents an avoidable downstream disconnect from immediately propagating into the original core's native client-disconnect cancellation path.
+- Sidecar never calls WebRelay/provider Stop/cancel methods.
+
+Authentication:
+
+- localhost 8787: any non-empty key is accepted;
+- public relay: the exact OmniGate public API key is required;
+- optional upstream 1601 key can be configured independently.
+
+Public relay:
+
+- default public base: `https://gw-33e850180248.claua.de`;
+- Relay Key is separate from the public API key;
+- custom HTTPS public URL remains supported after health verification.
+
+Build:
+
+- package: `com.omnigate.sidecar`
+- version: `0.1.0`
+- minSdk: 26
+- targetSdk: 35
+- GitHub Actions build, zipalign, v2/v3 signature and manifest gates passed.
