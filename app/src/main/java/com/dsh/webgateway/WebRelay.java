@@ -23,7 +23,10 @@ public final class WebRelay {
     private static final long HARD_TIMEOUT_MS = 600_000L;
     private static final long POLL_MS = 400L;
     private static final long END_GRACE_MS = 5_000L;
-    private static final int MAX_ROLLOVER = 1;
+    private static final int MAX_ROLLOVER = 3;
+    private static final int ROLLOVER_CONTEXT_MAX_CHARS = 30_000;
+    private static final int ROLLOVER_SYSTEM_MAX_CHARS = 8_000;
+    private static final int ROLLOVER_RECENT_MESSAGES = 10;
     private static final int MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
     private static final int MAX_ATTACHMENTS_TOTAL_BYTES = 24 * 1024 * 1024;
 
@@ -55,10 +58,15 @@ public final class WebRelay {
 
     private static final class Envelope {
         final String prompt;
+        final String rolloverPrompt;
         final List<Attachment> attachments;
 
-        Envelope(String prompt, List<Attachment> attachments) {
-            this.prompt = prompt;
+        Envelope(
+                String prompt,
+                String rolloverPrompt,
+                List<Attachment> attachments) {
+            this.prompt = prompt == null ? "" : prompt;
+            this.rolloverPrompt = rolloverPrompt == null ? "" : rolloverPrompt;
             this.attachments = attachments;
         }
     }
@@ -171,11 +179,13 @@ public final class WebRelay {
 
         List<Attachment> toUpload = new ArrayList<>();
         for (Attachment a : env.attachments) {
-            if (rolloverCount > 0 || a.current) toUpload.add(a);
+            if (a.current) toUpload.add(a);
         }
         for (Attachment a : toUpload) uploadAttachment(provider, a);
 
-        String prompt = env.prompt == null ? "" : env.prompt.trim();
+        String prompt = rolloverCount > 0
+                ? env.rolloverPrompt.trim()
+                : env.prompt.trim();
         if (prompt.isEmpty() && !toUpload.isEmpty()) {
             prompt = "请查看并分析我刚刚上传的附件。";
         }
@@ -195,13 +205,36 @@ public final class WebRelay {
 
             if (state.limit) {
                 if (rolloverCount >= MAX_ROLLOVER) {
-                    throw new IOException("AUTO_ROLLOVER_FAILED: limit detected again after rollover");
+                    throw new IOException(
+                            "AUTO_ROLLOVER_FAILED: exceeded "
+                                    + MAX_ROLLOVER
+                                    + " automatic continuation chats");
                 }
+
+                String nextPrompt = buildContinuationPrompt(
+                        env,
+                        rolloverCount + 1,
+                        state.answer,
+                        state.thinking);
+
+                if (sink != null) {
+                    sink.heartbeat();
+                }
+
                 if (!startFreshChat(provider)) {
-                    throw new IOException("AUTO_ROLLOVER_FAILED: new-chat control unavailable");
+                    throw new IOException(
+                            "AUTO_ROLLOVER_FAILED: new-chat control unavailable");
                 }
+
                 waitForComposer(30_000L);
-                return runSubmission(provider, env, sink, rolloverCount + 1);
+                return runSubmission(
+                        provider,
+                        new Envelope(
+                                nextPrompt,
+                                env.rolloverPrompt,
+                                env.attachments),
+                        sink,
+                        rolloverCount + 1);
             }
 
             if (state.generating) lastGeneratingAt = System.currentTimeMillis();
@@ -301,12 +334,18 @@ public final class WebRelay {
                     attachments.add(attachment);
                 }
             }
-            return new Envelope(prompt, attachments);
+            return new Envelope(
+                    prompt,
+                    buildRolloverPrompt(messages, attachments),
+                    attachments);
         }
 
+        List<Attachment> standardAttachments =
+                parseStandardAttachments(messages);
         return new Envelope(
                 buildPrompt(messages),
-                parseStandardAttachments(messages));
+                buildRolloverPrompt(messages, standardAttachments),
+                standardAttachments);
     }
 
     private List<Attachment> parseStandardAttachments(
@@ -506,6 +545,213 @@ public final class WebRelay {
                     "ATTACHMENT_INVALID_BASE64",
                     e);
         }
+    }
+
+    private String buildRolloverPrompt(
+            JSONArray messages,
+            List<Attachment> attachments) {
+        StringBuilder out = new StringBuilder();
+        out.append("【OmniGate 自动续接】\n")
+                .append("上一网页对话已达到上下文/对话上限。你现在位于自动创建的新对话中。\n")
+                .append("请继续完成同一任务，不要重新开始，不要要求用户重复已经提供的信息，不要把本提示当成新的用户目标。\n")
+                .append("优先延续当前未完成工作；若旧上下文与当前用户最后指令冲突，以最后指令为准。\n\n");
+
+        StringBuilder fixed = new StringBuilder();
+        for (int i = 0; i < messages.length(); i++) {
+            JSONObject m = messages.optJSONObject(i);
+            if (m == null) continue;
+            String role = m.optString("role", "");
+            if (!"system".equals(role)
+                    && !"developer".equals(role)) {
+                continue;
+            }
+
+            String text = messageTextForRollover(m);
+            if (text.isEmpty()) continue;
+
+            int remaining =
+                    ROLLOVER_SYSTEM_MAX_CHARS - fixed.length();
+            if (remaining <= 0) break;
+
+            fixed.append("<<<")
+                    .append(role.toUpperCase())
+                    .append(">>>\n")
+                    .append(truncateForRollover(text, remaining))
+                    .append("\n<<<END_")
+                    .append(role.toUpperCase())
+                    .append(">>>\n\n");
+        }
+
+        if (fixed.length() > 0) {
+            out.append("【仍然有效的系统/开发约束】\n")
+                    .append(fixed);
+        }
+
+        out.append("【最近关键上下文】\n");
+        int start = Math.max(
+                0,
+                messages.length() - ROLLOVER_RECENT_MESSAGES);
+        for (int i = start; i < messages.length(); i++) {
+            JSONObject m = messages.optJSONObject(i);
+            if (m == null) continue;
+
+            String role = m.optString("role", "unknown");
+            if ("system".equals(role)
+                    || "developer".equals(role)) {
+                continue;
+            }
+
+            String text = messageTextForRollover(m);
+            if (text.isEmpty()) continue;
+
+            int perMessage = "user".equals(role) && i == messages.length() - 1
+                    ? 5_000
+                    : 2_400;
+
+            out.append("<<<")
+                    .append(role.toUpperCase())
+                    .append(">>>\n")
+                    .append(truncateForRollover(text, perMessage))
+                    .append("\n<<<END_")
+                    .append(role.toUpperCase())
+                    .append(">>>\n\n");
+
+            if (out.length() >= ROLLOVER_CONTEXT_MAX_CHARS) break;
+        }
+
+        if (attachments != null && !attachments.isEmpty()) {
+            out.append("【附件交接】\n");
+            for (Attachment a : attachments) {
+                out.append("- ")
+                        .append(a.current ? "当前轮附件：" : "历史附件：")
+                        .append(a.name)
+                        .append(" (")
+                        .append(a.mime)
+                        .append(")\n");
+            }
+            out.append("当前轮附件会由 OmniGate 在新对话中重新上传；历史附件只作为上下文引用。\n\n");
+        }
+
+        out.append("【继续执行规则】\n")
+                .append("1. 直接接着未完成任务继续，不要先复述整段交接。\n")
+                .append("2. 已完成的步骤不要重做，除非继续工作确实需要。\n")
+                .append("3. 若上一对话已有部分答案，避免从头重复，直接延续。\n")
+                .append("4. 保留工具调用、文件处理、代码修改等任务状态的连续性。\n");
+
+        return truncateForRollover(
+                out.toString(),
+                ROLLOVER_CONTEXT_MAX_CHARS);
+    }
+
+    private String buildContinuationPrompt(
+            Envelope env,
+            int rolloverNumber,
+            String partialAnswer,
+            String partialThinking) {
+        StringBuilder out = new StringBuilder();
+        out.append(env.rolloverPrompt);
+
+        String answer = truncateForRollover(
+                partialAnswer == null ? "" : partialAnswer.trim(),
+                4_000);
+        if (!answer.isEmpty()) {
+            out.append("\n\n【上一对话在触顶前已经产生的部分回答】\n")
+                    .append(answer)
+                    .append("\n【要求】不要从头重复这部分内容，直接继续。");
+        }
+
+        String thinking = truncateForRollover(
+                partialThinking == null ? "" : partialThinking.trim(),
+                1_200);
+        if (!thinking.isEmpty()) {
+            out.append("\n\n【触顶前可见的处理中状态】\n")
+                    .append(thinking);
+        }
+
+        out.append("\n\n当前为自动续接第 ")
+                .append(rolloverNumber)
+                .append(" 次；继续完成原任务。");
+
+        return truncateForRollover(
+                out.toString(),
+                ROLLOVER_CONTEXT_MAX_CHARS);
+    }
+
+    private String messageTextForRollover(JSONObject message) {
+        StringBuilder out = new StringBuilder();
+        Object content = message.opt("content");
+
+        if (content instanceof String) {
+            String value = (String) content;
+            int a = value.indexOf(PREFIX);
+            int b = value.indexOf(SUFFIX);
+            if (a >= 0 && b > a) {
+                value = value.substring(0, a)
+                        + "[attachment envelope omitted]"
+                        + value.substring(b + SUFFIX.length());
+            }
+            out.append(value);
+        } else if (content instanceof JSONArray) {
+            JSONArray parts = (JSONArray) content;
+            for (int i = 0; i < parts.length(); i++) {
+                JSONObject part = parts.optJSONObject(i);
+                if (part == null) continue;
+
+                String type = part.optString("type", "");
+                if ("text".equals(type)
+                        || "input_text".equals(type)) {
+                    out.append(part.optString("text"));
+                } else if ("image_url".equals(type)
+                        || "input_image".equals(type)) {
+                    out.append("\n[image attachment]");
+                } else if ("file".equals(type)
+                        || "input_file".equals(type)
+                        || "attachment".equals(type)) {
+                    JSONObject file = part.optJSONObject("file");
+                    String name = part.optString("filename", "");
+                    if (name.isEmpty() && file != null) {
+                        name = file.optString(
+                                "filename",
+                                file.optString("name", "file"));
+                    }
+                    out.append("\n[file attachment: ")
+                            .append(name.isEmpty() ? "file" : name)
+                            .append("]");
+                }
+            }
+        } else if (content != null && content != JSONObject.NULL) {
+            out.append(String.valueOf(content));
+        }
+
+        JSONArray toolCalls = message.optJSONArray("tool_calls");
+        if (toolCalls != null && toolCalls.length() > 0) {
+            out.append("\nTOOL_CALLS=")
+                    .append(truncateForRollover(
+                            toolCalls.toString(),
+                            2_000));
+        }
+
+        String toolCallId = message.optString("tool_call_id", "");
+        if (!toolCallId.isEmpty()) {
+            out.append("\nTOOL_CALL_ID=")
+                    .append(toolCallId);
+        }
+
+        return out.toString().trim();
+    }
+
+    private String truncateForRollover(
+            String value,
+            int maxChars) {
+        if (value == null) return "";
+        String v = value.trim();
+        if (maxChars <= 0 || v.length() <= maxChars) return v;
+
+        int head = Math.max(0, (int) (maxChars * 0.68));
+        int tail = Math.max(0, maxChars - head - 36);
+        return v.substring(0, head)
+                + "\n...[自动续接压缩了较早内容]...\n"
+                + v.substring(v.length() - tail);
     }
 
     private String buildPrompt(JSONArray messages) {
@@ -901,7 +1147,7 @@ public final class WebRelay {
                 "const thinking=last(" + new JSONArray(thinkingSelectors).toString() + ");" +
                 "const generating=[...document.querySelectorAll(" + generating + ")].some(vis);" +
                 "const body=(document.body&&document.body.innerText)||'';" +
-                "const limit=/对话.{0,12}(达到|已达|超过).{0,12}(上限|限制)|上下文.{0,12}(达到|超过|已满|限制)|请.{0,12}(新建|开启).{0,12}对话|conversation.{0,30}(too long|reached.{0,10}limit|limit reached)|maximum context|context.{0,20}(window|length).{0,20}(limit|exceed|full)|start a new chat|new chat to continue/i.test(body);" +
+                "const limit=/对话.{0,18}(达到|已达|超过|最大).{0,18}(上限|限制|长度)|上下文.{0,18}(达到|超过|已满|限制|最大)|请.{0,18}(新建|开启|开始).{0,18}对话|conversation.{0,40}(too long|reached.{0,16}limit|limit reached|maximum length)|you.{0,20}reached.{0,30}(maximum|limit)|maximum context|context.{0,24}(window|length).{0,24}(limit|exceed|full|maximum)|start a new chat|new chat to continue/i.test(body);" +
                 "return JSON.stringify({answer,thinking,generating,limit,body:body.slice(-5000)});})()";
 
         String encoded = eval(js, 10_000L);
