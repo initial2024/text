@@ -96,10 +96,10 @@ public final class GatewayService extends Service {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "DSH Web Gateway",
+                    "OmniGate",
                     NotificationManager.IMPORTANCE_LOW);
             channel.setDescription(
-                    "Keeps the selected web AI gateway and optional public tunnel available");
+                    "Keeps OmniGate web AI sessions, local API and optional public tunnel available");
             getSystemService(NotificationManager.class)
                     .createNotificationChannel(channel);
         }
@@ -139,7 +139,7 @@ public final class GatewayService extends Service {
             text.append(" · ").append(GatewayApp.tunnelStatus());
         }
 
-        return b.setContentTitle("DSH Web Gateway")
+        return b.setContentTitle("OmniGate")
                 .setContentText(text.toString())
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
                 .setOngoing(true)
