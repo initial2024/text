@@ -7,7 +7,7 @@
 - Expected cert fingerprint: `bfdc4de8538066d29ecd17e80ab651d38ae3c440713f9651bd8ce1c81015d27d`
 
 ## Strict authorization
-Work ONLY on an isolated derived directory and this review branch. Never mutate original input APK, `original-core-addon`, `main`, production Cloudflare or published releases. No GitHub Actions runs during quota block. Do not create a replacement keystore. Do not print keys or passwords.
+Work ONLY on an isolated derived directory and this review branch. Never mutate original input APK, `original-core-addon`, `main`, production Cloudflare or published releases. Actions permitted on this public repository using standard ubuntu-latest only. Inspect Actions runner/security/settings and storage limits. Do not use paid larger runners. Do not create a replacement keystore. Do not print keys or passwords.
 
 ## Build work
 1. Re-check CRC, all SHA256, APK v2/v3 signed block and, when Android SDK is available, full `apksigner verify --verbose --print-certs`.
