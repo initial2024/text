@@ -1559,21 +1559,19 @@ public final class MainActivity extends Activity {
 
     private void openOriginalGateway() {
         try {
-            Intent launch = getPackageManager()
-                    .getLaunchIntentForPackage("com.deepseek2.app");
-            if (launch == null) {
-                Toast.makeText(
-                        this,
-                        "未检测到原 AI Gateway（com.deepseek2.app）",
-                        Toast.LENGTH_LONG).show();
-                return;
-            }
-            launch.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            Intent launch = new Intent(Intent.ACTION_MAIN);
+            launch.addCategory(Intent.CATEGORY_LAUNCHER);
+            launch.setClassName(
+                    "com.deepseek2.app",
+                    "com.deepseek2.app.ui.ProviderActivity");
+            launch.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             startActivity(launch);
         } catch (Throwable e) {
             Toast.makeText(
                     this,
-                    "无法打开原 AI Gateway：" + e.getMessage(),
+                    "未检测到可启动的原 AI Gateway（com.deepseek2.app）",
                     Toast.LENGTH_LONG).show();
         }
     }
@@ -1583,45 +1581,26 @@ public final class MainActivity extends Activity {
     }
 
     private void showOverlay() {
-        try {
-            Intent intent = new Intent(
-                    "com.deepseek2.app.action.SHOW_OVERLAY");
-            intent.setClassName(
-                    "com.deepseek2.app",
-                    "com.deepseek2.app.ui.OverlayService");
-            if (android.os.Build.VERSION.SDK_INT >= 26) {
-                startForegroundService(intent);
-            } else {
-                startService(intent);
-            }
-            Toast.makeText(
-                    this,
-                    "已请求显示原 AI Gateway 悬浮小窗口",
-                    Toast.LENGTH_SHORT).show();
-        } catch (Throwable e) {
-            openOriginalGateway();
-            Toast.makeText(
-                    this,
-                    "无法直接调用原悬浮服务，请在原 AI Gateway 中开启悬浮窗",
-                    Toast.LENGTH_LONG).show();
-        }
+        // The original OverlayService is intentionally exported=false.
+        // Preserve that security boundary: open the original app and let it
+        // create/manage its own floating window from inside its process.
+        openOriginalGateway();
+        Toast.makeText(
+                this,
+                "原悬浮窗由原 AI Gateway 自己管理，请在原软件中开启/显示",
+                Toast.LENGTH_LONG).show();
     }
 
     private void hideOverlay() {
-        try {
-            Intent intent = new Intent(
-                    "com.deepseek2.app.action.RETURN_FROM_OVERLAY");
-            intent.setClassName(
-                    "com.deepseek2.app",
-                    "com.deepseek2.app.ui.OverlayService");
-            startService(intent);
-        } catch (Throwable ignored) {
-            openOriginalGateway();
-        }
+        openOriginalGateway();
+        Toast.makeText(
+                this,
+                "原悬浮窗不能被 Companion 跨应用强制关闭，请在原软件中操作",
+                Toast.LENGTH_LONG).show();
     }
 
     private void refreshOverlayLabel() {
-        // Original AI Gateway owns its overlay label and provider UI.
+        // The original AI Gateway owns its overlay label and provider UI.
     }
 
     private void showTunnelConfigDialog() {
