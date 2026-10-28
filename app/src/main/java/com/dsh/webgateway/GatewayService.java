@@ -7,30 +7,66 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 
 public final class GatewayService extends Service {
     public static final String ACTION_RESTART_TUNNEL =
             "com.dsh.webgateway.RESTART_TUNNEL";
+    public static final String ACTION_ENSURE_RUNNING =
+            "com.dsh.webgateway.ENSURE_RUNNING";
     private static final String CHANNEL_ID = "dsh_web_gateway";
+
+    private static volatile boolean serviceAlive;
 
     private LocalHttpServer server;
     private TunnelClient tunnelClient;
     private CloudflareRelayClient cloudflareRelay;
+    private final Handler watchdogHandler = new Handler(Looper.getMainLooper());
+    private final Runnable watchdog = new Runnable() {
+        @Override
+        public void run() {
+            ensureServerAlive();
+            watchdogHandler.postDelayed(this, 4_000L);
+        }
+    };
 
     @Override
     public void onCreate() {
         super.onCreate();
+        serviceAlive = true;
         createChannel();
         startForeground(GatewayApp.PORT, buildNotification());
-        startServer();
+        ensureServerAlive();
         syncTunnel();
+        watchdogHandler.postDelayed(watchdog, 4_000L);
     }
 
-    private void startServer() {
-        if (server != null) server.shutdown();
-        server = new LocalHttpServer(GatewayApp.PORT);
-        server.start();
+    public static boolean isServiceAlive() {
+        return serviceAlive;
+    }
+
+    private synchronized void ensureServerAlive() {
+        if (server != null && server.isListening()) {
+            GatewayApp.setLocalApiStatus("运行中 · 127.0.0.1:" + GatewayApp.PORT);
+            return;
+        }
+
+        if (server != null) {
+            server.shutdown();
+            server = null;
+        }
+
+        LocalHttpServer candidate = new LocalHttpServer(GatewayApp.PORT);
+        if (candidate.start()) {
+            server = candidate;
+            GatewayApp.setLocalApiStatus("运行中 · 127.0.0.1:" + GatewayApp.PORT);
+        } else {
+            candidate.shutdown();
+            GatewayApp.setLocalApiStatus("8787 启动失败 · 正在重试");
+        }
+        refreshNotification();
     }
 
     private synchronized void syncTunnel() {
@@ -93,6 +129,7 @@ public final class GatewayService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        ensureServerAlive();
         if (intent != null && ACTION_RESTART_TUNNEL.equals(intent.getAction())) {
             syncTunnel();
         } else {
@@ -102,7 +139,17 @@ public final class GatewayService extends Service {
     }
 
     @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        ensureServerAlive();
+        refreshNotification();
+        super.onTaskRemoved(rootIntent);
+    }
+
+    @Override
     public void onDestroy() {
+        serviceAlive = false;
+        watchdogHandler.removeCallbacks(watchdog);
+        GatewayApp.setLocalApiStatus("服务已停止");
         if (tunnelClient != null) {
             tunnelClient.stop();
             tunnelClient = null;
