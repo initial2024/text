@@ -19,6 +19,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import java.lang.ref.WeakReference;
 import java.util.WeakHashMap;
@@ -37,7 +38,9 @@ import java.util.WeakHashMap;
 public final class ApiQuickPanel {
     private static final WeakHashMap<Activity, Dock> DOCKS=new WeakHashMap<>();
     private static final String PREF="omnigate_overlay_dock_v061";
-    private static final int CHIP=40, PANEL=300, MARGIN=10;
+    private static final int CHIP=40, MARGIN=9;
+    private static final int DEFAULT_W=252, DEFAULT_H=335;
+    private static final int MIN_W=206, MAX_W=360, MIN_H=225, MAX_H=520;
     private static int selectedTab=0;
     private static boolean expanded=false;
     private static String lastState="尚未挂载浮窗";
@@ -82,7 +85,11 @@ public final class ApiQuickPanel {
         final Handler main=new Handler(Looper.getMainLooper());
         final SharedPreferences pref;
         LinearLayout shell;
+        LinearLayout body;
+        ScrollView innerScroll;
         FrameLayout.LayoutParams params;
+        int desiredWidthDp;
+        int desiredHeightDp;
         TextView status;
         TextView textStatus;
         TextView textAnswer;
@@ -132,6 +139,8 @@ public final class ApiQuickPanel {
         Dock(Activity a,FrameLayout f){
             activity=a;frame=f;
             pref=a.getSharedPreferences(PREF,Context.MODE_PRIVATE);
+            desiredWidthDp=Math.round(pref.getFloat("widthDp",DEFAULT_W));
+            desiredHeightDp=Math.round(pref.getFloat("heightDp",DEFAULT_H));
         }
         void attach(){
             if(attached)return;
@@ -160,7 +169,64 @@ public final class ApiQuickPanel {
             status=null;prompt=null;textStatus=null;textAnswer=null;
             textPrompt=null;textSend=null;guestDiagText=null;
             if(shell!=null&&shell.getParent()==frame)frame.removeView(shell);
-            shell=null;
+            shell=null;body=null;innerScroll=null;
+        }
+        int maxPanelWidth() {
+            return Math.max(dp(activity,MIN_W), Math.min(dp(activity,MAX_W),
+                Math.max(dp(activity,MIN_W), frame.getWidth()-dp(activity,MARGIN*2))));
+        }
+        int maxPanelHeight() {
+            int screen=frame.getHeight()>0?frame.getHeight():dp(activity,720);
+            return Math.max(dp(activity,MIN_H),Math.min(dp(activity,MAX_H),
+                Math.round(screen*0.68f)));
+        }
+        void storeSize() {
+            pref.edit().putFloat("widthDp",desiredWidthDp)
+                .putFloat("heightDp",desiredHeightDp).apply();
+        }
+        void resizeBy(int dwDp,int dhDp) {
+            if(!attached || !expanded) return;
+            desiredWidthDp=clamp(desiredWidthDp+dwDp,MIN_W,
+                Math.max(MIN_W,Math.round(maxPanelWidth()/
+                    activity.getResources().getDisplayMetrics().density)));
+            desiredHeightDp=clamp(desiredHeightDp+dhDp,MIN_H,
+                Math.max(MIN_H,Math.round(maxPanelHeight()/
+                    activity.getResources().getDisplayMetrics().density)));
+            storeSize();
+            render();
+        }
+        View.OnTouchListener sizeControl() {
+            return new View.OnTouchListener() {
+                float x,y;
+                int initialW,initialH;
+                @Override public boolean onTouch(View v,MotionEvent event) {
+                    switch(event.getActionMasked()) {
+                        case MotionEvent.ACTION_DOWN:
+                            x=event.getRawX();y=event.getRawY();
+                            initialW=params.width;initialH=params.height;
+                            v.getParent().requestDisallowInterceptTouchEvent(true);
+                            return true;
+                        case MotionEvent.ACTION_MOVE:
+                            int w=clamp(initialW+Math.round(event.getRawX()-x),
+                                dp(activity,MIN_W),maxPanelWidth());
+                            int h=clamp(initialH+Math.round(event.getRawY()-y),
+                                dp(activity,MIN_H),maxPanelHeight());
+                            params.width=w;params.height=h;
+                            shell.setLayoutParams(params);
+                            position(params.leftMargin,params.topMargin);
+                            return true;
+                        case MotionEvent.ACTION_UP:
+                        case MotionEvent.ACTION_CANCEL:
+                            float density=activity.getResources()
+                                .getDisplayMetrics().density;
+                            desiredWidthDp=Math.round(params.width/density);
+                            desiredHeightDp=Math.round(params.height/density);
+                            storeSize();
+                            return true;
+                        default:return false;
+                    }
+                }
+            };
         }
         void position(int x,int y){
             if(!attached||shell==null)return;
@@ -234,7 +300,8 @@ public final class ApiQuickPanel {
             int lastX=params.leftMargin,lastY=params.topMargin;
             if(textPrompt!=null && selectedTab==0)
                 OverlayTextClient.setDraft(textPrompt.getText().toString());
-            shell.removeAllViews();status=null;prompt=null;
+            shell.removeAllViews();body=null;innerScroll=null;
+            status=null;prompt=null;
             textStatus=null;textAnswer=null;textPrompt=null;textSend=null;
             guestDiagText=null;
             shell.setPadding(0,0,0,0);
@@ -248,9 +315,10 @@ public final class ApiQuickPanel {
                 shell.addView(collapsed,new LinearLayout.LayoutParams(-1,-1));
                 collapsed.setOnTouchListener(dragControl(true));
             }else{
-                int available=frame.getWidth()-dp(activity,MARGIN*2);
-                params.width=Math.min(dp(activity,PANEL),Math.max(dp(activity,235),available));
-                params.height=-2;
+                params.width=clamp(dp(activity,desiredWidthDp),
+                    dp(activity,MIN_W),maxPanelWidth());
+                params.height=clamp(dp(activity,desiredHeightDp),
+                    dp(activity,MIN_H),maxPanelHeight());
                 shell.setBackground(bg(0xFFFBFCFF,dp(activity,18),0xFFDEE3F7));
                 shell.setPadding(dp(activity,11),dp(activity,10),dp(activity,11),dp(activity,11));
                 LinearLayout titlebar=horizontal(shell,7);
@@ -258,8 +326,17 @@ public final class ApiQuickPanel {
                 title.setGravity(Gravity.CENTER_VERTICAL);
                 titlebar.addView(title,new LinearLayout.LayoutParams(0,dp(activity,32),1));
                 title.setOnTouchListener(dragControl(false));
-                Button close=button("−",false);
-                titlebar.addView(close,new LinearLayout.LayoutParams(dp(activity,36),dp(activity,32)));
+                Button shrink=button("−",false);
+                shrink.setContentDescription("缩小悬浮面板");
+                titlebar.addView(shrink,new LinearLayout.LayoutParams(dp(activity,30),dp(activity,32)));
+                shrink.setOnClickListener(v->resizeBy(-30,-58));
+                Button grow=button("+",false);
+                grow.setContentDescription("放大悬浮面板");
+                titlebar.addView(grow,new LinearLayout.LayoutParams(dp(activity,30),dp(activity,32)));
+                grow.setOnClickListener(v->resizeBy(30,58));
+                Button close=button("▁",false);
+                close.setContentDescription("收起悬浮面板，不取消正在进行的模型请求");
+                titlebar.addView(close,new LinearLayout.LayoutParams(dp(activity,34),dp(activity,32)));
                 close.setOnClickListener(v->{expanded=false;render();});
 
                 LinearLayout tabs=horizontal(shell,9);
@@ -278,12 +355,27 @@ public final class ApiQuickPanel {
                         OverlayTextClient.setDraft(textPrompt.getText().toString());
                     selectedTab=2;render();
                 });
+                innerScroll=new ScrollView(activity);
+                innerScroll.setFillViewport(false);
+                innerScroll.setVerticalScrollBarEnabled(true);
+                body=new LinearLayout(activity);
+                body.setOrientation(LinearLayout.VERTICAL);
+                body.setPadding(dp(activity,2),0,dp(activity,2),dp(activity,3));
+                innerScroll.addView(body);
+                shell.addView(innerScroll,new LinearLayout.LayoutParams(-1,0,1));
                 if(selectedTab==0)renderText();
                 else if(selectedTab==1)renderApi();
                 else renderUpload();
-                TextView hint=text("模型网页保持在下方 · 拖动顶部移动",10,0xFF7D86A0,false);
-                hint.setGravity(Gravity.CENTER);
-                add(shell,hint,0);
+                LinearLayout footer=horizontal(shell,0);
+                TextView hint=text("拖动标题移动 · 拖动右下角缩放",10,0xFF7D86A0,false);
+                hint.setGravity(Gravity.CENTER_VERTICAL);
+                footer.addView(hint,new LinearLayout.LayoutParams(0,dp(activity,30),1));
+                TextView grip=text("⤡",24,0xFF5144DC,true);
+                grip.setGravity(Gravity.CENTER);
+                grip.setContentDescription("按住并拖动以缩放悬浮窗口");
+                grip.setBackground(bg(0xFFEEF0FF,dp(activity,10),0));
+                footer.addView(grip,new LinearLayout.LayoutParams(dp(activity,42),dp(activity,30)));
+                grip.setOnTouchListener(sizeControl());
             }
             shell.setLayoutParams(params);
             frame.post(()->{
@@ -298,10 +390,10 @@ public final class ApiQuickPanel {
         void renderText(){
             TextView model=text("当前网页模型："+OriginalCoreBridge.activeProviderModel(),
                 11,0xFF3C4688,true);
-            add(shell,model,5);
+            add(body,model,5);
             textStatus=text(OverlayTextClient.status(),11,0xFF64708B,false);
             textStatus.setMaxLines(3);
-            add(shell,textStatus,7);
+            add(body,textStatus,7);
 
             textPrompt=new EditText(activity);
             textPrompt.setTextSize(12);
@@ -315,12 +407,12 @@ public final class ApiQuickPanel {
             textPrompt.setBackground(bg(0xFFF0F3FB,dp(activity,9),0xFFDDE3F3));
             LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(-1,dp(activity,63));
             ip.bottomMargin=dp(activity,8);
-            shell.addView(textPrompt,ip);
+            body.addView(textPrompt,ip);
 
             Button send=button("发送普通文本（不含附件）",true);
             textSend=send;
             LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(activity,39));
-            sp.bottomMargin=dp(activity,8);shell.addView(send,sp);
+            sp.bottomMargin=dp(activity,8);body.addView(send,sp);
             send.setEnabled(!OverlayTextClient.isSending());
             send.setOnClickListener(v->{
                 String input=textPrompt.getText().toString();
@@ -331,15 +423,15 @@ public final class ApiQuickPanel {
                 lastTextRevision=-1;
             });
             TextView answerLabel=text("真实模型回复 / 失败原因",11,0xFF3D4681,true);
-            add(shell,answerLabel,4);
+            add(body,answerLabel,4);
             textAnswer=text(OverlayTextClient.response(),11,0xFF232953,false);
             textAnswer.setMaxLines(5);
             textAnswer.setPadding(dp(activity,7),dp(activity,6),
                 dp(activity,7),dp(activity,6));
             textAnswer.setBackground(bg(0xFFF0F3FB,dp(activity,9),0));
-            add(shell,textAnswer,6);
+            add(body,textAnswer,6);
             Button copy=button("复制回复",false);
-            add(shell,copy,6);
+            add(body,copy,6);
             copy.setOnClickListener(v->{
                 String reply=OverlayTextClient.response();
                 if(reply.isEmpty())return;
@@ -348,16 +440,16 @@ public final class ApiQuickPanel {
                 if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("OmniGate 文本回复",reply));
             });
             Button diagnose=button("诊断原网页桥 / 游客输入状态",false);
-            add(shell,diagnose,6);
+            add(body,diagnose,6);
             guestDiagText=text(WebBridgeDiagnostics.state(),10,0xFF666E8C,false);
             guestDiagText.setMaxLines(5);
-            add(shell,guestDiagText,5);
+            add(body,guestDiagText,5);
             diagnose.setOnClickListener(v->{
                 guestDiagText.setText(WebBridgeDiagnostics.run());
             });
             TextView note=text("游客输入框就绪≠账户已登录。HTTP 502/no reply 需查看桥诊断；不主动终止生成。",
                 10,0xFF9D664B,false);
-            add(shell,note,6);
+            add(body,note,6);
         }
         void renderApi(){
             int nativePort=OriginalCoreBridge.configuredPort();
@@ -369,11 +461,11 @@ public final class ApiQuickPanel {
                     ? "● 原版 "+nativePort+" 运行"
                     : "○ 原版 "+nativePort+" 未就绪"),
                 11,nativeRunning && upstream?0xFF147754:0xFF9B612F,true);
-            add(shell,a,7);
+            add(body,a,7);
             TextView model=text("当前网页模型："+OriginalCoreBridge.activeProviderModel(),
                 11,0xFF4E5782,false);
-            add(shell,model,7);
-            LinearLayout row=horizontal(shell,6);
+            add(body,model,7);
+            LinearLayout row=horizontal(body,6);
             Button start=button("启动 8787",true),test=button("刷新状态",false);
             addHalf(row,start);addHalf(row,test);
             start.setOnClickListener(v->{
@@ -382,14 +474,14 @@ public final class ApiQuickPanel {
             });
             test.setOnClickListener(v->render());
             Button recover=button("恢复原版 API（不关闭网页）",false);
-            add(shell,recover,6);
+            add(body,recover,6);
             recover.setOnClickListener(v->{
                 String result=OriginalCoreBridge.requestExplicitNativeStart(activity);
                 lastState=result;
                 TextView notice=text(result,10,0xFF956132,false);
-                add(shell,notice,4);
+                add(body,notice,4);
             });
-            LinearLayout tools=horizontal(shell,7);
+            LinearLayout tools=horizontal(body,7);
             Button settings=button("完整设置",false);
             Button copy=button("复制 API 地址",false);
             addHalf(tools,settings);addHalf(tools,copy);
@@ -403,16 +495,16 @@ public final class ApiQuickPanel {
             });
             TextView note=text("本地服务在线不代表模型已回复。附件请切换到「文件注入」。",
                 10,0xFF78829C,false);
-            add(shell,note,7);
+            add(body,note,7);
         }
         void renderUpload(){
             TextView model=text("网页模型："+OriginalCoreBridge.activeProviderModel(),
                 11,0xFF3C4688,true);
-            add(shell,model,5);
+            add(body,model,5);
             status=text(OverlayAttachmentDraft.status(),11,0xFF576781,false);
             status.setMaxLines(4);
-            add(shell,status,6);
-            LinearLayout row=horizontal(shell,6);
+            add(body,status,6);
+            LinearLayout row=horizontal(body,6);
             Button choose=button("选图片 / 文件",false),clear=button("清除",false);
             addHalf(row,choose);addHalf(row,clear);
             choose.setOnClickListener(v->{
@@ -431,10 +523,10 @@ public final class ApiQuickPanel {
             prompt.setPadding(dp(activity,7),dp(activity,3),dp(activity,7),dp(activity,3));
             prompt.setBackground(bg(0xFFF0F3FB,dp(activity,9),0xFFDDE3F3));
             LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(activity,43));
-            pp.bottomMargin=dp(activity,7);shell.addView(prompt,pp);
+            pp.bottomMargin=dp(activity,7);body.addView(prompt,pp);
             Button send=button("向当前网页注入附件（测试）",true);
             LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(activity,38));
-            sp.bottomMargin=dp(activity,8);shell.addView(send,sp);
+            sp.bottomMargin=dp(activity,8);body.addView(send,sp);
             send.setEnabled(OverlayTextClient.lastSuccess() &&
                 OverlayTextClient.lastModel().equals(OriginalCoreBridge.activeProviderModel()));
             send.setOnClickListener(v->{
@@ -453,7 +545,7 @@ public final class ApiQuickPanel {
                 ? "文本接口已验收；附件仍需网页缩略图和真实回复确认。"
                 : "先去「文本」页确认真实文字回复；当前附件发送按钮禁用。",
                 10,0xFF8E6946,false);
-            add(shell,note,6);
+            add(body,note,6);
         }
     }
 }
