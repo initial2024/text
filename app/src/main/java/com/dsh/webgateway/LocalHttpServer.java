@@ -24,7 +24,7 @@ import java.util.concurrent.Executors;
 
 public final class LocalHttpServer {
     private static final String TAG = "DSH-Gateway";
-    private static final int MAX_BODY = 32 * 1024 * 1024;
+    private static final int MAX_BODY = 48 * 1024 * 1024;
     public static final String PROBE_VALUE = "392125113473d61e8aaba950e010d41453ceb63597a7b047";
 
     private final int port;
