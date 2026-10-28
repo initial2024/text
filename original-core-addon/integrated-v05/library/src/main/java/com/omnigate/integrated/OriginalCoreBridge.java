@@ -232,6 +232,14 @@ public final class OriginalCoreBridge {
             lastStartStatus="现有原版 MainActivity 的 API 已运行，未重复创建";
             return lastStartStatus;
         }
+        Activity live=originalMain.get();
+        if(settings == live &&
+            "com.deepseek2.app.ui.MainActivity".equals(settings.getClass().getName())) {
+            lastStartStatus="正在现有模型页启动原版 API（不创建或关闭页面）";
+            settings.getWindow().getDecorView().post(
+                () -> startNativeOnResumedOwner(settings));
+            return lastStartStatus;
+        }
         pendingNativeStart.set(true);
         try {
             Intent request = new Intent();
