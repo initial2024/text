@@ -60,3 +60,6 @@ jobs:
           grep -F 'OMNIGATE_KEYSTORE_PASSWORD' .github/workflows/original-core-sidecar-build.yml
           grep -F 'OMNIGATE_KEY_ALIAS' .github/workflows/original-core-sidecar-build.yml
           ! grep -F 'Create ephemeral test signing key' .github/workflows/original-core-sidecar-build.yml
+          grep -F 'EXPECTED_CERT="BF:DC:4D:E8:53:80:66:D2:9E:CD:17:E8:0A:B6:51:D3:8A:E3:C4:40:71:3F:96:51:BD:8C:E1:C8:10:15:D2:7D"' original-core-addon/build_from_frozen_baseline.sh
+          grep -F 'FIXED_SIGNING_IDENTITY=PASS' original-core-addon/verify_fixed_signing.sh
+          grep -F 'EXPECTED_BASE="16d78e8a33452571ae18ee13dcd792bd06a4e9b4d185ebda004c14295a88a355"' original-core-addon/build_from_frozen_baseline.sh
