@@ -2,7 +2,9 @@ name: Build installable Android APK
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - chatgpt/final-dpdns-v2.6
   workflow_dispatch:
 
 permissions:
@@ -12,6 +14,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,23 +36,57 @@ jobs:
         run: |
           set -euo pipefail
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          if [ ! -d "$SDK_ROOT" ]; then
-            echo "Android SDK root not found: $SDK_ROOT"
-            exit 1
+          test -d "$SDK_ROOT"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
           fi
-          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)"
-          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
-            echo "sdkmanager not found under $SDK_ROOT/cmdline-tools"
-            find "$SDK_ROOT" -maxdepth 4 -type f -name sdkmanager -print || true
-            exit 1
-          fi
-          echo "SDK_ROOT=$SDK_ROOT"
-          echo "SDKMANAGER=$SDKMANAGER"
+          test -n "$SDKMANAGER"
+          test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "root=$SDK_ROOT" >> "$GITHUB_OUTPUT"
+
+      - name: Source contract checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP=app/src/main/java/com/dsh/webgateway/GatewayApp.java
+          SRV=app/src/main/java/com/dsh/webgateway/GatewayService.java
+          HTTP=app/src/main/java/com/dsh/webgateway/LocalHttpServer.java
+          TUN=app/src/main/java/com/dsh/webgateway/TunnelClient.java
+          RELAY=app/src/main/java/com/dsh/webgateway/WebRelay.java
+
+          grep -F 'public static final int PORT = 8787;' "$APP"
+          grep -F 'public static final int COMPAT_PORT = 1601;' "$APP"
+          grep -F 'public static final String LEGACY_PREFIX = "gw-33e850180248";' "$APP"
+          grep -F 'https://gw-33e850180248.deepseeks.dpdns.org' "$APP"
+          grep -F 'new LocalHttpServer(GatewayApp.PORT)' "$SRV"
+          grep -F 'new LocalHttpServer(GatewayApp.COMPAT_PORT)' "$SRV"
+          grep -F 'GatewayApp.PORT,' "$SRV"
+
+          grep -F 'TUNNEL_HOST = "57.183.5.186"' "$TUN"
+          grep -F 'TUNNEL_PORT = 9000' "$TUN"
+          grep -F 'AA:14:DC:75:AE:54:3E:19:3C:25:6B:46:F1:1E:A6:B9:70:D3:A7:D6:79:C4:3E:74:74:79:67:E1:41:DE:D4:71' "$TUN"
+          grep -F '"REGISTER " + token + " " + prefix' "$TUN"
+          grep -F '"RESP " + request.id' "$TUN"
+          grep -F '"DATA " + request.id' "$TUN"
+          grep -F '"END " + request.id' "$TUN"
+
+          grep -F 'PROBE_VALUE = "392125113473d61e8aaba950e010d41453ceb63597a7b047"' "$HTTP"
+          grep -F '"/__tunnel_probe"' "$HTTP"
+          grep -F 'MAX_BODY = 32 * 1024 * 1024' "$HTTP"
+
+          grep -F 'HARD_TIMEOUT_MS = 600_000L' "$RELAY"
+          grep -F 'END_GRACE_MS = 5_000L' "$RELAY"
+          grep -F 'MAX_ROLLOVER = 1' "$RELAY"
+          grep -F 'ATTACHMENT_UPLOAD_FAILED' "$RELAY"
+
+          ! grep -R -F '0.0.0.0' app/src/main/java/com/dsh/webgateway
+          ! grep -R -F 'tailscaleIpv4' app/src/main/java/com/dsh/webgateway
+          ! grep -R -F 'remoteEnabled' app/src/main/java/com/dsh/webgateway
 
       - name: Build unsigned release
         run: gradle --no-daemon :app:assembleRelease
@@ -62,9 +99,10 @@ jobs:
           BT="${{ steps.sdk.outputs.root }}/build-tools/35.0.0"
           test -x "$BT/zipalign"
           test -x "$BT/apksigner"
+          test -x "$BT/aapt"
           echo "dir=$BT" >> "$GITHUB_OUTPUT"
 
-      - name: Create ephemeral signing key
+      - name: Create ephemeral test signing key
         run: |
           set -euo pipefail
           keytool -genkeypair -v \
@@ -73,7 +111,7 @@ jobs:
             -keypass changeit \
             -alias gateway \
             -keyalg RSA -keysize 3072 -validity 3650 \
-            -dname "CN=DSH Web Gateway GitHub Build,O=Temporary Build,L=Local,C=US"
+            -dname "CN=DSH Web Gateway GitHub Build,O=Temporary Test Build,L=Local,C=US"
 
       - name: Zipalign and sign with official apksigner
         shell: bash
@@ -81,28 +119,35 @@ jobs:
           set -euo pipefail
           UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
           ALIGNED="app/build/outputs/apk/release/dsh-web-gateway-aligned.apk"
-          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.5.0.apk"
+          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk"
           BT="${{ steps.bt.outputs.dir }}"
+
           test -f "$UNSIGNED"
           "$BT/zipalign" -p -f -v 4 "$UNSIGNED" "$ALIGNED" > zipalign.txt
           "$BT/zipalign" -c -v 4 "$ALIGNED" >> zipalign.txt
+
           "$BT/apksigner" sign \
-            --ks build-key.jks --ks-key-alias gateway \
-            --ks-pass pass:changeit --key-pass pass:changeit \
+            --ks build-key.jks \
+            --ks-key-alias gateway \
+            --ks-pass pass:changeit \
+            --key-pass pass:changeit \
             --v1-signing-enabled true \
             --v2-signing-enabled true \
             --v3-signing-enabled true \
             --out "$FINAL" "$ALIGNED"
+
           "$BT/apksigner" verify --verbose --print-certs "$FINAL" | tee apksigner-verify.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' apksigner-verify.txt
+          grep -F 'Verified using v3 scheme (APK Signature Scheme v3): true' apksigner-verify.txt
           sha256sum "$FINAL" | tee SHA256SUMS.txt
 
-      - name: Inspect manifest / SDK / package
+      - name: Inspect manifest package and SDK
         shell: bash
         run: |
           set -euo pipefail
           BT="${{ steps.bt.outputs.dir }}"
-          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.5.0.apk"
-          "$BT/aapt2" dump badging "$FINAL" | tee aapt-badging.txt
+          FINAL="app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk"
+          "$BT/aapt" dump badging "$FINAL" | tee aapt-badging.txt
           grep -F "package: name='com.dsh.webgateway'" aapt-badging.txt
           grep -F "sdkVersion:'26'" aapt-badging.txt
           grep -F "targetSdkVersion:'35'" aapt-badging.txt
@@ -112,20 +157,21 @@ jobs:
         shell: bash
         run: |
           {
-            echo "# DSH Web Gateway Android build verification"
+            echo "# DSH Web Gateway 2.6.0 verification"
             echo
             echo "Commit: $GITHUB_SHA"
+            echo "Branch: $GITHUB_REF_NAME"
             echo
-            echo '## SHA256'
+            echo "## SHA256"
             cat SHA256SUMS.txt 2>/dev/null || true
             echo
-            echo '## APK signature verification'
+            echo "## APK signature verification"
             cat apksigner-verify.txt 2>/dev/null || true
             echo
-            echo '## zipalign'
+            echo "## zipalign"
             tail -n 30 zipalign.txt 2>/dev/null || true
             echo
-            echo '## manifest / package'
+            echo "## manifest / package"
             cat aapt-badging.txt 2>/dev/null || true
           } > BUILD_VERIFICATION.md
 
@@ -133,9 +179,9 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: dsh-web-gateway-v2.5.0-apk
+          name: dsh-web-gateway-v2.6.0-apk
           path: |
-            app/build/outputs/apk/release/dsh-web-gateway-v2.5.0.apk
+            app/build/outputs/apk/release/dsh-web-gateway-v2.6.0.apk
             BUILD_VERIFICATION.md
             SHA256SUMS.txt
           if-no-files-found: error
@@ -145,7 +191,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: dsh-web-gateway-build-failure
+          name: dsh-web-gateway-v2.6.0-failure
           path: |
             app/build/reports/**
             app/build/outputs/**
