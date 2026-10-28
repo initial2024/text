@@ -67,23 +67,22 @@ public final class OriginalGatewayProxy {
                 if ("host".equals(lower)
                         || "content-length".equals(lower)
                         || "connection".equals(lower)
+                        || "authorization".equals(lower)
+                        || "x-api-key".equals(lower)
+                        || "x-dsh-gateway-token".equals(lower)
                         || "x-omnigate-public-relay".equals(lower)) {
                     continue;
                 }
                 conn.setRequestProperty(key, entry.getValue());
             }
 
-            // The frozen original Gateway expects an API-key-shaped field from
-            // OpenAI-compatible clients. The original local integration accepts
-            // a non-empty loopback credential, so supply one when a caller sent
-            // none. Public exact-auth remains enforced by OmniGate before this.
-            if (emptyHeader(requestHeaders, "authorization")
-                    && emptyHeader(requestHeaders, "x-api-key")
-                    && emptyHeader(requestHeaders, "x-dsh-gateway-token")) {
-                conn.setRequestProperty(
-                        "Authorization",
-                        "Bearer omnigate-local");
-            }
+            // Authentication terminates at OmniGate Companion. Never forward
+            // the external/public credential into the frozen original core.
+            // The original loopback contract only needs a non-empty local
+            // compatibility credential.
+            conn.setRequestProperty(
+                    "Authorization",
+                    "Bearer omnigate-local");
 
             if (requestBody != null
                     && requestBody.length > 0
@@ -177,10 +176,4 @@ public final class OriginalGatewayProxy {
                 || "PATCH".equalsIgnoreCase(method);
     }
 
-    private static boolean emptyHeader(
-            Map<String, String> headers,
-            String name) {
-        String value = headers.get(name.toLowerCase(Locale.ROOT));
-        return value == null || value.trim().isEmpty();
-    }
 }
