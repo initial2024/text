@@ -53,6 +53,7 @@ public final class CompatSettingsActivity extends Activity {
     private TextView serviceState, healthState, uploadState, replyState;
     private EditText upstreamKey, publicKey, relayKey, prompt;
     private Spinner models;
+    private TextView localBadge, upstreamBadge, upstreamGuide;
     private Uri selectedUri;
     private String selectedName;
     private String selectedMime;
@@ -94,11 +95,11 @@ public final class CompatSettingsActivity extends Activity {
 
     private LinearLayout panel(LinearLayout page, String title, String subtitle) {
         LinearLayout p = vertical();
-        p.setBackground(background(Color.WHITE, 20, 0xFFE2E5F1));
-        p.setPadding(dp(17), dp(18), dp(17), dp(18));
-        margin(page, p, 14);
-        margin(p, text(title, 17, 0xFF1D2442, true), 6);
-        margin(p, text(subtitle, 12, 0xFF697187, false), 14);
+        p.setBackground(background(Color.WHITE, 18, 0xFFE6E8F2));
+        p.setPadding(dp(14), dp(15), dp(14), dp(14));
+        margin(page, p, 12);
+        margin(p, text(title, 17, 0xFF1D2442, true), 4);
+        margin(p, text(subtitle, 12, 0xFF697187, false), 10);
         return p;
     }
 
@@ -106,18 +107,46 @@ public final class CompatSettingsActivity extends Activity {
         Button b = new Button(this);
         b.setAllCaps(false);
         b.setText(label);
-        b.setTextSize(14);
+        b.setTextSize(13);
         b.setTextColor(primary ? Color.WHITE : 0xFF3D49AE);
         b.setBackground(background(primary ? 0xFF4B43DA : 0xFFEBEEFF, 14, 0));
-        b.setPadding(dp(8), dp(10), dp(8), dp(10));
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(46));
-        p.bottomMargin = dp(10);
+        b.setPadding(dp(6), dp(6), dp(6), dp(6));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(43));
+        p.bottomMargin = dp(8);
         parent.addView(b, p);
         return b;
     }
 
+    private LinearLayout rowButtons(LinearLayout parent) {
+        LinearLayout r = new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        margin(parent, r, 7);
+        return r;
+    }
+
+    private Button rowButton(LinearLayout row, String label, boolean primary) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextSize(13);
+        b.setTextColor(primary ? Color.WHITE : 0xFF3948AB);
+        b.setBackground(background(primary ? 0xFF5144E8 : 0xFFF1F2FE, 12, 0));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(44), 1);
+        p.rightMargin = dp(5);
+        row.addView(b, p);
+        return b;
+    }
+
+    private TextView statusBadge(LinearLayout parent, String label) {
+        TextView b = text(label, 12, 0xFF3D4381, true);
+        b.setPadding(dp(12), dp(9), dp(12), dp(9));
+        b.setBackground(background(0xFFF2F3FA, 12, 0));
+        margin(parent, b, 6);
+        return b;
+    }
+
     private EditText field(LinearLayout parent, String label, String value, boolean secret) {
-        margin(parent, text(label, 13, 0xFF3A405A, true), 5);
+        margin(parent, text(label, 12, 0xFF3A405A, true), 4);
         EditText e = new EditText(this);
         e.setSingleLine(true);
         e.setTextSize(14);
@@ -127,7 +156,7 @@ public final class CompatSettingsActivity extends Activity {
         if (secret) e.setInputType(InputType.TYPE_CLASS_TEXT
                 | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         if (value != null) e.setText(value);
-        margin(parent, e, 14);
+        margin(parent, e, 10);
         return e;
     }
 
@@ -146,29 +175,53 @@ public final class CompatSettingsActivity extends Activity {
         scroller.setFillViewport(true);
         scroller.setBackgroundColor(0xFFF4F6FC);
         LinearLayout page = vertical();
-        page.setPadding(dp(18), dp(18), dp(18), dp(28));
+        page.setPadding(dp(14), dp(12), dp(14), dp(24));
         scroller.addView(page);
         setContentView(scroller);
 
-        margin(page, text("OmniGate", 29, 0xFF24235E, true), 4);
-        margin(page, text("API 控制台  ·  v0.5.6", 14, 0xFF65708F, false), 20);
+        LinearLayout hero = vertical();
+        GradientDrawable gradient = new GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            new int[]{0xFF342B98, 0xFF5F53E7, 0xFF2E83E7});
+        gradient.setCornerRadius(dp(22));
+        hero.setBackground(gradient);
+        hero.setPadding(dp(19), dp(17), dp(19), dp(18));
+        margin(page, hero, 14);
+        margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
+        margin(hero, text("API 控制台   /   v0.5.7", 13, 0xFFE5E7FF, false), 7);
+        margin(hero, text("本地优先 · 手动启停 · 网页注入保持不变", 12, 0xFFD6E9FF, false), 0);
 
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
-        serviceState = text("正在读取状态", 15, 0xFF343B67, true);
-        margin(connection, serviceState, 12);
-        Button start = button(connection, "启动 8787 本地服务（前台）", true);
+        localBadge = statusBadge(connection, "○ 8787 检查中");
+        upstreamBadge = statusBadge(connection, "○ 1601 检查中");
+        serviceState = text("", 12, 0xFF637086, false);
+        margin(connection, serviceState, 9);
+        LinearLayout actions = rowButtons(connection);
+        Button start = rowButton(actions, "启动 8787", true);
         start.setOnClickListener(v -> startLocalServer());
-        Button stop = button(connection, "停止本地服务", false);
+        Button stop = rowButton(actions, "停止服务", false);
         stop.setOnClickListener(v -> {
             stopService(new Intent(this, SidecarService.class));
             LocalProxyRuntime.stop();
             serviceState.setText("服务已停止");
             healthState.setText("未连接");
         });
-        Button health = button(connection, "实际检测 /health", false);
+        Button health = button(connection, "检测 /health 连接", false);
         health.setOnClickListener(v -> probeHealth());
-        healthState = text("尚未测试 /health", 13, 0xFF59657E, false);
-        margin(connection, healthState, 4);
+        healthState = text("未执行 HTTP 测试", 12, 0xFF59657E, false);
+        margin(connection, healthState, 5);
+        upstreamGuide = text("", 12, 0xFF91601C, false);
+        margin(connection, upstreamGuide, 8);
+        Button originalPage = button(connection, "返回原 AI 网页（检查原 1601 启动）", false);
+        originalPage.setOnClickListener(v -> {
+            try {
+                Intent i = new Intent();
+                i.setClassName(getPackageName(), "com.deepseek2.app.ui.ProviderActivity");
+                startActivity(i);
+            } catch (RuntimeException ex) {
+                toast("网页入口失败：" + ex.getClass().getSimpleName());
+            }
+        });
 
         LinearLayout api = panel(page, "客户端连接", "Minis、DSH 等客户端填写以下信息");
         margin(api, text(LOCAL_URL, 14, 0xFF323B83, true), 10);
@@ -180,12 +233,32 @@ public final class CompatSettingsActivity extends Activity {
                 toast("地址已复制");
             }
         });
-        margin(api, text("本地 Key 任意非空，例如 test；不代表网页账号已登录。", 12, 0xFF68718A, false), 0);
+        margin(api, text("Local Key: 任意非空（如 test），网站仍需原账号登录", 12, 0xFF68718A, false), 8);
+        margin(api, text("目标模型", 12, 0xFF3A405A, true), 6);
         models = new Spinner(this);
         String[] modelNames = {"deepseek-chat", "chatgpt-web", "grok-web-fast", "glm-web-flash"};
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelNames);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(
+            this, android.R.layout.simple_spinner_dropdown_item, modelNames) {
+            @Override public View getView(int position, View convertView,
+                                           android.view.ViewGroup parent) {
+                TextView view = (TextView) super.getView(position, convertView, parent);
+                view.setTextColor(0xFF1D2442);
+                view.setTextSize(14);
+                view.setPadding(dp(12), dp(12), dp(12), dp(12));
+                return view;
+            }
+            @Override public View getDropDownView(int position, View convertView,
+                                                   android.view.ViewGroup parent) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parent);
+                view.setTextColor(0xFF1D2442);
+                view.setBackgroundColor(Color.WHITE);
+                view.setTextSize(14);
+                view.setPadding(dp(12), dp(12), dp(12), dp(12));
+                return view;
+            }
+        };
         models.setAdapter(adapter);
+        models.setBackground(background(0xFFF3F5FC, 12, 0xFFE5E9F2));
         margin(api, models, 2);
 
         LinearLayout files = panel(page, "图片与文件", "先验证原生选择器，再通过 8787 测试附件透传");
@@ -194,33 +267,45 @@ public final class CompatSettingsActivity extends Activity {
         uploadState = text("尚未选择文件（最大 8 MiB）", 13, 0xFF65708F, false);
         margin(files, uploadState, 10);
         prompt = field(files, "附带问题", "请描述附件内容。", false);
-        Button send = button(files, "测试向网页注入发送附件", true);
+        Button send = button(files, "发送附件测试（需要 1601 上游）", true);
         send.setOnClickListener(v -> sendAttachment());
         replyState = text("尚未发送；上游接收成功需要真实回复验证", 12, 0xFF68718A, false);
         margin(files, replyState, 10);
         margin(files, text("网页上传按钮无反应，可能来自网站 DOM、GeckoView 文件选择回调或账户权限。这里先独立检查 Android 文件选择和原 1601 注入。", 12, 0xFF68718A, false), 0);
 
-        LinearLayout settings = panel(page, "高级配置", "公网 Relay 默认关闭；原网页账号登录与 API Key 是两种机制");
+        Button expand = button(page, "高级配置  ▾  密钥与公网选项", false);
+        LinearLayout settings = panel(page, "高级配置", "本地 8787 不需要更改密钥；仅配置原上游或公网时展开");
+        settings.setVisibility(View.GONE);
+        expand.setOnClickListener(v -> {
+            boolean show = settings.getVisibility() != View.VISIBLE;
+            settings.setVisibility(show ? View.VISIBLE : View.GONE);
+            expand.setText(show ? "高级配置  ▴  点击折叠" : "高级配置  ▾  密钥与公网选项");
+        });
         upstreamKey = field(settings, "原 1601 上游 Key（可留空）", GatewayApp.upstreamApiKey(), true);
         publicKey = field(settings, "公网 API Key", GatewayApp.apiKey(), true);
         relayKey = field(settings, "Relay 配对 Key（默认不用）", GatewayApp.relayKey(), true);
         Button save = button(settings, "保存配置", true);
         save.setOnClickListener(v -> saveConfig());
 
-        LinearLayout note = panel(page, "连续生成说明", "避免兼容代理主动截停回答");
-        margin(note, text("8787 代理的上游读取超时为无限等待，断开本地客户端时继续读取原上游直至自然完成。原 1601、网站会话上限以及 Android 后台限制仍可能中止请求；不能保证无限生成。", 12, 0xFF5C6582, false), 3);
+        LinearLayout note = panel(page, "连续生成", "代理不按固定时间主动截停");
+        margin(note, text("8787 不设读取截止时间；原 1601、网站及 Android 后台仍可能中断。", 12, 0xFF5C6582, false), 0);
 
         updateState();
     }
 
     private void updateState() {
         if (serviceState == null) return;
-        String message = LocalProxyRuntime.isListening()
-            ? "● 8787 已监听（应用进程内）" : "● 8787 未启动";
-        message += SidecarProxyServer.isUpstreamReachable()
-            ? "\n● 1601 上游 TCP 可连接" : "\n● 1601 上游尚不可连接";
-        message += "\n" + LocalProxyRuntime.status();
-        serviceState.setText(message);
+        boolean local = LocalProxyRuntime.isListening();
+        boolean upstream = SidecarProxyServer.isUpstreamReachable();
+        localBadge.setText(local ? "● 本地 8787 · 已监听" : "○ 本地 8787 · 已停止");
+        localBadge.setTextColor(local ? 0xFF136A48 : 0xFF664D87);
+        localBadge.setBackground(background(local ? 0xFFE0F7ED : 0xFFF1EDF7, 12, 0));
+        upstreamBadge.setText(upstream ? "● 原核心 1601 · 可连接" : "● 原核心 1601 · 不可连接");
+        upstreamBadge.setTextColor(upstream ? 0xFF136A48 : 0xFF966317);
+        upstreamBadge.setBackground(background(upstream ? 0xFFE0F7ED : 0xFFFFF3E1, 12, 0));
+        serviceState.setText(local ? "监听已开启；等待真实上游应答" : "服务未启动；点击“启动 8787”");
+        upstreamGuide.setText(upstream ? "1601 TCP 已连通，仍需文本对话验证。" :
+            "1601 未响应。当前只能选择文件，不能证明附件已交给 AI。请先返回原网页使用或检查其本地服务设置。");
     }
 
     private void startLocalServer() {
@@ -328,7 +413,12 @@ public final class CompatSettingsActivity extends Activity {
             return;
         }
         if (!LocalProxyRuntime.isListening()) {
-            uploadState.setText("请先点击“启动 8787 本地服务”");
+            uploadState.setText("请先启动本地 8787 服务");
+            return;
+        }
+        if (!SidecarProxyServer.isUpstreamReachable()) {
+            replyState.setText("附件已在 Android 中选取，但 1601 不可连接，尚未提交给 AI。先检查原网页/1601 服务。");
+            updateState();
             return;
         }
         Uri uri = selectedUri;
