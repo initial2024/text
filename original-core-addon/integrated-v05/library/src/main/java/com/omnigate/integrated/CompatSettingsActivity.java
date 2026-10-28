@@ -188,7 +188,7 @@ public final class CompatSettingsActivity extends Activity {
         hero.setPadding(dp(19), dp(17), dp(19), dp(18));
         margin(page, hero, 14);
         margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
-        margin(hero, text("API 控制台   /   v0.5.9", 13, 0xFFE5E7FF, false), 7);
+        margin(hero, text("API 控制台   /   v0.6.0", 13, 0xFFE5E7FF, false), 7);
         margin(hero, text("本地优先 · 手动启停 · 网页注入保持不变", 12, 0xFFD6E9FF, false), 0);
 
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
@@ -225,7 +225,12 @@ public final class CompatSettingsActivity extends Activity {
             }
             updateState();
         });
-        Button originalPage = button(connection, "返回原 AI 网页", false);
+        Button originalOverlay = button(connection, "打开原版悬浮窗（可能需要授权）", false);
+        originalOverlay.setOnClickListener(v -> {
+            String result = OriginalCoreBridge.requestOriginalOverlay(this);
+            toast(result);
+        });
+        Button originalPage = button(connection, "选择/打开 AI 网页会话", false);
         originalPage.setOnClickListener(v -> {
             try {
                 Intent i = new Intent();
@@ -274,17 +279,34 @@ public final class CompatSettingsActivity extends Activity {
         models.setBackground(background(0xFFF3F5FC, 12, 0xFFE5E9F2));
         margin(api, models, 2);
 
-        LinearLayout files = panel(page, "图片与文件", "先验证原生选择器，再通过 8787 测试附件透传");
+        LinearLayout files = panel(page, "图片与文件",
+            "原版网页注入：打开会话 → 上传附件 → 等待网站确认 → 发送问题");
+        TextView sessionHint = text(
+            "注意：选择文件只在本机完成；需要先进入对应 AI 提供商网页并保持可用登录状态。",
+            12, 0xFF8A5937, true);
+        margin(files, sessionHint, 9);
+        Button openProvider = button(files, "先打开 AI 提供商网页", false);
+        openProvider.setOnClickListener(v -> {
+            try {
+                Intent web = new Intent();
+                web.setClassName(getPackageName(),
+                    "com.deepseek2.app.ui.ProviderActivity");
+                startActivity(web);
+            } catch (RuntimeException ex) {
+                toast("打开网页选择失败：" + ex.getClass().getSimpleName());
+            }
+        });
         Button pick = button(files, "选择图片 / 文件", false);
         pick.setOnClickListener(v -> openPicker());
         uploadState = text("尚未选择文件（最大 8 MiB）", 13, 0xFF65708F, false);
         margin(files, uploadState, 10);
         prompt = field(files, "附带问题", "请描述附件内容。", false);
-        Button send = button(files, "发送附件测试（需要 1601 上游）", true);
+        Button send = button(files, "发送附件到已打开的模型会话（测试）", true);
         send.setOnClickListener(v -> sendAttachment());
         replyState = text("尚未发送；上游接收成功需要真实回复验证", 12, 0xFF68718A, false);
         margin(files, replyState, 10);
-        margin(files, text("网页上传按钮无反应，可能来自网站 DOM、GeckoView 文件选择回调或账户权限。这里先独立检查 Android 文件选择和原 1601 注入。", 12, 0xFF68718A, false), 0);
+        margin(files, text("原版注入依赖网页 file input 和网站上传完成迹象。只有成功回复并经网页确认，"
+          + "才能标记附件送达；如果网站不支持附件或要求登录，本功能不会绕过。", 12, 0xFF68718A, false), 0);
 
         Button expand = button(page, "高级配置  ▾  密钥与公网选项", false);
         LinearLayout settings = panel(page, "高级配置", "本地 8787 不需要更改密钥；仅配置原上游或公网时展开");
@@ -460,10 +482,27 @@ public final class CompatSettingsActivity extends Activity {
             return;
         }
         if (!SidecarProxyServer.isUpstreamReachable()) {
-            replyState.setText("附件在本机已选取，但原上游 " +
-                OriginalCoreBridge.configuredPort() +
-                " 不可连接，尚未提交 AI；请先启动原核心 API。");
+            replyState.setText("附件仅完成本机选择；原 API 不可连接。请先启动原核心。");
             updateState();
+            return;
+        }
+        if (!OriginalCoreBridge.originalHostAlive()) {
+            replyState.setText("未检测到存活的原 AI 网页宿主。先点“先打开 AI 提供商网页”，"
+                + "进入对应网站、确认正常对话后，再返回此页发送。");
+            return;
+        }
+        String active = OriginalCoreBridge.activeProviderModel();
+        String selected = models.getSelectedItem() == null
+            ? "" : models.getSelectedItem().toString();
+        if (active.isEmpty()) {
+            replyState.setText("暂无法确认原核心已激活哪个模型；请先打开网页并测试普通文本。"
+                + "为避免附件投递错会话，本次没有提交。");
+            return;
+        }
+        if (!active.equals(selected)) {
+            replyState.setText("模型不匹配：原核心当前为 " + active
+                + "，设置页选择了 " + selected
+                + "。请先切换原网页提供商或调整模型选项。未提交附件。");
             return;
         }
         Uri uri = selectedUri;
@@ -471,7 +510,8 @@ public final class CompatSettingsActivity extends Activity {
         String mime = selectedMime;
         String question = prompt.getText().toString().trim();
         String model = models.getSelectedItem().toString();
-        replyState.setText("发送中……等待原网页处理。");
+        replyState.setText("已验证端口、会话宿主和模型匹配；正在按原版 V2 网页注入协议"
+            + "等待附件回执。过程中不主动截停生成。");
         new Thread(() -> {
             HttpURLConnection c = null;
             String result;
