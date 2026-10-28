@@ -42,10 +42,6 @@ public final class GatewayService extends Service {
             cloudflareRelay.stop();
             cloudflareRelay = null;
         }
-        if (cloudflareRelay != null) {
-            cloudflareRelay.stop();
-            cloudflareRelay = null;
-        }
 
         if (!GatewayApp.tunnelEnabled()) {
             GatewayApp.setTunnelStatus("已停止");
@@ -110,6 +106,10 @@ public final class GatewayService extends Service {
         if (tunnelClient != null) {
             tunnelClient.stop();
             tunnelClient = null;
+        }
+        if (cloudflareRelay != null) {
+            cloudflareRelay.stop();
+            cloudflareRelay = null;
         }
         if (server != null) {
             server.shutdown();
