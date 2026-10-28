@@ -156,7 +156,7 @@ public final class CompatSettingsActivity extends Activity {
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
         serviceState = text("正在读取状态", 15, 0xFF343B67, true);
         margin(connection, serviceState, 12);
-        Button start = button(connection, "启动 8787 本地服务", true);
+        Button start = button(connection, "启动 8787 本地服务（前台）", true);
         start.setOnClickListener(v -> startLocalServer());
         Button stop = button(connection, "停止本地服务", false);
         stop.setOnClickListener(v -> {
@@ -230,17 +230,11 @@ public final class CompatSettingsActivity extends Activity {
             return;
         }
         updateState();
-        // A foreground-service is a best-effort background keepalive. Local
-        // connectivity must work in foreground without this permission.
-        try {
-            Intent service = new Intent(this, SidecarService.class);
-            service.setAction(SidecarService.ACTION_ENSURE_RUNNING);
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
-            else startService(service);
-        } catch (RuntimeException ex) {
-            healthState.setText("本地监听已启动；后台服务受限: "
-                + ex.getClass().getSimpleName());
-        }
+        // Do not launch an Android 14+ foreground service in the first
+        // recovery candidate. A bad service type or restriction may kill the
+        // entire app process asynchronously even when Activity catches errors.
+        // Foreground-only localhost listener is safer and independently testable.
+        healthState.setText("本地服务已尝试启动；切换到后台后可能被系统回收");
         probeHealth();
     }
 
