@@ -553,7 +553,7 @@ public final class MainActivity extends Activity {
 
         TextView note = UiKit.text(
                 this,
-                "API Key 默认隐藏。可以自定义；修改后本机与公网 /v1 接口立即使用新 Key。",
+                "本机 127.0.0.1 直连无需鉴权；API Key 主要用于公网 /v1。Key 默认隐藏，也可自定义。",
                 12.5f,
                 muted,
                 false);
