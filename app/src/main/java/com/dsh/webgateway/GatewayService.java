@@ -201,12 +201,12 @@ public final class GatewayService extends Service {
                 open,
                 PendingIntent.FLAG_UPDATE_CURRENT | immutable);
 
-        Intent showOverlay = new Intent(
-                "com.deepseek2.app.action.SHOW_OVERLAY");
+        Intent showOverlay = new Intent(Intent.ACTION_MAIN);
+        showOverlay.addCategory(Intent.CATEGORY_LAUNCHER);
         showOverlay.setClassName(
                 "com.deepseek2.app",
-                "com.deepseek2.app.ui.OverlayService");
-        PendingIntent overlayPi = PendingIntent.getService(
+                "com.deepseek2.app.ui.ProviderActivity");
+        PendingIntent overlayPi = PendingIntent.getActivity(
                 this,
                 1,
                 showOverlay,
@@ -233,7 +233,7 @@ public final class GatewayService extends Service {
                 .addAction(
                         new Notification.Action.Builder(
                                 null,
-                                "显示悬浮窗",
+                                "打开原核心",
                                 overlayPi).build())
                 .build();
     }
