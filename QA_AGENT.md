@@ -1,4 +1,4 @@
-# DSH Web Gateway 2.6.0 — independent QA agent
+# DSH Web Gateway 2.7.0 — independent QA agent
 
 You are the independent release-gate agent for this Android gateway.
 
@@ -79,7 +79,7 @@ Any installation failure => FAIL.
 
 1. `GET http://127.0.0.1:8787/health` returns 200.
 2. `GET /v1/models` without API key returns 401.
-3. The same request with the displayed API key returns 200 and includes `deepseek-chat`.
+3. The same request with the displayed API key returns 200 and includes all four original model IDs: `deepseek-chat`, `chatgpt-web`, `grok-web-fast`, `glm-web-flash`.
 4. A normal non-stream chat returns a DeepSeek Web answer.
 5. A streaming chat produces incremental content and terminates cleanly.
 6. Reasoning and answer content are not incorrectly merged when both are present.
@@ -164,3 +164,44 @@ Final output must include:
 and a compact table of blocking/untested gates.
 
 No target-device evidence => maximum verdict PASS_STATIC.
+
+
+## K. Multi-provider compatibility gates
+
+Run each provider independently. A PASS for DeepSeek must not be generalized to the other three.
+
+### DeepSeek
+- model: `deepseek-chat`
+- page: `https://chat.deepseek.com/`
+- normal send/stream/reasoning
+- image + document attachment
+- long response
+- rollover
+
+### ChatGPT
+- model: `chatgpt-web`
+- page: `https://chatgpt.com/`
+- normal send/stream
+- attachment when the current account/UI permits it
+- long response
+- rollover
+
+### Grok
+- model: `grok-web-fast`
+- page: `https://grok.com/`
+- normal send/stream
+- Fast-mode page compatibility
+- attachment when current UI permits it
+- long response
+- rollover
+
+### GLM
+- model: `glm-web-flash`
+- page: `https://chatglm.cn/`
+- normal send/stream
+- GLM-Flash page compatibility
+- attachment when current UI permits it
+- long response
+- rollover
+
+For every provider record PASS / FAIL / NOT_TESTED separately. Static selector presence alone is not runtime proof.
