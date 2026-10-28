@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -18,6 +20,8 @@ import java.util.Locale;
 import java.util.Map;
 
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
@@ -113,21 +117,43 @@ public final class TunnelClient {
         }};
         context.init(null, trustManagers, new SecureRandom());
 
+        status("连接远端 " + TUNNEL_HOST + ":" + TUNNEL_PORT);
+        Socket raw = new Socket();
+        raw.connect(new InetSocketAddress(TUNNEL_HOST, TUNNEL_PORT), 10_000);
+
+        status("TLS 握手中");
         SSLSocketFactory factory = context.getSocketFactory();
-        SSLSocket s = (SSLSocket) factory.createSocket(TUNNEL_HOST, TUNNEL_PORT);
+        SSLSocket s = (SSLSocket) factory.createSocket(
+                raw,
+                "deepseeks.dpdns.org",
+                TUNNEL_PORT,
+                true);
+        try {
+            SSLParameters params = s.getSSLParameters();
+            params.setServerNames(java.util.Collections.singletonList(
+                    new SNIHostName("deepseeks.dpdns.org")));
+            s.setSSLParameters(params);
+        } catch (Throwable ignored) {}
+        s.setSoTimeout(15_000);
+        s.startHandshake();
+        status("TLS/证书验证通过");
+
         s.setSoTimeout(0);
         socket = s;
 
         try (BufferedInputStream in = new BufferedInputStream(s.getInputStream());
              BufferedOutputStream out = new BufferedOutputStream(s.getOutputStream())) {
+            status("正在注册 " + prefix);
             writeLine(out, "REGISTER " + token + " " + prefix);
             String response = readLine(in);
-            if (response == null || !response.startsWith("OK")) {
-                status("注册失败：" + response);
-                return;
+            if (response == null) {
+                throw new IOException("REGISTER 无响应");
+            }
+            if (!response.startsWith("OK")) {
+                throw new IOException("REGISTER 被拒绝：" + sanitizeStatus(response));
             }
 
-            status("已连接");
+            status("已连接 · " + prefix + TUNNEL_SUFFIX_HINT);
             while (running && !s.isClosed()) {
                 Request req = readRequest(in);
                 if (req == null) break;
@@ -257,6 +283,15 @@ public final class TunnelClient {
             out.append(String.format(Locale.ROOT, "%02X", digest[i] & 0xff));
         }
         return out.toString();
+    }
+
+    private static final String TUNNEL_SUFFIX_HINT = ".deepseeks.dpdns.org";
+
+    private static String sanitizeStatus(String value) {
+        if (value == null) return "null";
+        String cleaned = value.replace('\r', ' ').replace('\n', ' ').trim();
+        if (cleaned.length() > 160) cleaned = cleaned.substring(0, 160) + "…";
+        return cleaned;
     }
 
     private void status(String value) {
