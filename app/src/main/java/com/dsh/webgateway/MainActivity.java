@@ -234,39 +234,169 @@ public final class MainActivity extends Activity {
 
         LinearLayout content = UiKit.vertical(this);
         content.setPadding(
-                UiKit.dp(this, 18),
-                UiKit.dp(this, 8),
-                UiKit.dp(this, 18),
-                UiKit.dp(this, 26));
+                UiKit.dp(this, 16),
+                UiKit.dp(this, 6),
+                UiKit.dp(this, 16),
+                UiKit.dp(this, 30));
         scroll.addView(content);
 
-        TextView hero = UiKit.text(
-                this,
-                "一个入口，连接多个网页 AI",
-                26f,
-                text,
-                true);
-        content.addView(hero, UiKit.matchWrap());
+        content.addView(buildHeroPanel(), cardLp(0));
 
-        TextView heroSub = UiKit.text(
+        TextView credentials = UiKit.sectionTitle(
                 this,
-                "保留网页登录身份，把 DeepSeek、ChatGPT、Grok 与 GLM 统一成兼容接口。",
-                14f,
-                muted,
-                false);
-        heroSub.setLineSpacing(UiKit.dp(this, 3), 1f);
-        LinearLayout.LayoutParams heroSubLp = UiKit.matchWrap();
-        heroSubLp.topMargin = UiKit.dp(this, 8);
-        heroSubLp.bottomMargin = UiKit.dp(this, 20);
-        content.addView(heroSub, heroSubLp);
+                "连接凭据",
+                muted);
+        LinearLayout.LayoutParams credentialsLp = UiKit.matchWrap();
+        credentialsLp.topMargin = UiKit.dp(this, 22);
+        credentialsLp.leftMargin = UiKit.dp(this, 4);
+        content.addView(credentials, credentialsLp);
+        content.addView(buildApiCard(), cardLp(8));
 
-        content.addView(buildStatusCard(), cardLp(0));
-        content.addView(buildApiCard(), cardLp(12));
-        content.addView(buildTunnelCard(), cardLp(12));
-        content.addView(buildProviderSummaryCard(), cardLp(12));
-        content.addView(buildOverlayCard(), cardLp(12));
+        TextView publicAccess = UiKit.sectionTitle(
+                this,
+                "公网访问",
+                muted);
+        LinearLayout.LayoutParams publicLp = UiKit.matchWrap();
+        publicLp.topMargin = UiKit.dp(this, 22);
+        publicLp.leftMargin = UiKit.dp(this, 4);
+        content.addView(publicAccess, publicLp);
+        content.addView(buildTunnelCard(), cardLp(8));
+
+        TextView session = UiKit.sectionTitle(
+                this,
+                "当前会话",
+                muted);
+        LinearLayout.LayoutParams sessionLp = UiKit.matchWrap();
+        sessionLp.topMargin = UiKit.dp(this, 22);
+        sessionLp.leftMargin = UiKit.dp(this, 4);
+        content.addView(session, sessionLp);
+        content.addView(buildProviderSummaryCard(), cardLp(8));
+
+        TextView controls = UiKit.sectionTitle(
+                this,
+                "快捷控制",
+                muted);
+        LinearLayout.LayoutParams controlsLp = UiKit.matchWrap();
+        controlsLp.topMargin = UiKit.dp(this, 22);
+        controlsLp.leftMargin = UiKit.dp(this, 4);
+        content.addView(controls, controlsLp);
+        content.addView(buildOverlayCard(), cardLp(8));
 
         return scroll;
+    }
+
+    private View buildHeroPanel() {
+        LinearLayout hero = UiKit.vertical(this);
+        hero.setPadding(
+                UiKit.dp(this, 22),
+                UiKit.dp(this, 22),
+                UiKit.dp(this, 22),
+                UiKit.dp(this, 22));
+        hero.setBackground(UiKit.gradient(
+                primary,
+                primary2,
+                UiKit.dp(this, 28)));
+        hero.setElevation(UiKit.dp(this, 7));
+
+        LinearLayout top = UiKit.horizontal(this);
+
+        TextView live = UiKit.text(
+                this,
+                "●  ONLINE",
+                12f,
+                Color.WHITE,
+                true);
+        live.setGravity(Gravity.CENTER);
+        live.setPadding(
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 7),
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 7));
+        live.setBackground(UiKit.rounded(
+                Color.argb(42, 255, 255, 255),
+                UiKit.dp(this, 15)));
+        top.addView(live);
+
+        TextView port = UiKit.text(
+                this,
+                "PORT 8787",
+                12f,
+                Color.WHITE,
+                true);
+        port.setGravity(Gravity.CENTER);
+        port.setPadding(
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 7),
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 7));
+        port.setBackground(UiKit.rounded(
+                Color.argb(32, 255, 255, 255),
+                UiKit.dp(this, 15)));
+        LinearLayout.LayoutParams portLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        portLp.leftMargin = UiKit.dp(this, 8);
+        top.addView(port, portLp);
+
+        hero.addView(top, UiKit.matchWrap());
+
+        TextView title = UiKit.text(
+                this,
+                "OmniGate 已就绪",
+                28f,
+                Color.WHITE,
+                true);
+        title.setLetterSpacing(0.015f);
+        LinearLayout.LayoutParams titleLp = UiKit.matchWrap();
+        titleLp.topMargin = UiKit.dp(this, 18);
+        hero.addView(title, titleLp);
+
+        TextView subtitle = UiKit.text(
+                this,
+                "网页登录保持原身份，统一输出 OpenAI 兼容接口。",
+                14f,
+                Color.argb(224, 255, 255, 255),
+                false);
+        subtitle.setLineSpacing(UiKit.dp(this, 3), 1f);
+        LinearLayout.LayoutParams subLp = UiKit.matchWrap();
+        subLp.topMargin = UiKit.dp(this, 7);
+        hero.addView(subtitle, subLp);
+
+        LinearLayout footer = UiKit.horizontal(this);
+        LinearLayout.LayoutParams footerLp = UiKit.matchWrap();
+        footerLp.topMargin = UiKit.dp(this, 20);
+
+        TextView provider = UiKit.text(
+                this,
+                "DeepSeek · ChatGPT · Grok · GLM",
+                12.5f,
+                Color.argb(225, 255, 255, 255),
+                true);
+        footer.addView(provider, new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f));
+
+        TextView open = UiKit.text(
+                this,
+                "打开网页  ›",
+                13.5f,
+                Color.WHITE,
+                true);
+        open.setGravity(Gravity.CENTER);
+        open.setPadding(
+                UiKit.dp(this, 14),
+                UiKit.dp(this, 9),
+                UiKit.dp(this, 14),
+                UiKit.dp(this, 9));
+        open.setBackground(UiKit.rounded(
+                Color.argb(38, 255, 255, 255),
+                UiKit.dp(this, 17)));
+        open.setOnClickListener(v -> switchTab(TAB_WEB));
+        footer.addView(open);
+
+        hero.addView(footer, footerLp);
+        return hero;
     }
 
     private View buildStatusCard() {
@@ -335,15 +465,17 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 1f));
 
-        TextView editKey = UiKit.pill(
+        ImageView editKey = UiKit.iconButton(
                 this,
-                "设置 API Key",
+                R.drawable.ic_edit,
                 primary,
                 primarySoft,
-                primarySoft,
-                true);
+                10,
+                "设置 API Key");
         editKey.setOnClickListener(v -> showApiKeyEditor());
-        titleRow.addView(editKey);
+        titleRow.addView(editKey, new LinearLayout.LayoutParams(
+                UiKit.dp(this, 42),
+                UiKit.dp(this, 42)));
         card.addView(titleRow, UiKit.matchWrap());
 
         endpointText = UiKit.text(
@@ -393,22 +525,24 @@ public final class MainActivity extends Activity {
                         "API Key",
                         GatewayApp.apiKey()));
 
-        TextView toggle = UiKit.pill(
+        ImageView toggle = UiKit.iconButton(
                 this,
-                "显示",
-                text,
-                surfaceSoft,
-                border,
-                false);
+                R.drawable.ic_eye,
+                muted,
+                surface,
+                10,
+                "显示或隐藏 API Key");
         toggle.setOnClickListener(v -> {
             apiKeyVisible = !apiKeyVisible;
             apiKeyText.setText(
                     apiKeyVisible ? GatewayApp.apiKey() : maskedApiKey());
-            toggle.setText(apiKeyVisible ? "隐藏" : "显示");
+            toggle.setColorFilter(apiKeyVisible ? primary : muted);
         });
-        apiRow.addView(toggle, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams toggleLp = new LinearLayout.LayoutParams(
+                UiKit.dp(this, 40),
+                UiKit.dp(this, 40));
+        toggleLp.leftMargin = UiKit.dp(this, 6);
+        apiRow.addView(toggle, toggleLp);
 
         card.addView(apiRow, fieldLp(10));
 
@@ -458,15 +592,17 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 1f));
 
-        TextView copy = UiKit.pill(
+        ImageView copy = UiKit.iconButton(
                 this,
-                "复制",
+                R.drawable.ic_copy,
                 primary,
                 surface,
-                border,
-                true);
+                10,
+                "复制 " + label);
         copy.setOnClickListener(v -> copyAction.run());
-        row.addView(copy);
+        row.addView(copy, new LinearLayout.LayoutParams(
+                UiKit.dp(this, 40),
+                UiKit.dp(this, 40)));
 
         return row;
     }
