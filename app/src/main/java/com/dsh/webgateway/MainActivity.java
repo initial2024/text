@@ -981,6 +981,26 @@ public final class MainActivity extends Activity {
         row.addView(change);
 
         card.addView(row, UiKit.matchWrap());
+
+        TextView continuity = UiKit.text(
+                this,
+                "自动续接：默认开启 · 对话达到上限时自动新建并继续 · 最多 3 次",
+                12f,
+                success,
+                true);
+        continuity.setLineSpacing(UiKit.dp(this, 2), 1f);
+        continuity.setPadding(
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 9),
+                UiKit.dp(this, 11),
+                UiKit.dp(this, 9));
+        continuity.setBackground(UiKit.rounded(
+                UiKit.withAlpha(success, 22),
+                UiKit.dp(this, 14)));
+        LinearLayout.LayoutParams continuityLp = UiKit.matchWrap();
+        continuityLp.topMargin = UiKit.dp(this, 14);
+        card.addView(continuity, continuityLp);
+
         return card;
     }
 
@@ -1000,7 +1020,7 @@ public final class MainActivity extends Activity {
 
         TextView desc = UiKit.text(
                 this,
-                "44dp 紧凑悬浮球 · 可拖动 · 长按隐藏",
+                "44dp 紧凑悬浮球 · 文字/图片/文件直发 · 可拖动 · 长按隐藏",
                 12.5f,
                 muted,
                 false);
