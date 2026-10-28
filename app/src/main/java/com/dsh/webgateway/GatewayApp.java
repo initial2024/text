@@ -15,6 +15,7 @@ public final class GatewayApp extends Application {
     private static volatile WebRelay relay;
     private static volatile GatewayApp instance;
     private static volatile String tunnelStatus = "已停止";
+    private static volatile String localApiStatus = "启动中";
 
     @Override
     public void onCreate() {
@@ -161,6 +162,14 @@ public final class GatewayApp extends Application {
 
     public static void setTunnelStatus(String value) {
         tunnelStatus = value == null ? "" : value;
+    }
+
+    public static String localApiStatus() {
+        return localApiStatus;
+    }
+
+    public static void setLocalApiStatus(String value) {
+        localApiStatus = value == null ? "" : value;
     }
 
     public static String apiKey() {
