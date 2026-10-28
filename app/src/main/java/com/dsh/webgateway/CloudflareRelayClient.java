@@ -206,7 +206,7 @@ public final class CloudflareRelayClient {
                     "http://127.0.0.1:" + localPort + path).openConnection();
             conn.setRequestMethod(method);
             conn.setConnectTimeout(10_000);
-            conn.setReadTimeout(620_000);
+            conn.setReadTimeout(3_660_000);
             conn.setInstanceFollowRedirects(false);
 
             JSONObject headers = msg.optJSONObject("headers");
