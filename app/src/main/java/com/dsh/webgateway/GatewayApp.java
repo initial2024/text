@@ -11,7 +11,8 @@ public final class GatewayApp extends Application {
     public static final String TUNNEL_SUFFIX = ".deepseeks.dpdns.org";
 
     private static volatile WebRelay relay;
-    private static volatile GatewayApp instance;\n    private static volatile String tunnelStatus = "已停止";
+    private static volatile GatewayApp instance;
+    private static volatile String tunnelStatus = "已停止";
 
     @Override
     public void onCreate() {
@@ -28,7 +29,9 @@ public final class GatewayApp extends Application {
     }
 
     private static SharedPreferences prefs() {
-        if (instance == null) throw new IllegalStateException("Application not initialized");
+        if (instance == null) {
+            throw new IllegalStateException("Application not initialized");
+        }
         return instance.getSharedPreferences("gateway", MODE_PRIVATE);
     }
 
@@ -43,8 +46,14 @@ public final class GatewayApp extends Application {
     public static String tunnelPrefix() {
         SharedPreferences p = prefs();
         String value = p.getString("tunnel_prefix", null);
-        if (value != null && !value.trim().isEmpty()) return value.trim().toLowerCase(Locale.ROOT);
-        String compact = UUID.randomUUID().toString().replace("-", "").toLowerCase(Locale.ROOT);
+        if (value != null && !value.trim().isEmpty()) {
+            return value.trim().toLowerCase(Locale.ROOT);
+        }
+
+        String compact = UUID.randomUUID()
+                .toString()
+                .replace("-", "")
+                .toLowerCase(Locale.ROOT);
         value = "gw-" + compact.substring(0, 12);
         p.edit().putString("tunnel_prefix", value).apply();
         return value;
@@ -53,9 +62,12 @@ public final class GatewayApp extends Application {
     public static String tunnelToken() {
         SharedPreferences p = prefs();
         String value = p.getString("tunnel_token", null);
-        if (value != null && !value.trim().isEmpty()) return value.trim();
-        value = UUID.randomUUID().toString().replace("-", "") +
-                UUID.randomUUID().toString().replace("-", "");
+        if (value != null && !value.trim().isEmpty()) {
+            return value.trim();
+        }
+
+        value = UUID.randomUUID().toString().replace("-", "")
+                + UUID.randomUUID().toString().replace("-", "");
         p.edit().putString("tunnel_token", value).apply();
         return value;
     }
@@ -67,6 +79,7 @@ public final class GatewayApp extends Application {
         if (token == null || token.length() < 32 || token.length() > 256) {
             throw new IllegalArgumentException("invalid tunnel token");
         }
+
         prefs().edit()
                 .putString("tunnel_prefix", prefix.toLowerCase(Locale.ROOT))
                 .putString("tunnel_token", token.trim())
@@ -95,7 +108,9 @@ public final class GatewayApp extends Application {
 
     public static String effectivePublicUrl() {
         String custom = customPublicUrl();
-        if (customPublicUrlVerified() && !custom.isEmpty()) return custom;
+        if (customPublicUrlVerified() && !custom.isEmpty()) {
+            return custom;
+        }
         return generatedPublicUrl();
     }
 
@@ -110,10 +125,13 @@ public final class GatewayApp extends Application {
     public static String apiKey() {
         SharedPreferences p = prefs();
         String value = p.getString("api_key", null);
-        if (value != null && value.length() >= 32) return value;
-        value = "dsh-" +
-                UUID.randomUUID().toString().replace("-", "") +
-                UUID.randomUUID().toString().replace("-", "");
+        if (value != null && value.length() >= 32) {
+            return value;
+        }
+
+        value = "dsh-"
+                + UUID.randomUUID().toString().replace("-", "")
+                + UUID.randomUUID().toString().replace("-", "");
         p.edit().putString("api_key", value).apply();
         return value;
     }
