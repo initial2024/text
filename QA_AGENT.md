@@ -1,4 +1,4 @@
-# DSH Web Gateway 2.7.0 — independent QA agent
+# OmniGate 2.8.0 — independent QA agent
 
 You are the independent release-gate agent for this Android gateway.
 
@@ -34,8 +34,8 @@ Required:
 4. `apksigner verify --verbose --print-certs` passed.
 5. APK Signature Scheme v2 is reported true.
 6. Package = `com.dsh.webgateway`.
-7. versionCode = 260.
-8. versionName = 2.6.0.
+7. versionCode = 280.
+8. versionName = 2.8.0.
 9. minSdk = 26.
 10. targetSdk = 35.
 11. No production signing key/private secret is committed to the public repository.
@@ -205,3 +205,30 @@ Run each provider independently. A PASS for DeepSeek must not be generalized to 
 - rollover
 
 For every provider record PASS / FAIL / NOT_TESTED separately. Static selector presence alone is not runtime proof.
+
+
+## L. OmniGate product/UI gates
+
+1. Launcher label is `OmniGate` and does not display the old `DSH Web Gateway` brand.
+2. Adaptive launcher icon is present.
+3. SplashActivity is the launcher activity and an app-branded launch animation is visible before MainActivity.
+4. Main UI contains three persistent navigation areas: 概览 / 会话 / 网页.
+5. Overview contains separate copyable fields for local Base URL, Model and API Key.
+6. API Key is hidden by default; reveal/hide works.
+7. User can set a custom API Key (12–256 characters), and the new key is immediately enforced by `/v1/*`.
+8. User can regenerate a random API Key.
+9. Public Base URL is shown separately and can be copied independently.
+10. Provider cards preserve original APK model ids: `deepseek-chat`, `chatgpt-web`, `grok-web-fast`, `glm-web-flash`.
+11. Overlay bubble is 44dp, draggable, provider-colored, tap-to-open and long-press-to-hide.
+12. Hiding the overlay does not stop port 8787, browser session or tunnel.
+
+## M. Public-tunnel diagnostics gates
+
+A REGISTER `OK` is not sufficient for PASS.
+
+1. UI exposes connection stages: remote connect, TLS handshake, TLS/certificate pass, register, register response.
+2. TLS uses the pinned certificate and explicit SNI for `deepseeks.dpdns.org`.
+3. After REGISTER succeeds, OmniGate probes `https://<prefix>.deepseeks.dpdns.org/__tunnel_probe`.
+4. Public tunnel is considered runtime PASS only when the probe returns this exact Gateway probe value.
+5. DNS failure, TCP/TLS failure, certificate-pin mismatch, REGISTER rejection and public-probe failure must be distinguishable in status text.
+6. If the original old URL is being restored, matching old `prefix + tunnel_token` evidence is required. The URL/prefix alone is insufficient.
