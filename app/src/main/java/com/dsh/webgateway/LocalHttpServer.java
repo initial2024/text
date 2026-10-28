@@ -88,7 +88,7 @@ public final class LocalHttpServer {
                 ServerSocket listening = serverSocket;
                 if (listening == null || listening.isClosed()) break;
                 Socket socket = listening.accept();
-                socket.setSoTimeout(620_000);
+                socket.setSoTimeout(3_720_000);
                 pool.execute(() -> handle(socket));
             }
         } catch (IOException e) {
@@ -123,10 +123,13 @@ public final class LocalHttpServer {
 
             if ("GET".equals(req.method) && "/health".equals(req.path)) {
                 AiProvider selected = GatewayApp.selectedProvider();
+                boolean originalReady = OriginalGatewayProxy.probe();
                 JSONObject health = new JSONObject()
                         .put("ok", true)
                         .put("port", port)
-                        .put("browserReady", GatewayApp.relay() != null)
+                        .put("mode", "companion-proxy")
+                        .put("originalCoreReady", originalReady)
+                        .put("originalCoreBase", OriginalGatewayProxy.ORIGINAL_BASE)
                         .put("selectedProvider", selected.id)
                         .put("selectedModel", selected.model)
                         .put("tunnelEnabled", GatewayApp.tunnelEnabled())
@@ -241,118 +244,29 @@ public final class LocalHttpServer {
     }
 
     private void handleChat(Request req, OutputStream out) throws Exception {
-        WebRelay relay = GatewayApp.relay();
-        if (relay == null) {
+        if (!OriginalGatewayProxy.probe()) {
             writeJson(out, 503, new JSONObject()
-                    .put("error", "browser_not_ready")
-                    .put("message", "Open DSH Web Gateway and load/login to a web AI provider first."));
+                    .put("error", "original_gateway_not_ready")
+                    .put("message",
+                            "Start the original AI Gateway first. OmniGate Companion does not reimplement browser automation.")
+                    .put("originalBase", OriginalGatewayProxy.ORIGINAL_BASE));
             return;
         }
 
-        JSONObject body;
-        try {
-            body = new JSONObject(new String(req.body, StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            writeJson(out, 400, new JSONObject().put("error", "invalid_json"));
-            return;
-        }
-
-        AiProvider provider = AiProvider.fromModel(
-                body.optString("model", ""),
-                GatewayApp.selectedProvider());
-        String responseModel = provider.model;
-
-        boolean stream = body.optBoolean("stream", false);
-        if (stream) {
-            writeSseHeaders(out);
-            WebRelay.Result result = relay.submit(body, new WebRelay.StreamSink() {
-                @Override public void reasoning(String delta) throws IOException {
-                    sendSseDelta(out, responseModel, "reasoning_content", delta);
-                }
-
-                @Override public void text(String delta) throws IOException {
-                    sendSseDelta(out, responseModel, "content", delta);
-                }
-
-                @Override public void heartbeat() throws IOException {
-                    out.write(": keepalive\n\n".getBytes(StandardCharsets.UTF_8));
-                    out.flush();
-                }
-            });
-
-            if (result.error != null) {
-                JSONObject err = new JSONObject()
-                        .put("error", result.error)
-                        .put("provider", provider.id);
-                out.write(("data: " + err + "\n\n").getBytes(StandardCharsets.UTF_8));
-            } else {
-                JSONObject done = new JSONObject()
-                        .put("id", "web-gateway")
-                        .put("object", "chat.completion.chunk")
-                        .put("model", responseModel)
-                        .put("choices", new JSONArray().put(
-                                new JSONObject()
-                                        .put("index", 0)
-                                        .put("delta", new JSONObject())
-                                        .put("finish_reason", "stop")));
-                out.write(("data: " + done + "\n\n").getBytes(StandardCharsets.UTF_8));
-            }
-
-            out.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
-            out.flush();
-        } else {
-            WebRelay.Result result = relay.submit(body, null);
-            if (result.error != null) {
-                writeJson(out, 502, new JSONObject()
-                        .put("error", "relay_failed")
-                        .put("provider", provider.id)
-                        .put("message", result.error));
-            } else {
-                JSONObject message = new JSONObject()
-                        .put("role", "assistant")
-                        .put("content", result.answer);
-                if (!result.reasoning.isEmpty()) {
-                    message.put("reasoning_content", result.reasoning);
-                }
-
-                JSONObject choice = new JSONObject()
-                        .put("index", 0)
-                        .put("message", message)
-                        .put("finish_reason", "stop");
-
-                JSONObject response = new JSONObject()
-                        .put("id", "web-gateway")
-                        .put("object", "chat.completion")
-                        .put("model", responseModel)
-                        .put("provider", provider.id)
-                        .put("choices", new JSONArray().put(choice));
-                writeJson(out, 200, response);
-            }
-        }
-    }
-
-    private void sendSseDelta(
-            OutputStream out,
-            String model,
-            String key,
-            String value) throws IOException {
-        if (value == null || value.isEmpty()) return;
-        try {
-            JSONObject delta = new JSONObject().put(key, value);
-            JSONObject choice = new JSONObject()
-                    .put("index", 0)
-                    .put("delta", delta)
-                    .put("finish_reason", JSONObject.NULL);
-            JSONObject event = new JSONObject()
-                    .put("id", "web-gateway")
-                    .put("object", "chat.completion.chunk")
-                    .put("model", model)
-                    .put("choices", new JSONArray().put(choice));
-            out.write(("data: " + event + "\n\n").getBytes(StandardCharsets.UTF_8));
-            out.flush();
-        } catch (Exception e) {
-            throw new IOException(e);
-        }
+        // Preserve the exact OpenAI-compatible request body and let the
+        // original 169 MB AI Gateway own provider selection, page input,
+        // attachments, login state, streaming and browser automation.
+        //
+        // OriginalGatewayProxy intentionally keeps draining the upstream
+        // response if the downstream client disappears, so a transient
+        // Minis/DSH/UI disconnect does not become client_disconnected inside
+        // the frozen original Gateway.
+        OriginalGatewayProxy.proxy(
+                req.method,
+                req.path,
+                req.headers,
+                req.body,
+                out);
     }
 
     private Request readRequest(InputStream in) throws IOException {
