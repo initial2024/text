@@ -13,7 +13,8 @@ public final class GatewayService extends Service {
     public static final String ACTION_RESTART_TUNNEL = "com.dsh.webgateway.RESTART_TUNNEL";
     private static final String CHANNEL_ID = "dsh_web_gateway";
 
-    private LocalHttpServer server;
+    private LocalHttpServer primaryServer;
+    private LocalHttpServer compatServer;
     private TunnelClient tunnelClient;
 
     @Override
@@ -21,14 +22,19 @@ public final class GatewayService extends Service {
         super.onCreate();
         createChannel();
         startForeground(GatewayApp.PORT, buildNotification());
-        startServer();
+        startServers();
         syncTunnel();
     }
 
-    private void startServer() {
-        if (server != null) server.shutdown();
-        server = new LocalHttpServer(GatewayApp.PORT);
-        server.start();
+    private synchronized void startServers() {
+        if (primaryServer != null) primaryServer.shutdown();
+        if (compatServer != null) compatServer.shutdown();
+
+        primaryServer = new LocalHttpServer(GatewayApp.PORT);
+        primaryServer.start();
+
+        compatServer = new LocalHttpServer(GatewayApp.COMPAT_PORT);
+        compatServer.start();
     }
 
     private synchronized void syncTunnel() {
@@ -77,9 +83,13 @@ public final class GatewayService extends Service {
             tunnelClient.stop();
             tunnelClient = null;
         }
-        if (server != null) {
-            server.shutdown();
-            server = null;
+        if (primaryServer != null) {
+            primaryServer.shutdown();
+            primaryServer = null;
+        }
+        if (compatServer != null) {
+            compatServer.shutdown();
+            compatServer = null;
         }
         super.onDestroy();
     }
@@ -95,7 +105,7 @@ public final class GatewayService extends Service {
                     CHANNEL_ID,
                     "DSH Web Gateway",
                     NotificationManager.IMPORTANCE_LOW);
-            channel.setDescription("Keeps the DeepSeek Web gateway and optional public tunnel available");
+            channel.setDescription("Keeps the local DeepSeek Web gateway and dpdns reverse tunnel available");
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
@@ -110,7 +120,8 @@ public final class GatewayService extends Service {
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
 
-        String text = "127.0.0.1:" + GatewayApp.PORT;
+        String text = "127.0.0.1:" + GatewayApp.PORT +
+                " / :" + GatewayApp.COMPAT_PORT;
         if (GatewayApp.tunnelEnabled()) {
             text += " · " + GatewayApp.tunnelStatus();
         }
