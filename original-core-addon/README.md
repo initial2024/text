@@ -124,3 +124,14 @@ Build:
 - minSdk: 26
 - targetSdk: 35
 - GitHub Actions build, zipalign, v2/v3 signature and manifest gates passed.
+
+
+## Permanent signing identity
+
+This compatibility line now uses a fixed signing certificate. Future Sidecar and original-core add-on releases must keep certificate SHA-256:
+
+`BF:DC:4D:E8:53:80:66:D2:9E:CD:17:E8:0A:B6:51:D3:8A:E3:C4:40:71:3F:96:51:BD:8C:E1:C8:10:15:D2:7D`
+
+CI is fail-closed: it does not create an ephemeral fallback key. See `SIGNING_POLICY.md`.
+
+The GitHub repository is public, so the private keystore and passwords are intentionally not committed. They are supplied only through GitHub Actions Secrets.
