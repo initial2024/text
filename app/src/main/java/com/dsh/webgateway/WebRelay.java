@@ -24,6 +24,8 @@ public final class WebRelay {
     private static final long POLL_MS = 400L;
     private static final long END_GRACE_MS = 5_000L;
     private static final int MAX_ROLLOVER = 1;
+    private static final int MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024;
+    private static final int MAX_ATTACHMENTS_TOTAL_BYTES = 24 * 1024 * 1024;
 
     public interface StreamSink {
         void reasoning(String delta) throws IOException;
@@ -171,9 +173,13 @@ public final class WebRelay {
         for (Attachment a : env.attachments) {
             if (rolloverCount > 0 || a.current) toUpload.add(a);
         }
-        for (Attachment a : toUpload) uploadAttachment(a);
+        for (Attachment a : toUpload) uploadAttachment(provider, a);
 
-        sendPrompt(provider, env.prompt);
+        String prompt = env.prompt == null ? "" : env.prompt.trim();
+        if (prompt.isEmpty() && !toUpload.isEmpty()) {
+            prompt = "请查看并分析我刚刚上传的附件。";
+        }
+        sendPrompt(provider, prompt);
 
         long start = System.currentTimeMillis();
         long lastGeneratingAt = start;
@@ -264,31 +270,242 @@ public final class WebRelay {
         if (envelopeRaw != null) {
             int a = envelopeRaw.indexOf(PREFIX);
             int b = envelopeRaw.indexOf(SUFFIX, a + PREFIX.length());
-            String encoded = envelopeRaw.substring(a + PREFIX.length(), b).trim();
+            String encoded = envelopeRaw.substring(
+                    a + PREFIX.length(),
+                    b).trim();
             byte[] decoded = Base64.decode(encoded, Base64.DEFAULT);
-            JSONObject payload = new JSONObject(new String(decoded, StandardCharsets.UTF_8));
+            JSONObject payload = new JSONObject(
+                    new String(decoded, StandardCharsets.UTF_8));
 
             String prompt = payload.optString("prompt", "");
             if (prompt.isEmpty()) prompt = buildPrompt(messages);
 
             List<Attachment> attachments = new ArrayList<>();
+            int totalBytes = 0;
             JSONArray arr = payload.optJSONArray("attachments");
             if (arr != null) {
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject x = arr.optJSONObject(i);
                     if (x == null) continue;
-                    attachments.add(new Attachment(
-                            x.optString("id"),
-                            x.optString("name", "attachment.bin"),
+                    Attachment attachment = checkedAttachment(
+                            x.optString("id", "env-" + i),
+                            x.optString("name", "attachment-" + (i + 1)),
                             x.optString("mime", "application/octet-stream"),
                             x.optString("data"),
-                            x.optBoolean("current", false)));
+                            x.optBoolean("current", false));
+                    totalBytes += decodedAttachmentBytes(attachment.data);
+                    if (totalBytes > MAX_ATTACHMENTS_TOTAL_BYTES) {
+                        throw new IOException(
+                                "ATTACHMENT_TOO_LARGE: total attachments exceed 24 MiB");
+                    }
+                    attachments.add(attachment);
                 }
             }
             return new Envelope(prompt, attachments);
         }
 
-        return new Envelope(buildPrompt(messages), new ArrayList<>());
+        return new Envelope(
+                buildPrompt(messages),
+                parseStandardAttachments(messages));
+    }
+
+    private List<Attachment> parseStandardAttachments(
+            JSONArray messages) throws Exception {
+        List<Attachment> out = new ArrayList<>();
+        int lastUser = -1;
+        for (int i = messages.length() - 1; i >= 0; i--) {
+            JSONObject m = messages.optJSONObject(i);
+            if (m != null && "user".equals(m.optString("role"))) {
+                lastUser = i;
+                break;
+            }
+        }
+
+        int totalBytes = 0;
+        for (int i = 0; i < messages.length(); i++) {
+            JSONObject message = messages.optJSONObject(i);
+            if (message == null) continue;
+            Object content = message.opt("content");
+            if (!(content instanceof JSONArray)) continue;
+
+            JSONArray parts = (JSONArray) content;
+            for (int j = 0; j < parts.length(); j++) {
+                JSONObject part = parts.optJSONObject(j);
+                if (part == null) continue;
+
+                Attachment attachment = attachmentFromPart(
+                        part,
+                        "msg-" + i + "-part-" + j,
+                        i == lastUser);
+                if (attachment == null) continue;
+
+                totalBytes += decodedAttachmentBytes(attachment.data);
+                if (totalBytes > MAX_ATTACHMENTS_TOTAL_BYTES) {
+                    throw new IOException(
+                            "ATTACHMENT_TOO_LARGE: total attachments exceed 24 MiB");
+                }
+                out.add(attachment);
+            }
+        }
+
+        return out;
+    }
+
+    private Attachment attachmentFromPart(
+            JSONObject part,
+            String id,
+            boolean current) throws Exception {
+        String type = part.optString("type", "");
+
+        if ("image_url".equals(type) || "input_image".equals(type)) {
+            Object imageValue = part.opt("image_url");
+            String url = "";
+            if (imageValue instanceof JSONObject) {
+                url = ((JSONObject) imageValue).optString("url", "");
+            } else if (imageValue instanceof String) {
+                url = (String) imageValue;
+            }
+            if (url.isEmpty()) {
+                url = part.optString("data", "");
+            }
+            if (!url.startsWith("data:")) {
+                return null;
+            }
+            String name = part.optString(
+                    "filename",
+                    "image-" + System.currentTimeMillis());
+            return attachmentFromDataUrl(
+                    id,
+                    name,
+                    url,
+                    current,
+                    "image/jpeg");
+        }
+
+        if ("file".equals(type)
+                || "input_file".equals(type)
+                || "attachment".equals(type)) {
+            JSONObject file = part.optJSONObject("file");
+            String name = part.optString("filename", "");
+            String data = part.optString("file_data", "");
+            String mime = part.optString(
+                    "mime_type",
+                    "application/octet-stream");
+
+            if (file != null) {
+                if (name.isEmpty()) {
+                    name = file.optString(
+                            "filename",
+                            file.optString("name", ""));
+                }
+                if (data.isEmpty()) {
+                    data = file.optString(
+                            "file_data",
+                            file.optString("data", ""));
+                }
+                mime = file.optString(
+                        "mime_type",
+                        file.optString("mime", mime));
+            }
+
+            if (name.isEmpty()) {
+                name = "attachment-" + System.currentTimeMillis();
+            }
+
+            if (data.startsWith("data:")) {
+                return attachmentFromDataUrl(
+                        id,
+                        name,
+                        data,
+                        current,
+                        mime);
+            }
+
+            if (!data.isEmpty()) {
+                return checkedAttachment(
+                        id,
+                        name,
+                        mime,
+                        data,
+                        current);
+            }
+        }
+
+        return null;
+    }
+
+    private Attachment attachmentFromDataUrl(
+            String id,
+            String name,
+            String dataUrl,
+            boolean current,
+            String fallbackMime) throws Exception {
+        int comma = dataUrl.indexOf(',');
+        if (comma < 0) {
+            throw new IOException("ATTACHMENT_INVALID_DATA_URL: " + name);
+        }
+
+        String meta = dataUrl.substring(5, comma);
+        String data = dataUrl.substring(comma + 1);
+        if (!meta.toLowerCase().contains(";base64")) {
+            throw new IOException(
+                    "ATTACHMENT_UNSUPPORTED_ENCODING: " + name);
+        }
+
+        String mime = fallbackMime;
+        int semi = meta.indexOf(';');
+        String declared = semi >= 0
+                ? meta.substring(0, semi)
+                : meta;
+        if (!declared.trim().isEmpty()) mime = declared.trim();
+
+        return checkedAttachment(id, name, mime, data, current);
+    }
+
+    private Attachment checkedAttachment(
+            String id,
+            String name,
+            String mime,
+            String data,
+            boolean current) throws Exception {
+        if (data == null || data.trim().isEmpty()) {
+            throw new IOException(
+                    "ATTACHMENT_EMPTY: " + name);
+        }
+
+        int bytes = decodedAttachmentBytes(data);
+        if (bytes > MAX_ATTACHMENT_BYTES) {
+            throw new IOException(
+                    "ATTACHMENT_TOO_LARGE: "
+                            + name
+                            + " exceeds 15 MiB");
+        }
+
+        String safeName = name == null || name.trim().isEmpty()
+                ? "attachment.bin"
+                : name.replace('\n', '_')
+                        .replace('\r', '_')
+                        .replace('/', '_')
+                        .replace('\\', '_');
+
+        return new Attachment(
+                id == null ? "" : id,
+                safeName,
+                mime == null || mime.trim().isEmpty()
+                        ? "application/octet-stream"
+                        : mime.trim(),
+                data.trim(),
+                current);
+    }
+
+    private int decodedAttachmentBytes(String data) throws Exception {
+        try {
+            return Base64.decode(data, Base64.DEFAULT).length;
+        } catch (IllegalArgumentException e) {
+            throw new IOException(
+                    "ATTACHMENT_INVALID_BASE64",
+                    e);
+        }
     }
 
     private String buildPrompt(JSONArray messages) {
@@ -314,8 +531,26 @@ public final class WebRelay {
                     String type = part.optString("type");
                     if ("text".equals(type) || "input_text".equals(type)) {
                         out.append(part.optString("text"));
+                    } else if ("image_url".equals(type)
+                            || "input_image".equals(type)) {
+                        out.append("[image attachment]");
+                    } else if ("file".equals(type)
+                            || "input_file".equals(type)
+                            || "attachment".equals(type)) {
+                        JSONObject file = part.optJSONObject("file");
+                        String name = part.optString("filename", "");
+                        if (name.isEmpty() && file != null) {
+                            name = file.optString(
+                                    "filename",
+                                    file.optString("name", "file"));
+                        }
+                        out.append("[file attachment: ")
+                                .append(name.isEmpty() ? "file" : name)
+                                .append("]");
                     } else {
-                        out.append("[content part: ").append(part.toString()).append("]");
+                        out.append("[content part: ")
+                                .append(type.isEmpty() ? "unknown" : type)
+                                .append("]");
                     }
                 }
             } else if (content != null && content != JSONObject.NULL) {
@@ -383,20 +618,29 @@ public final class WebRelay {
         return ".searching,.glmsChatAvatar.isLoading,.markdown-body .loadingGif";
     }
 
-    private void uploadAttachment(Attachment a) throws Exception {
+    private void uploadAttachment(
+            AiProvider provider,
+            Attachment a) throws Exception {
         if (a.data == null || a.data.isEmpty()) {
-            throw new IOException("ATTACHMENT_UPLOAD_FAILED: empty data for " + a.name);
+            throw new IOException(
+                    "ATTACHMENT_UPLOAD_FAILED: empty data for " + a.name);
         }
 
         String js = "(() => {" +
                 "const b64=" + JSONObject.quote(a.data) + ";" +
                 "const name=" + JSONObject.quote(a.name) + ";" +
                 "const mime=" + JSONObject.quote(a.mime) + ";" +
-                "let input=document.querySelector('input[type=file]');" +
+                "const choose=()=>{" +
+                "const all=[...document.querySelectorAll('input[type=file]')].filter(x=>!x.disabled);" +
+                "if(!all.length)return null;" +
+                "const image=mime.startsWith('image/');" +
+                "return all.find(x=>{const a=(x.accept||'').toLowerCase();return !a||(image&&(a.includes('image')||a.includes('*/*')))||(!image&&!a.includes('image/'));})||all[0];" +
+                "};" +
+                "let input=choose();" +
                 "if(!input){" +
-                "const btn=[...document.querySelectorAll('button,[role=button]')].find(e=>/上传|附件|添加文件|照片|upload|attach|add files|files|photo/i.test((e.innerText||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'')));" +
+                "const btn=[...document.querySelectorAll('button,[role=button]')].find(e=>/上传|附件|添加文件|照片|图片|upload|attach|add files|files|photo|image/i.test((e.innerText||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('title')||'')));" +
                 "if(btn)btn.click();" +
-                "input=document.querySelector('input[type=file]');" +
+                "input=choose();" +
                 "}" +
                 "if(!input)return 'NO_FILE_INPUT';" +
                 "const bin=atob(b64);" +
@@ -405,7 +649,7 @@ public final class WebRelay {
                 "const file=new File([u8],name,{type:mime});" +
                 "const dt=new DataTransfer();" +
                 "dt.items.add(file);" +
-                "input.files=dt.files;" +
+                "try{input.files=dt.files;}catch(_){return 'FILES_ASSIGN_FAILED';}" +
                 "input.dispatchEvent(new Event('input',{bubbles:true}));" +
                 "input.dispatchEvent(new Event('change',{bubbles:true}));" +
                 "return 'OK:'+input.files.length;" +
@@ -413,69 +657,205 @@ public final class WebRelay {
 
         String result = eval(js, 25_000L);
         if (result == null || !result.contains("OK:")) {
-            throw new IOException("ATTACHMENT_UPLOAD_FAILED: " + a.name + " (" + result + ")");
+            throw new IOException(
+                    "ATTACHMENT_UPLOAD_FAILED: "
+                            + provider.displayName
+                            + " · "
+                            + a.name
+                            + " ("
+                            + result
+                            + ")");
         }
 
-        long until = System.currentTimeMillis() + 25_000L;
+        long until = System.currentTimeMillis() + 30_000L;
         while (System.currentTimeMillis() < until) {
             String evidenceJs = "(() => {" +
                     "const n=" + JSONObject.quote(a.name) + ";" +
-                    "const t=(document.body&&document.body.innerText)||'';" +
-                    "if(t.includes(n))return 'NAME';" +
-                    "const els=[...document.querySelectorAll('[class*=upload],[class*=file],[class*=attachment],[class*=preview],[data-testid*=attachment],[data-testid*=file]')];" +
-                    "return els.length>0?'DOM':'WAIT';" +
+                    "const body=(document.body&&document.body.innerText)||'';" +
+                    "if(n&&body.includes(n))return 'NAME';" +
+                    "const nodes=[...document.querySelectorAll('[class*=upload],[class*=file],[class*=attachment],[class*=preview],[data-testid*=attachment],[data-testid*=file],[aria-label*=attachment]')];" +
+                    "const active=nodes.filter(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0;});" +
+                    "return active.length>0?'DOM':'WAIT';" +
                     "})()";
             String evidence = eval(evidenceJs, 5_000L);
-            if (evidence != null && (evidence.contains("NAME") || evidence.contains("DOM"))) return;
+            if (evidence != null
+                    && (evidence.contains("NAME")
+                    || evidence.contains("DOM"))) {
+                return;
+            }
             Thread.sleep(350L);
         }
 
-        throw new IOException("ATTACHMENT_UPLOAD_FAILED: no DOM evidence for " + a.name);
+        throw new IOException(
+                "ATTACHMENT_UPLOAD_FAILED: no DOM evidence for "
+                        + a.name);
     }
 
-    private void sendPrompt(AiProvider provider, String prompt) throws Exception {
+    private void sendPrompt(
+            AiProvider provider,
+            String prompt) throws Exception {
+        if (prompt == null || prompt.trim().isEmpty()) {
+            throw new IOException("send_failed: empty prompt");
+        }
+
+        int baselineUserMessages = userMessageCount(provider);
         String quoted = JSONObject.quote(prompt);
         String composer = JSONObject.quote(composerSelector(provider));
-        String send = JSONObject.quote(sendButtonSelector(provider));
         boolean contentEditable =
-                provider == AiProvider.CHATGPT || provider == AiProvider.GROK;
+                provider == AiProvider.CHATGPT
+                        || provider == AiProvider.GROK;
 
-        String js;
+        String fillJs;
         if (contentEditable) {
-            js = "(() => {" +
+            fillJs = "(() => {" +
                     "const e=document.querySelector(" + composer + ");" +
                     "if(!e)return 'NO_COMPOSER';" +
-                    "e.focus();e.innerHTML='';" +
-                    "const p=document.createElement('p');p.textContent=" + quoted + ";e.appendChild(p);" +
-                    "try{e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + quoted + "}));}" +
-                    "catch(_){e.dispatchEvent(new Event('input',{bubbles:true}));}" +
-                    "let tries=0;const submit=()=>{" +
-                    "const b=document.querySelector(" + send + ");" +
-                    "if(b&&!b.disabled){b.click();return;}" +
-                    "if(++tries<50){setTimeout(submit,80);return;}" +
-                    "e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));" +
-                    "};submit();return 'OK';})()";
+                    "e.focus();" +
+                    "const s=window.getSelection();const r=document.createRange();" +
+                    "r.selectNodeContents(e);s.removeAllRanges();s.addRange(r);" +
+                    "let ok=false;" +
+                    "try{ok=document.execCommand('insertText',false," + quoted + ");}catch(_){}" +
+                    "if(!ok||!((e.innerText||e.textContent||'').trim())){" +
+                    "e.innerHTML='';const p=document.createElement('p');p.textContent=" + quoted + ";e.appendChild(p);" +
+                    "}" +
+                    "try{e.dispatchEvent(new InputEvent('beforeinput',{bubbles:true,inputType:'insertText',data:" + quoted + "}));}catch(_){}" +
+                    "try{e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + quoted + "}));}catch(_){e.dispatchEvent(new Event('input',{bubbles:true}));}" +
+                    "e.dispatchEvent(new Event('change',{bubbles:true}));" +
+                    "const t=(e.innerText||e.textContent||'').trim();" +
+                    "return t.length>0?'FILLED:'+t.length:'EMPTY';" +
+                    "})()";
         } else {
-            js = "(() => {" +
+            fillJs = "(() => {" +
                     "const e=document.querySelector(" + composer + ");" +
                     "if(!e)return 'NO_COMPOSER';" +
-                    "const d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');" +
+                    "const proto=Object.getPrototypeOf(e);" +
+                    "const d=Object.getOwnPropertyDescriptor(proto,'value')||Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')||Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');" +
                     "if(d&&d.set)d.set.call(e," + quoted + ");else e.value=" + quoted + ";" +
                     "e.focus();" +
-                    "try{e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + quoted + "}));}" +
-                    "catch(_){e.dispatchEvent(new Event('input',{bubbles:true}));}" +
-                    "let tries=0;const submit=()=>{" +
-                    "const b=document.querySelector(" + send + ");" +
-                    "if(b&&!b.disabled){b.click();return;}" +
-                    "if(++tries<50){setTimeout(submit,80);return;}" +
-                    "e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));" +
-                    "};setTimeout(submit,80);return 'OK';})()";
+                    "try{e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:" + quoted + "}));}catch(_){e.dispatchEvent(new Event('input',{bubbles:true}));}" +
+                    "e.dispatchEvent(new Event('change',{bubbles:true}));" +
+                    "return (e.value||'').length>0?'FILLED:'+e.value.length:'EMPTY';" +
+                    "})()";
         }
 
-        String result = eval(js, 10_000L);
-        if (result == null || !result.contains("OK")) {
-            throw new IOException("send_failed: " + result);
+        String fillResult = eval(fillJs, 10_000L);
+        if (fillResult == null || !fillResult.contains("FILLED:")) {
+            throw new IOException(
+                    "send_failed: composer_not_filled · "
+                            + provider.displayName
+                            + " · "
+                            + fillResult);
         }
+
+        boolean clicked = false;
+        String sendSelector = JSONObject.quote(
+                sendButtonSelector(provider));
+        for (int i = 0; i < 60; i++) {
+            String clickResult = eval(
+                    "(() => {const b=document.querySelector("
+                            + sendSelector
+                            + ");if(!b)return 'NO_BUTTON';"
+                            + "if(b.disabled||b.getAttribute('aria-disabled')==='true')return 'DISABLED';"
+                            + "b.click();return 'CLICKED';})()",
+                    5_000L);
+            if (clickResult != null
+                    && clickResult.contains("CLICKED")) {
+                clicked = true;
+                break;
+            }
+            Thread.sleep(100L);
+        }
+
+        if (!clicked) {
+            String enterResult = eval(
+                    "(() => {const e=document.querySelector("
+                            + composer
+                            + ");if(!e)return false;"
+                            + "e.focus();"
+                            + "e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));"
+                            + "e.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));"
+                            + "return true;})()",
+                    5_000L);
+            if (enterResult == null
+                    || (!enterResult.contains("true")
+                    && !"true".equalsIgnoreCase(enterResult))) {
+                throw new IOException(
+                        "send_failed: no_send_control · "
+                                + provider.displayName);
+            }
+        }
+
+        waitForSubmissionConfirmation(
+                provider,
+                baselineUserMessages);
+    }
+
+    private int userMessageCount(AiProvider provider) throws Exception {
+        String selector;
+        if (provider == AiProvider.CHATGPT) {
+            selector = "[data-message-author-role='user']";
+        } else if (provider == AiProvider.GROK) {
+            selector = "[data-testid='user-message'],[data-role='user']";
+        } else if (provider == AiProvider.DEEPSEEK) {
+            selector = "[data-role='user'],[class*=user][class*=message]";
+        } else {
+            selector = "[data-role='user'],[class*=question],[class*=user][class*=message]";
+        }
+
+        String raw = eval(
+                "document.querySelectorAll("
+                        + JSONObject.quote(selector)
+                        + ").length",
+                5_000L);
+        if (raw == null) return 0;
+        try {
+            return Integer.parseInt(
+                    raw.replace("\"", "").trim());
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    private void waitForSubmissionConfirmation(
+            AiProvider provider,
+            int baselineUserMessages) throws Exception {
+        String composer = JSONObject.quote(
+                composerSelector(provider));
+        String generating = JSONObject.quote(
+                generatingSelector(provider));
+
+        long until = System.currentTimeMillis() + 12_000L;
+        while (System.currentTimeMillis() < until) {
+            int count = userMessageCount(provider);
+            if (count > baselineUserMessages) return;
+
+            String state = eval(
+                    "(() => {"
+                            + "const g=[...document.querySelectorAll("
+                            + generating
+                            + ")].some(e=>{const r=e.getBoundingClientRect();return r.width>0&&r.height>0;});"
+                            + "const e=document.querySelector("
+                            + composer
+                            + ");"
+                            + "const t=e?((e.value!==undefined?e.value:(e.innerText||e.textContent||''))||'').trim():'';"
+                            + "return JSON.stringify({g,empty:t.length===0});"
+                            + "})()",
+                    5_000L);
+            String decoded = unwrapJavascriptString(state);
+            try {
+                JSONObject o = new JSONObject(decoded);
+                if (o.optBoolean("g")
+                        || o.optBoolean("empty")) {
+                    return;
+                }
+            } catch (Exception ignored) {}
+
+            Thread.sleep(200L);
+        }
+
+        throw new IOException(
+                "send_not_confirmed: "
+                        + provider.displayName);
     }
 
     private boolean startFreshChat(AiProvider provider) throws Exception {
