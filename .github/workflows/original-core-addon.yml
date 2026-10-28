@@ -49,3 +49,14 @@ jobs:
           set -euo pipefail
           ! find original-core-addon -type f | grep -E '\.(jks|keystore|apk)$'
           ! grep -RIlE 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' original-core-addon
+
+      - name: Fixed-signing policy gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'BF:DC:4D:E8:53:80:66:D2:9E:CD:17:E8:0A:B6:51:D3:8A:E3:C4:40:71:3F:96:51:BD:8C:E1:C8:10:15:D2:7D' original-core-addon/SIGNING_POLICY.md
+          grep -F 'must never generate a replacement signing key' original-core-addon/SIGNING_POLICY.md
+          grep -F 'OMNIGATE_KEYSTORE_B64' .github/workflows/original-core-sidecar-build.yml
+          grep -F 'OMNIGATE_KEYSTORE_PASSWORD' .github/workflows/original-core-sidecar-build.yml
+          grep -F 'OMNIGATE_KEY_ALIAS' .github/workflows/original-core-sidecar-build.yml
+          ! grep -F 'Create ephemeral test signing key' .github/workflows/original-core-sidecar-build.yml
