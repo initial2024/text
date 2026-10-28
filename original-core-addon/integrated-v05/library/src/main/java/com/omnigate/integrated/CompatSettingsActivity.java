@@ -188,7 +188,7 @@ public final class CompatSettingsActivity extends Activity {
         hero.setPadding(dp(19), dp(17), dp(19), dp(18));
         margin(page, hero, 14);
         margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
-        margin(hero, text("API 控制台   /   v0.6.2", 13, 0xFFE5E7FF, false), 7);
+        margin(hero, text("API 控制台   /   v0.6.5", 13, 0xFFE5E7FF, false), 7);
         margin(hero, text("本地优先 · 手动启停 · 网页注入保持不变", 12, 0xFFD6E9FF, false), 0);
 
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
