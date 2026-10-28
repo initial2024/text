@@ -18,9 +18,18 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.text.InputType;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class FloatingOverlayService extends Service {
     public static final String ACTION_SHOW = "com.dsh.webgateway.OVERLAY_SHOW";
@@ -35,6 +44,11 @@ public final class FloatingOverlayService extends Service {
     private TextView panelStatus;
     private TextView panelProvider;
     private TextView panelTunnel;
+    private TextView panelAttachments;
+    private TextView panelResponse;
+    private EditText panelInput;
+    private final ExecutorService sendPool = Executors.newSingleThreadExecutor();
+    private volatile boolean miniSending;
 
     private final Handler watchdogHandler = new Handler(Looper.getMainLooper());
     private final Runnable watchdog = new Runnable() {
@@ -282,6 +296,108 @@ public final class FloatingOverlayService extends Service {
         addProviderButton(providers, AiProvider.GROK, "X", Color.rgb(28, 29, 33), panelSoft);
         addProviderButton(providers, AiProvider.GLM, "智", Color.rgb(42, 99, 235), panelSoft);
 
+        TextView composeTitle = UiKit.text(
+                this,
+                "直接发送",
+                12f,
+                muted,
+                true);
+        LinearLayout.LayoutParams composeTitleLp = UiKit.matchWrap();
+        composeTitleLp.topMargin = dp(14);
+        panel.addView(composeTitle, composeTitleLp);
+
+        panelInput = new EditText(this);
+        panelInput.setHint("输入消息给 " + GatewayApp.selectedProvider().displayName);
+        panelInput.setTextSize(14f);
+        panelInput.setTextColor(titleColor);
+        panelInput.setHintTextColor(muted);
+        panelInput.setMinLines(2);
+        panelInput.setMaxLines(5);
+        panelInput.setGravity(Gravity.TOP | Gravity.START);
+        panelInput.setInputType(
+                InputType.TYPE_CLASS_TEXT
+                        | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                        | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        panelInput.setPadding(
+                dp(12),
+                dp(10),
+                dp(12),
+                dp(10));
+        panelInput.setBackground(UiKit.stroked(
+                panelSoft,
+                border,
+                dp(16),
+                Math.max(1, dp(1))));
+        LinearLayout.LayoutParams inputLp = UiKit.matchWrap();
+        inputLp.topMargin = dp(7);
+        panel.addView(panelInput, inputLp);
+
+        panelAttachments = UiKit.text(
+                this,
+                PendingAttachmentStore.summary(),
+                11.5f,
+                muted,
+                false);
+        panelAttachments.setMaxLines(2);
+        panelAttachments.setOnClickListener(v -> {
+            if (PendingAttachmentStore.count() > 0) {
+                PendingAttachmentStore.clear();
+                refreshPanel();
+                Toast.makeText(
+                        this,
+                        "待发送附件已清空",
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
+        LinearLayout.LayoutParams attachmentsLp = UiKit.matchWrap();
+        attachmentsLp.topMargin = dp(7);
+        panel.addView(panelAttachments, attachmentsLp);
+
+        LinearLayout composeActions = UiKit.horizontal(this);
+        LinearLayout.LayoutParams composeActionsLp = UiKit.matchWrap();
+        composeActionsLp.topMargin = dp(8);
+
+        TextView image = smallAction("图片", primary, panelSoft);
+        image.setOnClickListener(v -> openAttachmentPicker(
+                AttachmentPickerActivity.MODE_IMAGE));
+        composeActions.addView(image, new LinearLayout.LayoutParams(
+                0,
+                dp(38),
+                0.72f));
+
+        TextView file = smallAction("文件", primary, panelSoft);
+        LinearLayout.LayoutParams fileLp = new LinearLayout.LayoutParams(
+                0,
+                dp(38),
+                0.72f);
+        fileLp.leftMargin = dp(7);
+        file.setOnClickListener(v -> openAttachmentPicker(
+                AttachmentPickerActivity.MODE_FILE));
+        composeActions.addView(file, fileLp);
+
+        TextView send = smallAction("发送", Color.WHITE, primary);
+        LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(
+                0,
+                dp(38),
+                1f);
+        sendLp.leftMargin = dp(7);
+        send.setOnClickListener(v -> sendMiniMessage());
+        composeActions.addView(send, sendLp);
+
+        panel.addView(composeActions, composeActionsLp);
+
+        panelResponse = UiKit.text(
+                this,
+                "",
+                11.5f,
+                titleColor,
+                false);
+        panelResponse.setMaxLines(5);
+        panelResponse.setLineSpacing(dp(2), 1f);
+        LinearLayout.LayoutParams responseLp = UiKit.matchWrap();
+        responseLp.topMargin = dp(8);
+        panel.addView(panelResponse, responseLp);
+
         LinearLayout localRow = UiKit.horizontal(this);
         LinearLayout.LayoutParams localLp = UiKit.matchWrap();
         localLp.topMargin = dp(13);
@@ -367,12 +483,14 @@ public final class FloatingOverlayService extends Service {
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
         panelParams = new WindowManager.LayoutParams(
-                dp(292),
+                dp(316),
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 type,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
+        panelParams.softInputMode =
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                        | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN;
         panelParams.gravity = Gravity.TOP | Gravity.START;
         positionPanel();
 
@@ -454,6 +572,16 @@ public final class FloatingOverlayService extends Service {
             panelProvider.setText(
                     p.displayName + "  ·  " + p.model);
         }
+        if (panelInput != null) {
+            panelInput.setHint("输入消息给 " + p.displayName);
+        }
+        if (panelAttachments != null) {
+            panelAttachments.setText(
+                    PendingAttachmentStore.summary()
+                            + (PendingAttachmentStore.count() > 0
+                            ? "（点此清空）"
+                            : ""));
+        }
 
         if (panelTunnel != null) {
             String relayReady = GatewayApp.relay() == null
@@ -464,6 +592,168 @@ public final class FloatingOverlayService extends Service {
                     : "公网穿透未开启";
             panelTunnel.setText(relayReady + "  ·  " + tunnel);
         }
+    }
+
+    private void openAttachmentPicker(String mode) {
+        Intent pick = new Intent(this, AttachmentPickerActivity.class);
+        pick.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        pick.putExtra(AttachmentPickerActivity.EXTRA_MODE, mode);
+        startActivity(pick);
+    }
+
+    private void sendMiniMessage() {
+        if (miniSending) {
+            Toast.makeText(
+                    this,
+                    "上一条消息还在处理中",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        WebRelay relay = GatewayApp.relay();
+        if (relay == null) {
+            if (panelResponse != null) {
+                panelResponse.setText(
+                        "网页会话未载入。请先打开一次 OmniGate 的“网页”页并完成登录。");
+            }
+            return;
+        }
+
+        String text = panelInput == null
+                ? ""
+                : panelInput.getText().toString().trim();
+        List<PendingAttachmentStore.Item> attachments =
+                PendingAttachmentStore.snapshot();
+
+        if (text.isEmpty() && attachments.isEmpty()) {
+            Toast.makeText(
+                    this,
+                    "请输入文字，或先添加图片/文件",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        miniSending = true;
+        if (panelResponse != null) {
+            panelResponse.setText(
+                    "正在发送到 "
+                            + GatewayApp.selectedProvider().displayName
+                            + "…");
+        }
+
+        AiProvider provider = GatewayApp.selectedProvider();
+
+        sendPool.execute(() -> {
+            try {
+                JSONObject request = new JSONObject();
+                request.put("model", provider.model);
+
+                JSONArray content = new JSONArray();
+                if (!text.isEmpty()) {
+                    content.put(new JSONObject()
+                            .put("type", "text")
+                            .put("text", text));
+                }
+
+                for (PendingAttachmentStore.Item item : attachments) {
+                    String dataUrl = "data:"
+                            + item.mime
+                            + ";base64,"
+                            + item.base64;
+
+                    if (item.isImage()) {
+                        content.put(new JSONObject()
+                                .put("type", "image_url")
+                                .put("filename", item.name)
+                                .put("image_url", new JSONObject()
+                                        .put("url", dataUrl)));
+                    } else {
+                        content.put(new JSONObject()
+                                .put("type", "file")
+                                .put("file", new JSONObject()
+                                        .put("filename", item.name)
+                                        .put("mime_type", item.mime)
+                                        .put("file_data", dataUrl)));
+                    }
+                }
+
+                JSONArray messages = new JSONArray()
+                        .put(new JSONObject()
+                                .put("role", "user")
+                                .put("content", content));
+                request.put("messages", messages);
+
+                StringBuilder streamed = new StringBuilder();
+                WebRelay.Result result = relay.submit(
+                        request,
+                        new WebRelay.StreamSink() {
+                            @Override
+                            public void reasoning(String delta) {
+                                // Keep the mini window compact; reasoning is not mixed into the answer.
+                            }
+
+                            @Override
+                            public void text(String delta) {
+                                streamed.append(delta);
+                                String preview = trimPreview(
+                                        streamed.toString(),
+                                        900);
+                                watchdogHandler.post(() -> {
+                                    if (panelResponse != null) {
+                                        panelResponse.setText(preview);
+                                    }
+                                });
+                            }
+
+                            @Override
+                            public void heartbeat() {
+                            }
+                        });
+
+                watchdogHandler.post(() -> {
+                    miniSending = false;
+                    if (result.error != null) {
+                        if (panelResponse != null) {
+                            panelResponse.setText(
+                                    "发送失败：" + result.error);
+                        }
+                        return;
+                    }
+
+                    PendingAttachmentStore.clear();
+                    if (panelInput != null) panelInput.setText("");
+                    if (panelResponse != null) {
+                        String answer = result.answer == null
+                                ? ""
+                                : result.answer.trim();
+                        panelResponse.setText(
+                                answer.isEmpty()
+                                        ? "已发送，网页正在处理。"
+                                        : trimPreview(answer, 900));
+                    }
+                    refreshPanel();
+                });
+            } catch (Throwable e) {
+                watchdogHandler.post(() -> {
+                    miniSending = false;
+                    if (panelResponse != null) {
+                        panelResponse.setText(
+                                "发送失败："
+                                        + e.getClass().getSimpleName()
+                                        + (e.getMessage() == null
+                                        ? ""
+                                        : " · " + e.getMessage()));
+                    }
+                });
+            }
+        });
+    }
+
+    private String trimPreview(String value, int maxChars) {
+        if (value == null) return "";
+        String v = value.trim();
+        if (v.length() <= maxChars) return v;
+        return v.substring(v.length() - maxChars);
     }
 
     private String maskedApiKey() {
@@ -491,7 +781,7 @@ public final class FloatingOverlayService extends Service {
 
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
-        int panelWidth = dp(292);
+        int panelWidth = dp(316);
 
         if (params.x + dp(44) + dp(10) + panelWidth <= screenWidth) {
             panelParams.x = params.x + dp(54);
@@ -502,8 +792,8 @@ public final class FloatingOverlayService extends Service {
         }
 
         panelParams.y = Math.max(
-                dp(50),
-                Math.min(params.y - dp(10), screenHeight - dp(420)));
+                dp(36),
+                Math.min(params.y - dp(10), screenHeight - dp(620)));
 
         if (panel != null) {
             try {
@@ -536,6 +826,9 @@ public final class FloatingOverlayService extends Service {
             panelStatus = null;
             panelProvider = null;
             panelTunnel = null;
+            panelAttachments = null;
+            panelResponse = null;
+            panelInput = null;
         }
     }
 
@@ -569,6 +862,7 @@ public final class FloatingOverlayService extends Service {
         watchdogHandler.removeCallbacks(watchdog);
         hidePanel();
         hideBubble();
+        sendPool.shutdownNow();
         super.onDestroy();
     }
 
