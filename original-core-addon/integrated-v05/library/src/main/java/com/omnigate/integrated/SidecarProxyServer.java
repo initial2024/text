@@ -24,7 +24,7 @@ import java.util.concurrent.Executors;
 
 public final class SidecarProxyServer {
     public static final int LISTEN_PORT = 8787;
-    public static final int UPSTREAM_PORT = 1601;
+    public static final int UPSTREAM_PORT = 1601; // fallback only; live port from Prefs
     public static final int MAX_BODY_BYTES = 64 * 1024 * 1024;
     public static final String PROBE_VALUE = "omnigate-sidecar-8787-v1";
 
@@ -125,8 +125,9 @@ public final class SidecarProxyServer {
                         .put("ok", true)
                         .put("service", "OmniGate Sidecar")
                         .put("listen", "127.0.0.1:8787")
-                        .put("upstream", "127.0.0.1:1601")
+                        .put("upstream", "127.0.0.1:" + OriginalCoreBridge.configuredPort())
                         .put("upstreamReachable", isUpstreamReachable())
+                        .put("originalApiStartStatus", OriginalCoreBridge.lastStartStatus())
                         .put("publicRelay", GatewayApp.tunnelEnabled())
                         .put("publicRelayStatus", GatewayApp.tunnelStatus()));
                 return;
@@ -180,7 +181,7 @@ public final class SidecarProxyServer {
         try {
             URL url = new URL(
                     "http://127.0.0.1:"
-                            + UPSTREAM_PORT
+                            + OriginalCoreBridge.configuredPort()
                             + request.path);
             upstream = (HttpURLConnection) url.openConnection();
             upstream.setRequestMethod(request.method);
@@ -208,6 +209,7 @@ public final class SidecarProxyServer {
             }
 
             String upstreamKey = GatewayApp.upstreamApiKey();
+            if (upstreamKey.isEmpty()) upstreamKey = OriginalCoreBridge.originalApiKey();
             if (!upstreamKey.isEmpty()) {
                 upstream.setRequestProperty(
                         "Authorization",
@@ -308,7 +310,7 @@ public final class SidecarProxyServer {
     public static boolean isUpstreamReachable() {
         try (Socket socket = new Socket()) {
             socket.connect(
-                    new InetSocketAddress("127.0.0.1", UPSTREAM_PORT),
+                    new InetSocketAddress("127.0.0.1", OriginalCoreBridge.configuredPort()),
                     700);
             return true;
         } catch (IOException e) {
