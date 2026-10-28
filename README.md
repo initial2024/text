@@ -1,73 +1,115 @@
-# DSH Web Gateway 2.7.0
+# OmniGate 2.8.0
 
-Clean Android rebuild of the original AI Gateway, preserving the original provider/model contract while adding the new reliability features.
+OmniGate is a clean Android rebuild of the original AI Gateway with a new product identity and a more complete UI, while preserving the original provider/model compatibility contract.
 
-## Original-provider compatibility
+## Product identity
 
-The original APK is the compatibility source of truth.
+- App name: **OmniGate**
+- Three main sections: **概览 / 会话 / 网页**
+- Adaptive purple-blue OmniGate launcher icon
+- Android splash + branded in-app launch animation
+- Light/dark resources
+- Compact 44dp provider-colored floating bubble
 
-| Provider | Web page | OpenAI-compatible model id |
+## Original provider compatibility
+
+| Provider | Web page | Model id |
 | --- | --- | --- |
 | DeepSeek | https://chat.deepseek.com/ | `deepseek-chat` |
 | ChatGPT | https://chatgpt.com/ | `chatgpt-web` |
 | Grok | https://grok.com/ | `grok-web-fast` |
 | GLM / 智谱清言 | https://chatglm.cn/ | `glm-web-flash` |
 
-The relay prioritizes the provider-specific selectors recovered from the original APK bridge and keeps generic fallbacks only as a resilience layer.
+The original APK is the compatibility source of truth for provider/model ids and the first-choice DOM selectors.
 
-## Gateway contract
+## Connection panel
 
-- Package: `com.dsh.webgateway` (side-by-side test package)
+OmniGate shows these separately:
+
+- Local Base URL
+- Public Base URL
+- Model
+- API Key
+
+Each value can be copied independently.
+
+API Key behavior:
+
+- hidden by default,
+- reveal/hide,
+- user-defined value,
+- minimum 12 / maximum 256 characters,
+- random secure regeneration,
+- stored only in the app's private preferences,
+- immediately enforced for `/v1/*`.
+
+## Gateway reliability
+
 - Local API: `http://127.0.0.1:8787/v1`
-- Health: `GET /health`
-- Models: `GET /v1/models`
-- Chat: `POST /v1/chat/completions`
 - Request-body cap: 32 MiB
 - Hard generation timeout: 600 seconds
-- End-of-generation grace: 5 seconds
-- Full DSH role/tool context reconstruction
-- Real browser attachment upload through `File + DataTransfer`
-- Attachment failure is fail-closed
-- Automatic conversation rollover is capped at one per submission
+- 5-second generation-end grace
+- real browser file upload using `File + DataTransfer`
+- attachment fail-closed behavior
+- full DSH role/tool context reconstruction
+- automatic conversation rollover capped at one per submission
 
-## Original public tunnel
+## Legacy public tunnel
 
-The rebuild preserves the original tunnel contract:
+OmniGate preserves the original tunnel contract where possible:
 
 - generated host: `https://gw-<prefix>.deepseeks.dpdns.org`
-- local port: `8787`
-- original tunnel endpoint/protocol and TLS certificate pin are retained
-- `/__tunnel_probe` verifies that a public URL reaches this exact Gateway
-- `/v1/*` requires the generated Gateway API key
-- old tunnel identity can be restored only with the matching old `prefix + tunnel_token`
-- a custom HTTPS public URL can be entered and is accepted only after probe verification
+- tunnel endpoint: `57.183.5.186:9000`
+- TLS certificate pin
+- registration frame: `REGISTER <token> <prefix>`
+- local target: port 8787
 
-## Compact floating window
+A tunnel is **not** treated as healthy merely because registration returns OK.
 
-The optional floating control is a 48dp provider bubble:
+OmniGate now reports stages separately:
 
-- D / G / X / 智 reflects the current provider
-- drag to move
-- tap to reopen the main Gateway screen
-- long-press to hide
-- hiding the bubble does **not** stop the Gateway, port 8787, or the tunnel
-- the foreground notification/main screen can show it again
+1. remote TCP connect,
+2. TLS handshake,
+3. certificate-pin verification,
+4. registration,
+5. registration response,
+6. end-to-end public probe.
 
-Android overlay permission is requested only when the user enables this feature.
+After registration it verifies:
 
-## Build provenance
+`https://<prefix>.deepseeks.dpdns.org/__tunnel_probe`
 
-Every push runs `.github/workflows/android.yml`.
+Only a matching probe response proves the public path is working.
 
-Release acceptance requires:
+The old URL cannot be recovered from a prefix alone. To restore an existing old hostname, the matching old `prefix + tunnel_token` is required.
+
+## Custom public URL
+
+A custom HTTPS public URL can be entered. It is not accepted as active until `/__tunnel_probe` proves it routes to this exact OmniGate instance.
+
+## Floating window
+
+The optional 44dp floating bubble:
+
+- D = DeepSeek
+- G = ChatGPT
+- X = Grok
+- 智 = GLM
+- draggable
+- tap opens OmniGate
+- long-press hides it
+- hiding it does not stop the API, WebView session or tunnel
+
+## Build
+
+Every push to `main` runs the Android release gate:
 
 1. source-contract checks,
 2. `assembleRelease`,
 3. `zipalign -c -v 4`,
-4. official Android `apksigner verify --verbose --print-certs`,
-5. package/version/minSdk/targetSdk inspection,
-6. successful artifact upload and temporary prerelease.
+4. Android `apksigner verify`,
+5. package/version/minSdk/targetSdk checks,
+6. artifact upload,
+7. temporary prerelease.
 
-The GitHub build uses an ephemeral test signing key. It is intended for side-by-side device acceptance, not as the permanent update signing identity.
-
-See `QA_AGENT.md` for the independent runtime acceptance gates.
+See `QA_AGENT.md` for the independent acceptance contract.
