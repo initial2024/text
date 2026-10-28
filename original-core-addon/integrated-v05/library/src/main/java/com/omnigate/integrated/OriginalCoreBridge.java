@@ -9,6 +9,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.lang.ref.WeakReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Narrow bridge to the original, untouched native API owner.
  *
@@ -26,6 +27,7 @@ public final class OriginalCoreBridge {
         "com.omnigate.integrated.REQUEST_ORIGINAL_OVERLAY";
     private static volatile WeakReference<Activity> originalMain =
         new WeakReference<>(null);
+    private static final AtomicBoolean pendingNativeStart = new AtomicBoolean(false);
 
     private OriginalCoreBridge() {}
 
@@ -101,6 +103,83 @@ public final class OriginalCoreBridge {
         }
     }
 
+    /** Original frozen MainActivity.server is the actual ownership evidence. */
+    public static boolean nativeOwnerRunning() {
+        Activity owner=originalMain.get();
+        if(owner==null || owner.isFinishing() || owner.isDestroyed()) return false;
+        try {
+            Field field=owner.getClass().getDeclaredField("server");
+            field.setAccessible(true);
+            Object server=field.get(owner);
+            if(server==null) return false;
+            Object running=server.getClass().getMethod("isRunning").invoke(server);
+            return Boolean.TRUE.equals(running);
+        } catch(Throwable ex) { return false; }
+    }
+
+    public static String nativeLifecycleState() {
+        Activity owner=originalMain.get();
+        if(owner==null) return "原核心 MainActivity 未建立";
+        if(owner.isFinishing() || owner.isDestroyed()) return "原核心 MainActivity 已关闭";
+        return "原核心 MainActivity 存活；server.isRunning=" + nativeOwnerRunning()
+            + "；Prefs.port=" + configuredPort();
+    }
+
+    /** The original MainActivity keeps its own PRIVATE int port initialized onCreate.
+     * Updating Prefs alone is not enough on an already-open model page.
+     */
+    private static boolean alignOriginalInstancePort(Activity owner) {
+        try {
+            Field port=owner.getClass().getDeclaredField("port");
+            port.setAccessible(true);
+            int actual=port.getInt(owner);
+            int requested=configuredPort();
+            if(requested==SidecarProxyServer.LISTEN_PORT) {
+                lastStartStatus="禁止把原生 API 启动到代理自己的 8787 端口";
+                return false;
+            }
+            if(actual!=requested) port.setInt(owner, requested);
+            if(port.getInt(owner)!=requested) throw new IllegalStateException("port readback");
+            return true;
+        } catch(Throwable ex) {
+            lastStartStatus="原版页面端口同步失败：" + ex.getClass().getSimpleName();
+            return false;
+        }
+    }
+
+    private static void startNativeOnResumedOwner(Activity owner) {
+        if(owner.isDestroyed() || owner.isFinishing()) {
+            lastStartStatus="原版页面已关闭；未重复启动";
+            return;
+        }
+        if(!alignOriginalInstancePort(owner)) return;
+        if(nativeOwnerRunning() && isListening()) {
+            lastStartStatus="原版 API 已运行于 "+configuredPort()+"；不重复创建或重启";
+            return;
+        }
+        try {
+            Method start=owner.getClass().getDeclaredMethod("startServer");
+            start.setAccessible(true);
+            start.invoke(owner);
+            lastStartStatus="已按原版 startServer() 启动；即将核对服务归属和端口";
+        } catch(java.lang.reflect.InvocationTargetException ex) {
+            Throwable cause=ex.getTargetException();
+            lastStartStatus="原版 startServer 抛出："+
+                (cause==null?"InvocationTargetException":cause.getClass().getSimpleName());
+        } catch(Throwable ex) {
+            lastStartStatus="原版 startServer 无法调用："+ex.getClass().getSimpleName();
+        }
+        owner.getWindow().getDecorView().postDelayed(()->{
+            if(owner.isDestroyed() || owner.isFinishing()) return;
+            boolean running=nativeOwnerRunning();
+            boolean tcp=isListening();
+            lastStartStatus="原版 API："+(running?"server.isRunning=true":"server 未运行")
+                +"；端口 "+configuredPort()+"："+(tcp?"TCP 可连接":"TCP 不可连接")
+                +"。TCP 连通不等于模型已回复。";
+            GatewayApp.setLocalApiStatus(lastStartStatus);
+        },700);
+    }
+
     public static boolean isPortConflicted() {
         // The 8787 listener is owned by OmniGate proxy, never native ApiServer.
         return configuredPort() == SidecarProxyServer.LISTEN_PORT;
@@ -146,21 +225,26 @@ public final class OriginalCoreBridge {
     }
 
     public static String requestExplicitNativeStart(Activity settings) {
-        // Never allow the proxy's own port to masquerade as native API health.
+        // The original Activity owns ApiServer. NEVER create a second MainActivity
+        // when the previous host still exists: its onDestroy closes the server.
         if (!repairNativePortOnExplicitClick()) return lastStartStatus;
-        if (isListening()) {
-            lastStartStatus = "原生 API " + configuredPort() + " TCP 已连通（待模型验证）";
+        if (originalHostAlive() && nativeOwnerRunning() && isListening()) {
+            lastStartStatus="现有原版 MainActivity 的 API 已运行，未重复创建";
             return lastStartStatus;
         }
+        pendingNativeStart.set(true);
         try {
             Intent request = new Intent();
             request.setClassName(settings.getPackageName(),
                 "com.deepseek2.app.ui.MainActivity");
-            request.putExtra(REQUEST_START, true);
-            lastStartStatus = "正在打开原管理页；原 MainActivity.onCreate 会自动 startServer";
+            request.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            request.putExtra(REQUEST_START,true);
+            lastStartStatus="正在恢复已有模型页并核验原版服务；若不存在才创建";
             settings.startActivity(request);
-        } catch (Throwable e) {
-            lastStartStatus = "无法打开原管理页：" + e.getClass().getSimpleName();
+        } catch(Throwable e) {
+            pendingNativeStart.set(false);
+            lastStartStatus="恢复原模型页失败："+e.getClass().getSimpleName();
         }
         return lastStartStatus;
     }
@@ -184,15 +268,13 @@ public final class OriginalCoreBridge {
                 }
             });
         }
-        if (!intent.getBooleanExtra(REQUEST_START, false)) return;
+        boolean requested=pendingNativeStart.getAndSet(false)
+            || intent.getBooleanExtra(REQUEST_START,false);
         intent.removeExtra(REQUEST_START);
-        activity.getWindow().getDecorView().postDelayed(() -> {
-            if (activity.isDestroyed() || activity.isFinishing()) return;
-            lastStartStatus = isListening()
-                ? "原生 API " + configuredPort() + " 已监听（需文本响应验收）"
-                : "已打开原管理页，但原生端口 " + configuredPort() +
-                  " 未监听；请检查原页启动状态和网站登录";
-            GatewayApp.setLocalApiStatus(lastStartStatus);
-        }, 900);
+        if(!requested)return;
+        activity.getWindow().getDecorView().postDelayed(()->{
+            if(activity.isDestroyed() || activity.isFinishing())return;
+            startNativeOnResumedOwner(activity);
+        },350);
     }
 }
