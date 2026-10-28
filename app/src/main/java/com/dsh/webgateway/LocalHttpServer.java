@@ -25,12 +25,14 @@ public final class LocalHttpServer {
     private static final String TAG = "DSH-Gateway";
     private static final int MAX_BODY = 32 * 1024 * 1024;
     private final int port;
+    private final boolean remoteEnabled;
     private final ExecutorService pool = Executors.newCachedThreadPool();
     private volatile boolean running;
     private ServerSocket serverSocket;
 
-    public LocalHttpServer(int port) {
+    public LocalHttpServer(int port, boolean remoteEnabled) {
         this.port = port;
+        this.remoteEnabled = remoteEnabled;
     }
 
     public void start() {
@@ -49,7 +51,8 @@ public final class LocalHttpServer {
 
     private void acceptLoop() {
         try {
-            serverSocket = new ServerSocket(port, 16, InetAddress.getByName("127.0.0.1"));
+            InetAddress bind = InetAddress.getByName(remoteEnabled ? "0.0.0.0" : "127.0.0.1");
+            serverSocket = new ServerSocket(port, 16, bind);
             while (running) {
                 Socket socket = serverSocket.accept();
                 socket.setSoTimeout(620_000);
@@ -66,15 +69,27 @@ public final class LocalHttpServer {
              OutputStream out = new BufferedOutputStream(s.getOutputStream())) {
             Request req = readRequest(rawIn);
             if (req == null) return;
+
             if ("OPTIONS".equals(req.method)) {
                 writeEmpty(out, 204, "No Content");
                 return;
             }
+
+            boolean remoteRequest = !s.getInetAddress().isLoopbackAddress();
+            if (remoteRequest && !authorized(req)) {
+                writeJson(out, 401, new JSONObject()
+                        .put("error", "unauthorized")
+                        .put("message", "Use the Gateway access token as a Bearer token / API key."));
+                return;
+            }
+
             if ("GET".equals(req.method) && "/health".equals(req.path)) {
                 JSONObject health = new JSONObject();
                 health.put("ok", true);
                 health.put("port", port);
                 health.put("browserReady", GatewayApp.relay() != null);
+                health.put("remoteEnabled", remoteEnabled);
+                health.put("tailscaleIp", GatewayApp.tailscaleIpv4());
                 writeJson(out, 200, health);
                 return;
             }
@@ -91,6 +106,14 @@ public final class LocalHttpServer {
         } catch (Throwable e) {
             Log.e(TAG, "request failed", e);
         }
+    }
+
+    private boolean authorized(Request req) {
+        if (!remoteEnabled) return false;
+        String expected = GatewayApp.accessToken();
+        String authorization = req.headers.getOrDefault("authorization", "");
+        if (("Bearer " + expected).equals(authorization)) return true;
+        return expected.equals(req.headers.get("x-dsh-gateway-token"));
     }
 
     private void handleChat(Request req, OutputStream out) throws Exception {
@@ -203,7 +226,13 @@ public final class LocalHttpServer {
 
     private void writeJson(OutputStream out, int code, JSONObject json) throws IOException {
         byte[] bytes = json.toString().getBytes(StandardCharsets.UTF_8);
-        String status = code == 200 ? "OK" : code == 400 ? "Bad Request" : code == 404 ? "Not Found" : code == 503 ? "Service Unavailable" : "Bad Gateway";
+        String status;
+        if (code == 200) status = "OK";
+        else if (code == 400) status = "Bad Request";
+        else if (code == 401) status = "Unauthorized";
+        else if (code == 404) status = "Not Found";
+        else if (code == 503) status = "Service Unavailable";
+        else status = "Bad Gateway";
         String headers = "HTTP/1.1 " + code + " " + status + "\r\n" +
                 "Content-Type: application/json; charset=utf-8\r\n" +
                 "Content-Length: " + bytes.length + "\r\n" +
@@ -220,7 +249,9 @@ public final class LocalHttpServer {
     }
 
     private String corsHeaders() {
-        return "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: *\r\nAccess-Control-Allow-Methods: GET,POST,OPTIONS\r\n";
+        return "Access-Control-Allow-Origin: *\r\n" +
+                "Access-Control-Allow-Headers: Authorization, X-DSH-Gateway-Token, Content-Type\r\n" +
+                "Access-Control-Allow-Methods: GET,POST,OPTIONS\r\n";
     }
 
     private static final class Request {
