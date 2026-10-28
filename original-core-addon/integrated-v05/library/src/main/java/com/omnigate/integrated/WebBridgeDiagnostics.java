@@ -37,6 +37,9 @@ public final class WebBridgeDiagnostics {
                 int frames=obj.optInt("frameCount",-1);
                 boolean hostMatched=obj.optBoolean("providerHostMatched",false);
                 boolean topFrame=obj.optBoolean("topFrame",false);
+                boolean resolved=obj.optBoolean("effectiveComposerReady",false);
+                String selection=obj.optString("composerSelectionMode","诊断脚本未升级");
+                String sendOutcome=obj.optString("lastSendOutcome","无发送诊断");
                 String status="网页桥已响应："+provider
                     +"；DOM="+pageReady
                     +"；原选择器输入框="+selectorCount
@@ -45,13 +48,18 @@ public final class WebBridgeDiagnostics {
                     +"（可见="+genericVisible+"）"
                     +"；frame="+frames+"；顶层="+topFrame
                     +"；站点匹配="+hostMatched
+                    +"；最终输入可用="+resolved
+                    +"；输入选择方式="+selection
+                    +"；最近注入动作="+sendOutcome
                     +"；答案元素="+answerCount
                     +"；游客就绪="+guest
                     +"；账号 UI="+auth
                     +"；注入就绪="+ready;
                 if(!hostMatched) status+="。可能注入到了错误页面/文档，先检查网页宿主。";
-                else if(genericVisible>0 && Integer.parseInt(selectorCount)==0)
-                    status+="。存在可编辑元素，但原提供商选择器未命中，需要单独核查选择器。";
+                else if(genericVisible>0 && Integer.parseInt(selectorCount)==0 && !resolved)
+                    status+="。存在可编辑元素但未能唯一确定输入框；不执行自动注入。";
+                else if(genericVisible>0 && Integer.parseInt(selectorCount)==0 && resolved)
+                    status+="。原选择器过期，已用 ChatGPT 专用唯一编辑器回退候选；需验证发送按钮实际点击和真实模型回复。";
                 else if(genericVisible==0)
                     status+="。未找到可见编辑器，检查页面加载、遮罩、iframe 或网页版式。";
                 else if(!ready) status+="。有输入框但就绪门禁未通过，需检查桥配置。";
