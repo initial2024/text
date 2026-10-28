@@ -84,8 +84,12 @@ public final class ApiQuickPanel {
         LinearLayout shell;
         FrameLayout.LayoutParams params;
         TextView status;
+        TextView textStatus;
+        TextView textAnswer;
         EditText prompt;
+        EditText textPrompt;
         int lastRevision=-1;
+        int lastTextRevision=-1;
         boolean attached;
         int startX,startY;
         float touchX,touchY;
@@ -93,11 +97,20 @@ public final class ApiQuickPanel {
         final Runnable refresh=new Runnable() {
             @Override public void run(){
                 if(!attached)return;
-                if(status!=null&&selectedTab==1) {
+                if(status!=null&&selectedTab==2) {
                     int revision=OverlayAttachmentDraft.revision();
                     if(revision!=lastRevision){
                         lastRevision=revision;
                         status.setText(OverlayAttachmentDraft.status());
+                    }
+                }
+                if(textStatus!=null&&selectedTab==0) {
+                    int revision=OverlayTextClient.revision();
+                    if(revision!=lastTextRevision){
+                        lastTextRevision=revision;
+                        textStatus.setText(OverlayTextClient.status());
+                        if(textAnswer!=null)
+                            textAnswer.setText(OverlayTextClient.response());
                     }
                 }
                 main.postDelayed(this,1100);
@@ -132,7 +145,7 @@ public final class ApiQuickPanel {
         void detach(){
             attached=false;
             main.removeCallbacks(refresh);
-            status=null;prompt=null;
+            status=null;prompt=null;textStatus=null;textAnswer=null;textPrompt=null;
             if(shell!=null&&shell.getParent()==frame)frame.removeView(shell);
             shell=null;
         }
@@ -206,7 +219,10 @@ public final class ApiQuickPanel {
         void render(){
             if(!attached)return;
             int lastX=params.leftMargin,lastY=params.topMargin;
+            if(textPrompt!=null && selectedTab==0)
+                OverlayTextClient.setDraft(textPrompt.getText().toString());
             shell.removeAllViews();status=null;prompt=null;
+            textStatus=null;textAnswer=null;textPrompt=null;
             shell.setPadding(0,0,0,0);
             if(!expanded){
                 params.width=dp(activity,CHIP);
@@ -233,12 +249,24 @@ public final class ApiQuickPanel {
                 close.setOnClickListener(v->{expanded=false;render();});
 
                 LinearLayout tabs=horizontal(shell,9);
-                Button api=button("API",selectedTab==0);
-                Button attach=button("文件注入",selectedTab==1);
-                addHalf(tabs,api);addHalf(tabs,attach);
-                api.setOnClickListener(v->{selectedTab=0;render();});
-                attach.setOnClickListener(v->{selectedTab=1;render();});
-                if(selectedTab==0)renderApi();else renderUpload();
+                Button chat=button("文本",selectedTab==0);
+                Button api=button("API",selectedTab==1);
+                Button attach=button("文件",selectedTab==2);
+                addThird(tabs,chat);addThird(tabs,api);addThird(tabs,attach);
+                chat.setOnClickListener(v->{selectedTab=0;render();});
+                api.setOnClickListener(v->{
+                    if(textPrompt!=null)
+                        OverlayTextClient.setDraft(textPrompt.getText().toString());
+                    selectedTab=1;render();
+                });
+                attach.setOnClickListener(v->{
+                    if(textPrompt!=null)
+                        OverlayTextClient.setDraft(textPrompt.getText().toString());
+                    selectedTab=2;render();
+                });
+                if(selectedTab==0)renderText();
+                else if(selectedTab==1)renderApi();
+                else renderUpload();
                 TextView hint=text("模型网页保持在下方 · 拖动顶部移动",10,0xFF7D86A0,false);
                 hint.setGravity(Gravity.CENTER);
                 add(shell,hint,0);
@@ -247,6 +275,66 @@ public final class ApiQuickPanel {
             frame.post(()->{
                 if(attached) position(lastX,lastY);
             });
+        }
+        void addThird(LinearLayout row,View v) {
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,35),1);
+            p.rightMargin=dp(activity,4);
+            row.addView(v,p);
+        }
+        void renderText(){
+            TextView model=text("当前网页模型："+OriginalCoreBridge.activeProviderModel(),
+                11,0xFF3C4688,true);
+            add(shell,model,5);
+            textStatus=text(OverlayTextClient.status(),11,0xFF64708B,false);
+            textStatus.setMaxLines(3);
+            add(shell,textStatus,7);
+
+            textPrompt=new EditText(activity);
+            textPrompt.setTextSize(12);
+            textPrompt.setTextColor(0xFF232953);
+            textPrompt.setHint("输入一句普通文字，先验收文本接口…");
+            textPrompt.setSingleLine(false);
+            textPrompt.setMaxLines(3);
+            textPrompt.setText(OverlayTextClient.draft());
+            textPrompt.setPadding(dp(activity,8),dp(activity,7),
+                dp(activity,8),dp(activity,7));
+            textPrompt.setBackground(bg(0xFFF0F3FB,dp(activity,9),0xFFDDE3F3));
+            LinearLayout.LayoutParams ip=new LinearLayout.LayoutParams(-1,dp(activity,63));
+            ip.bottomMargin=dp(activity,8);
+            shell.addView(textPrompt,ip);
+
+            Button send=button("发送普通文本（不含附件）",true);
+            LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(activity,39));
+            sp.bottomMargin=dp(activity,8);shell.addView(send,sp);
+            send.setEnabled(!OverlayTextClient.isSending());
+            send.setOnClickListener(v->{
+                String input=textPrompt.getText().toString();
+                String result=OverlayTextClient.send(input);
+                textStatus.setText(result);
+                send.setEnabled(false);
+                if(!OverlayTextClient.isSending())send.setEnabled(true);
+                lastTextRevision=-1;
+            });
+            TextView answerLabel=text("真实模型回复 / 失败原因",11,0xFF3D4681,true);
+            add(shell,answerLabel,4);
+            textAnswer=text(OverlayTextClient.response(),11,0xFF232953,false);
+            textAnswer.setMaxLines(5);
+            textAnswer.setPadding(dp(activity,7),dp(activity,6),
+                dp(activity,7),dp(activity,6));
+            textAnswer.setBackground(bg(0xFFF0F3FB,dp(activity,9),0));
+            add(shell,textAnswer,6);
+            Button copy=button("复制回复",false);
+            add(shell,copy,6);
+            copy.setOnClickListener(v->{
+                String reply=OverlayTextClient.response();
+                if(reply.isEmpty())return;
+                ClipboardManager cb=(ClipboardManager)activity
+                    .getSystemService(Context.CLIPBOARD_SERVICE);
+                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("OmniGate 文本回复",reply));
+            });
+            TextView note=text("HTTP 502/no reply ≠ 文本成功；网页可能需要登录。先完成此项再验收上传。",
+                10,0xFF9D664B,false);
+            add(shell,note,6);
         }
         void renderApi(){
             int nativePort=OriginalCoreBridge.configuredPort();
@@ -324,13 +412,20 @@ public final class ApiQuickPanel {
             Button send=button("向当前网页注入附件（测试）",true);
             LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,dp(activity,38));
             sp.bottomMargin=dp(activity,8);shell.addView(send,sp);
+            send.setEnabled(OverlayTextClient.lastSuccess());
             send.setOnClickListener(v->{
+                if(!OverlayTextClient.lastSuccess()){
+                    OverlayAttachmentDraft.report("请先在「文本」页完成真实模型回复测试，再验收附件。");
+                    render();return;
+                }
                 OverlayAttachmentDraft.setPrompt(prompt.getText().toString());
                 String result=OverlayUploadClient.start();
                 OverlayAttachmentDraft.report(result);
                 render();
             });
-            TextView note=text("网页必须已加载并登录；HTTP 502/no reply 表示未收到回执。",
+            TextView note=text(OverlayTextClient.lastSuccess()
+                ? "文本接口已验收；附件仍需网页缩略图和真实回复确认。"
+                : "先去「文本」页确认真实文字回复；当前附件发送按钮禁用。",
                 10,0xFF8E6946,false);
             add(shell,note,6);
         }
