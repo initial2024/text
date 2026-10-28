@@ -47,19 +47,23 @@ public final class CompatBootstrapProvider extends ContentProvider {
                         activity.runOnUiThread(() -> attach(activity));
                     } else if ("com.deepseek2.app.ui.MainActivity".equals(cls)) {
                         activity.runOnUiThread(() -> {
-                            attach(activity);
+                            ApiQuickPanel.show(activity);
                             OriginalCoreBridge.onOriginalMainResumed(activity);
                         });
                     }
                 }
                 @Override public void onActivityCreated(Activity a, Bundle b) {}
                 @Override public void onActivityStarted(Activity a) {}
-                @Override public void onActivityPaused(Activity a) {}
+                @Override public void onActivityPaused(Activity a) {
+                    if ("com.deepseek2.app.ui.MainActivity".equals(a.getClass().getName()))
+                        ApiQuickPanel.hide(a);
+                }
                 @Override public void onActivityStopped(Activity a) {}
                 @Override public void onActivitySaveInstanceState(Activity a, Bundle b) {}
                 @Override public void onActivityDestroyed(Activity a) {
                     if ("com.deepseek2.app.ui.MainActivity".equals(a.getClass().getName()))
                         OriginalCoreBridge.onOriginalMainDestroyed(a);
+                    ApiQuickPanel.hide(a);
                 }
             });
         return true;
