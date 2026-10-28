@@ -153,7 +153,8 @@ public final class TunnelClient {
                 throw new IOException("REGISTER 被拒绝：" + sanitizeStatus(response));
             }
 
-            status("已连接 · " + prefix + TUNNEL_SUFFIX_HINT);
+            status("隧道已注册 · 正在验证公网");
+            startPublicProbe();
             while (running && !s.isClosed()) {
                 Request req = readRequest(in);
                 if (req == null) break;
@@ -286,6 +287,61 @@ public final class TunnelClient {
     }
 
     private static final String TUNNEL_SUFFIX_HINT = ".deepseeks.dpdns.org";
+
+    private void startPublicProbe() {
+        Thread probeThread = new Thread(() -> {
+            String url = "https://" + prefix + TUNNEL_SUFFIX_HINT + "/__tunnel_probe";
+            String lastError = "未知错误";
+            for (int attempt = 1; running && attempt <= 3; attempt++) {
+                HttpURLConnection conn = null;
+                try {
+                    if (attempt > 1) Thread.sleep(1800L);
+                    conn = (HttpURLConnection) new URL(url).openConnection();
+                    conn.setConnectTimeout(8_000);
+                    conn.setReadTimeout(8_000);
+                    conn.setUseCaches(false);
+                    conn.setRequestMethod("GET");
+                    int code = conn.getResponseCode();
+                    InputStream body = code >= 400
+                            ? conn.getErrorStream()
+                            : conn.getInputStream();
+                    String text = body == null ? "" : readSmallText(body);
+                    if (code == 200
+                            && text.contains(LocalHttpServer.PROBE_VALUE)) {
+                        status("公网可用 · "
+                                + prefix
+                                + TUNNEL_SUFFIX_HINT);
+                        return;
+                    }
+                    lastError = "HTTP " + code;
+                } catch (Throwable e) {
+                    lastError = e.getClass().getSimpleName()
+                            + (e.getMessage() == null
+                            ? ""
+                            : "：" + sanitizeStatus(e.getMessage()));
+                } finally {
+                    if (conn != null) conn.disconnect();
+                }
+            }
+            if (running) {
+                status("隧道已注册，但公网探针失败 · " + lastError);
+            }
+        }, "tunnel-public-probe");
+        probeThread.setDaemon(true);
+        probeThread.start();
+    }
+
+    private static String readSmallText(InputStream in) throws IOException {
+        try (InputStream body = in;
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024];
+            int n;
+            while ((n = body.read(buffer)) >= 0 && out.size() < 8192) {
+                if (n > 0) out.write(buffer, 0, n);
+            }
+            return out.toString(StandardCharsets.UTF_8.name());
+        }
+    }
 
     private static String sanitizeStatus(String value) {
         if (value == null) return "null";
