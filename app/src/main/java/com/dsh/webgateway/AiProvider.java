@@ -22,14 +22,14 @@ public enum AiProvider {
     GROK(
             "grok",
             "Grok",
-            "Grok 网页版 · Fast模型与实时搜索",
+            "Grok 网页版 · Fast 模型与实时搜索",
             "https://grok.com/",
             "grok-web-fast",
             Arrays.asList("grok-web-fast", "grok-web", "grok")),
     GLM(
             "glm",
             "GLM",
-            "智谱清言网页版 · GLM-Flash与联网模式",
+            "智谱清言网页版 · GLM-Flash 与联网模式",
             "https://chatglm.cn/",
             "glm-web-flash",
             Arrays.asList("glm-web-flash", "glm-web", "glm", "chatglm", "chatglm-web"));
