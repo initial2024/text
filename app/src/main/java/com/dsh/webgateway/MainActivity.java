@@ -553,7 +553,7 @@ public final class MainActivity extends Activity {
 
         TextView note = UiKit.text(
                 this,
-                "本机 127.0.0.1 直连无需鉴权；API Key 主要用于公网 /v1。Key 默认隐藏，也可自定义。",
+                "所有 /v1 请求都需要填写 API Key。本机 127.0.0.1 接受任意非空 Key；公网必须使用 OmniGate 的真实 Key。",
                 12.5f,
                 muted,
                 false);
@@ -656,7 +656,7 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("自定义 API Key")
                 .setMessage(
-                        "Key 仅保存在本机应用私有配置中。公网接口也使用同一个 Key。")
+                        "公网必须使用这个真实 Key；本机 127.0.0.1 只要求客户端填写任意非空 Key。")
                 .setView(box)
                 .setNeutralButton("重新随机生成", (dialog, which) -> {
                     GatewayApp.resetApiKey();
