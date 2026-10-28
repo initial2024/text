@@ -32,15 +32,29 @@ public final class WebBridgeDiagnostics {
                 boolean guest=obj.optBoolean("guestComposerEligible",false);
                 boolean auth=obj.optBoolean("accountUiVisible",false);
                 String pageReady=obj.optString("readyState","unknown");
+                int generic=obj.optInt("genericEditableCount",-1);
+                int genericVisible=obj.optInt("genericVisibleCount",-1);
+                int frames=obj.optInt("frameCount",-1);
+                boolean hostMatched=obj.optBoolean("providerHostMatched",false);
+                boolean topFrame=obj.optBoolean("topFrame",false);
                 String status="网页桥已响应："+provider
                     +"；DOM="+pageReady
-                    +"；输入框数量="+selectorCount
+                    +"；原选择器输入框="+selectorCount
                     +"；可见="+composerVisible
+                    +"；通用可编辑元素="+generic
+                    +"（可见="+genericVisible+"）"
+                    +"；frame="+frames+"；顶层="+topFrame
+                    +"；站点匹配="+hostMatched
                     +"；答案元素="+answerCount
-                    +"；游客输入可用="+guest
+                    +"；游客就绪="+guest
                     +"；账号 UI="+auth
                     +"；注入就绪="+ready;
-                if(!ready)status+="。若输入框存在但未就绪，可能是旧登录门禁或选择器已失效。";
+                if(!hostMatched) status+="。可能注入到了错误页面/文档，先检查网页宿主。";
+                else if(genericVisible>0 && Integer.parseInt(selectorCount)==0)
+                    status+="。存在可编辑元素，但原提供商选择器未命中，需要单独核查选择器。";
+                else if(genericVisible==0)
+                    status+="。未找到可见编辑器，检查页面加载、遮罩、iframe 或网页版式。";
+                else if(!ready) status+="。有输入框但就绪门禁未通过，需检查桥配置。";
                 report(status);
             } catch(Throwable ex){
                 Throwable cause=ex instanceof java.lang.reflect.InvocationTargetException
