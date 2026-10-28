@@ -2,6 +2,10 @@ name: Build Original Core Sidecar APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ original-core-addon ]
+    paths:
+      - 'original-core-addon/BUILD_TRIGGER'
 
 concurrency:
   group: original-core-sidecar
