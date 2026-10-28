@@ -16,6 +16,7 @@ public final class OverlayDocumentPickerActivity extends Activity {
     private boolean started;
 
     @Override protected void onCreate(Bundle state) {
+        setTheme(android.R.style.Theme_Translucent_NoTitleBar);
         super.onCreate(state);
         started = state != null && state.getBoolean("started", false);
         if (started) return;
