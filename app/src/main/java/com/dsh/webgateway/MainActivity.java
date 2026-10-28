@@ -20,6 +20,7 @@ import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
+import android.webkit.ValueCallback;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.CompoundButton;
@@ -41,12 +42,14 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 public final class MainActivity extends Activity {
+    private static final int REQUEST_WEB_FILE = 5201;
     private static final int TAB_OVERVIEW = 0;
     private static final int TAB_SESSIONS = 1;
     private static final int TAB_WEB = 2;
 
     private WebView webView;
     private WebRelay relay;
+    private ValueCallback<Uri[]> webFilePathCallback;
     private FrameLayout pageHost;
     private View[] pages;
     private LinearLayout[] navItems;
@@ -1867,7 +1870,33 @@ public final class MainActivity extends Activity {
             }
         });
 
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(
+                    WebView webView,
+                    ValueCallback<Uri[]> filePathCallback,
+                    FileChooserParams fileChooserParams) {
+                if (webFilePathCallback != null) {
+                    webFilePathCallback.onReceiveValue(null);
+                }
+                webFilePathCallback = filePathCallback;
+
+                try {
+                    Intent intent = fileChooserParams.createIntent();
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    startActivityForResult(intent, REQUEST_WEB_FILE);
+                    return true;
+                } catch (Throwable e) {
+                    webFilePathCallback = null;
+                    Toast.makeText(
+                            MainActivity.this,
+                            "无法打开文件选择器：" + e.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                    return false;
+                }
+            }
+        });
 
         relay = new WebRelay(webView);
         GatewayApp.setRelay(relay);
@@ -1882,6 +1911,25 @@ public final class MainActivity extends Activity {
         } else {
             startService(intent);
         }
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data) {
+        if (requestCode == REQUEST_WEB_FILE) {
+            ValueCallback<Uri[]> callback = webFilePathCallback;
+            webFilePathCallback = null;
+            if (callback != null) {
+                Uri[] result = WebChromeClient.FileChooserParams.parseResult(
+                        resultCode,
+                        data);
+                callback.onReceiveValue(result);
+            }
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
     }
 
     @Override
