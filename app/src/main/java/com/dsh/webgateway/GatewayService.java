@@ -183,7 +183,7 @@ public final class GatewayService extends Service {
                     "OmniGate",
                     NotificationManager.IMPORTANCE_LOW);
             channel.setDescription(
-                    "Keeps OmniGate web AI sessions, local API and optional public tunnel available");
+                    "Keeps the OmniGate companion proxy and optional public tunnel available");
             getSystemService(NotificationManager.class)
                     .createNotificationChannel(channel);
         }
@@ -201,8 +201,11 @@ public final class GatewayService extends Service {
                 open,
                 PendingIntent.FLAG_UPDATE_CURRENT | immutable);
 
-        Intent showOverlay = new Intent(this, FloatingOverlayService.class);
-        showOverlay.setAction(FloatingOverlayService.ACTION_SHOW);
+        Intent showOverlay = new Intent(
+                "com.deepseek2.app.action.SHOW_OVERLAY");
+        showOverlay.setClassName(
+                "com.deepseek2.app",
+                "com.deepseek2.app.ui.OverlayService");
         PendingIntent overlayPi = PendingIntent.getService(
                 this,
                 1,
