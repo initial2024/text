@@ -49,7 +49,10 @@ public final class GatewayService extends Service {
 
     private synchronized void ensureServerAlive() {
         if (server != null && server.isListening()) {
-            GatewayApp.setLocalApiStatus("运行中 · 127.0.0.1:" + GatewayApp.PORT);
+            boolean originalReady = OriginalGatewayProxy.probe();
+            GatewayApp.setLocalApiStatus(
+                    "Companion 8787 运行中 · 原核心 1601 "
+                            + (originalReady ? "已连接" : "未连接"));
             return;
         }
 
@@ -61,7 +64,10 @@ public final class GatewayService extends Service {
         LocalHttpServer candidate = new LocalHttpServer(GatewayApp.PORT);
         if (candidate.start()) {
             server = candidate;
-            GatewayApp.setLocalApiStatus("运行中 · 127.0.0.1:" + GatewayApp.PORT);
+            boolean originalReady = OriginalGatewayProxy.probe();
+            GatewayApp.setLocalApiStatus(
+                    "Companion 8787 运行中 · 原核心 1601 "
+                            + (originalReady ? "已连接" : "未连接"));
         } else {
             candidate.shutdown();
             GatewayApp.setLocalApiStatus("8787 启动失败 · 正在重试");
@@ -210,9 +216,8 @@ public final class GatewayService extends Service {
         AiProvider provider = GatewayApp.selectedProvider();
 
         StringBuilder text = new StringBuilder();
-        text.append(provider.displayName)
-                .append(" · 127.0.0.1:")
-                .append(GatewayApp.PORT);
+        text.append("8787→1601")
+                .append(OriginalGatewayProxy.probe() ? " 已连接" : " 未连接");
         if (GatewayApp.tunnelEnabled()) {
             text.append(" · ").append(GatewayApp.tunnelStatus());
         }
