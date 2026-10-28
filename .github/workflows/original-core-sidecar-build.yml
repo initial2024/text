@@ -1,8 +1,6 @@
 name: Build Original Core Sidecar APK
 
 on:
-  push:
-    branches: [ original-core-addon ]
   workflow_dispatch:
 
 concurrency:
