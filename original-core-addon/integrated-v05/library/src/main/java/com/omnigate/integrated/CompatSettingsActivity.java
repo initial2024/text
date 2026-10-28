@@ -188,7 +188,7 @@ public final class CompatSettingsActivity extends Activity {
         hero.setPadding(dp(19), dp(17), dp(19), dp(18));
         margin(page, hero, 14);
         margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
-        margin(hero, text("API 控制台   /   v0.6.1", 13, 0xFFE5E7FF, false), 7);
+        margin(hero, text("API 控制台   /   v0.6.2", 13, 0xFFE5E7FF, false), 7);
         margin(hero, text("本地优先 · 手动启停 · 网页注入保持不变", 12, 0xFFD6E9FF, false), 0);
 
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
@@ -337,6 +337,7 @@ public final class CompatSettingsActivity extends Activity {
         if (serviceState == null) return;
         boolean local = LocalProxyRuntime.isListening();
         boolean upstream = SidecarProxyServer.isUpstreamReachable();
+        boolean owned = OriginalCoreBridge.nativeOwnerRunning();
         int nativePort = OriginalCoreBridge.configuredPort();
         localBadge.setText(local ? "● 本地 8787 · 已监听" : "○ 本地 8787 · 已停止");
         localBadge.setTextColor(local ? 0xFF136A48 : 0xFF664D87);
@@ -344,15 +345,20 @@ public final class CompatSettingsActivity extends Activity {
         boolean conflicted = OriginalCoreBridge.isPortConflicted();
         upstreamBadge.setText(conflicted
             ? "● 端口冲突：原核心和代理都配置为 8787"
-            : upstream ? "● 原核心 " + nativePort + " · 可连接"
-            : "● 原核心 " + nativePort + " · 不可连接");
-        upstreamBadge.setTextColor(upstream ? 0xFF136A48 : 0xFF966317);
-        upstreamBadge.setBackground(background(upstream ? 0xFFE0F7ED : 0xFFFFF3E1, 12, 0));
-        serviceState.setText(local ? "监听已开启；等待真实上游应答" : "服务未启动；点击“启动 8787”");
+            : owned && upstream ? "● 原核心 " + nativePort + " · 服务运行且 TCP 可连接"
+            : upstream ? "● " + nativePort + " TCP 已连通，但原版服务归属未确认"
+            : "● 原核心 " + nativePort + " · 当前不可连接");
+        upstreamBadge.setTextColor(owned && upstream ? 0xFF136A48 : 0xFF966317);
+        upstreamBadge.setBackground(background(owned && upstream ? 0xFFE0F7ED : 0xFFFFF3E1, 12, 0));
+        serviceState.setText((local ? "8787 已监听" : "8787 未启动")
+            + " · " + OriginalCoreBridge.nativeLifecycleState());
         upstreamGuide.setText(conflicted
-            ? "发现 8787→8787 自循环！之前的绿色“原核心”状态实际上可能只是代理自身。点击“修复端口冲突并启动原 API”将原核心设置恢复为 1601，然后进入原管理页启动。"
-            : upstream ? "原生端口 " + nativePort + " TCP 已连通，仍需模型回复验证。"
-            : "原生端口 " + nativePort + " 未响应，附件仅在手机中选取。请点击“修复端口冲突并启动原 API”，并在原管理页检查服务状态：" + OriginalCoreBridge.lastStartStatus());
+            ? "8787→8787 自循环。请点击下方修复按钮；原版页面端口字段与保存设置必须一致。"
+            : owned && upstream ? "原版 MainActivity.server.isRunning=true，"
+                + nativePort + " TCP 已连接。仍需要真实模型回复才能证明 API 有效。"
+            : "原版网页聊天与 API 服务独立。请点击下方按钮恢复原版 MainActivity；"
+                + "不要关闭该模型页，因为原版 onDestroy 会调用 stopServer。状态："
+                + OriginalCoreBridge.lastStartStatus());
     }
 
     private void startLocalServer() {
@@ -391,15 +397,21 @@ public final class CompatSettingsActivity extends Activity {
                     JSONObject reply = new JSONObject(b.toString("UTF-8"));
                     boolean alive = code == 200 && reply.optBoolean("ok", false);
                     boolean upstream = reply.optBoolean("upstreamReachable", false);
+                    boolean owned = reply.optBoolean("originalServerRunning", false);
+                    boolean host = reply.optBoolean("originalOwnerAlive", false);
                     boolean conflict = reply.optBoolean("portConflict", false);
-                int target = OriginalCoreBridge.configuredPort();
-                result = alive
-                    ? (conflict
-                        ? "● 8787 正常，但原核心同样配置为 8787：端口冲突！请修复后重新检测。"
-                        : upstream
-                            ? "● 8787 正常 · 上游 " + target + " TCP 连通（待模型响应）"
-                            : "● 8787 正常 · 上游 " + target + " 不可连接（模型与附件暂不可用）")
-                    : "HTTP " + code + " · 本地健康检查未通过";
+                    int target = OriginalCoreBridge.configuredPort();
+                    result = alive
+                        ? (conflict
+                            ? "8787 正常；端口冲突，原服务不能使用同一个端口。"
+                            : (owned && upstream)
+                                ? "8787 正常 · 原版 server.isRunning=true · " + target +
+                                  " TCP 可连接（模型回复尚未验收）"
+                                : "8787 正常 · 原版宿主 " + (host?"存活":"不存在")
+                                  + " · 原版 server.isRunning=" + owned
+                                  + " · " + target + " TCP=" + upstream +
+                                  "；先恢复原版模型页，不能据此宣布 API 可用。")
+                        : "HTTP " + code + " · 本地健康检查未通过";
                 }
             } catch (Exception e) {
                 result = "不可访问: " + e.getClass().getSimpleName()
@@ -411,7 +423,7 @@ public final class CompatSettingsActivity extends Activity {
             main.post(() -> {
                 if (!isDestroyed()) {
                     healthState.setText(captured);
-                    healthState.setTextColor(captured.contains("8787 工作正常")
+                    healthState.setTextColor(captured.contains("server.isRunning=true")
                         ? 0xFF216B51 : 0xFFA65831);
                     updateState();
                 }
