@@ -7,6 +7,7 @@ import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -104,10 +105,51 @@ public final class UiKit {
         card.setBackground(stroked(
                 background,
                 border,
-                dp(context, 22),
+                dp(context, 24),
                 Math.max(1, dp(context, 1))));
-        card.setElevation(dp(context, 1.5f));
+        card.setElevation(dp(context, 2.5f));
         return card;
+    }
+
+    public static ImageView iconButton(
+            Context context,
+            int iconRes,
+            int tint,
+            int fill,
+            int contentPaddingDp,
+            String contentDescription) {
+        ImageView v = new ImageView(context);
+        v.setImageResource(iconRes);
+        v.setColorFilter(tint);
+        v.setPadding(
+                dp(context, contentPaddingDp),
+                dp(context, contentPaddingDp),
+                dp(context, contentPaddingDp),
+                dp(context, contentPaddingDp));
+        v.setBackground(rounded(fill, dp(context, 15)));
+        v.setContentDescription(contentDescription);
+        v.setClickable(true);
+        v.setFocusable(true);
+        v.setElevation(dp(context, 1));
+        return v;
+    }
+
+    public static TextView sectionTitle(
+            Context context,
+            String title,
+            int color) {
+        TextView v = text(context, title, 13f, color, true);
+        v.setLetterSpacing(0.06f);
+        return v;
+    }
+
+    public static View divider(Context context, int color) {
+        View v = new View(context);
+        v.setBackgroundColor(color);
+        v.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Math.max(1, dp(context, 1))));
+        return v;
     }
 
     public static LinearLayout.LayoutParams matchWrap() {
