@@ -1,0 +1,37 @@
+{
+  "baseline_apk": {
+    "name": "base2-no-truncate-600s.apk",
+    "sha256": "16d78e8a33452571ae18ee13dcd792bd06a4e9b4d185ebda004c14295a88a355"
+  },
+  "frozen_entries": {
+    "assets/ai_gateway_bridge/bridge.js": "f828989d613d366e7894d2bc635a9fa834ec440dfd9d15e61750bf9eb97b4122",
+    "classes.dex": "9ed048ebd701150ec1a051f41b5098a37b45334cf402711e39ca338aada9b4e5"
+  },
+  "allowed_apk_content_changes": [
+    "assets/ai_gateway_bridge/bridge.js",
+    "classes.dex"
+  ],
+  "protected_original_bridge_functions": {
+    "findFileInput": "db2107da377424d64fdf5f8eba0fe872ab98bf3300b6289aa79f0982a7c0d6eb",
+    "uploadAttachments": "74dd5f5d5cba618c341f59d0abf7fac5a3a362faee55367547ae5a7895fdb2f5",
+    "submitContentEditable": "51c138eb2acf9e6c906d3078b37b56bd2fb96606ec12f867d977b3d1e210f37c",
+    "submitTextarea": "e146171a96aeefd8e7ccc704c2dd518e1d7b16ac486486c131d34c9e9f4e5c73",
+    "sendPrompt": "c113f507f848cb9bdb3ff6b775addb54138829fc4a4ca3e3e01dc9c0fb371c7a"
+  },
+  "dex_patch": {
+    "purpose": "raise only the three verified API chat Future timeouts from 600s to 3600s",
+    "output_classes_dex_sha256": "c54743ff1b76c6449dad5a1e3199eee5c2dc8dde56f6a87e84cfe95d7669bd35"
+  },
+  "reference_bridge": {
+    "name": "reference/bridge-v2.1-working.js",
+    "sha256": "138960747996eb933bc0ea74efcac6c3a6d84ccddd67fff863bea1b86f7d6b8c",
+    "purpose": "text-equivalence reference for frozen working input/upload/send functions"
+  },
+  "protected_function_hash_scheme": "SHA-256 of exact extracted function source slice; CI also requires exact equality to reference bridge",
+  "verified_local_api": {
+    "host": "127.0.0.1",
+    "port": 1601,
+    "path": "/v1/chat/completions",
+    "evidence": "frozen classes.dex contains 1601 and /v1/chat/completions; no 8787 literal"
+  }
+}
