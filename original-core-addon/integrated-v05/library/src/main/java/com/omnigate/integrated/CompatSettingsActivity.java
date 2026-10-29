@@ -50,7 +50,7 @@ public final class CompatSettingsActivity extends Activity {
     private static final int MAX_FILE_BYTES = 8 * 1024 * 1024;
     private final Handler main = new Handler(Looper.getMainLooper());
 
-    private TextView serviceState, healthState, uploadState, replyState;
+    private TextView serviceState, healthState, uploadState, replyState, publicStatus;
     private EditText upstreamKey, publicKey, relayKey, prompt;
     private Spinner models;
     private TextView localBadge, upstreamBadge, upstreamGuide;
@@ -201,6 +201,8 @@ public final class CompatSettingsActivity extends Activity {
         start.setOnClickListener(v -> startLocalServer());
         Button stop = rowButton(actions, "停止服务", false);
         stop.setOnClickListener(v -> {
+            GatewayApp.setTunnelEnabled(false);
+            RelayRuntime.stop();
             stopService(new Intent(this, SidecarService.class));
             LocalProxyRuntime.stop();
             serviceState.setText("服务已停止");
@@ -366,50 +368,43 @@ public final class CompatSettingsActivity extends Activity {
             if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText(
                 "OmniGate HTTPS API",GatewayApp.OWN_PUBLIC_BASE+"/v1"));
         });
-        final TextView publicStatus=text(
+        publicStatus=text(
             GatewayApp.tunnelEnabled()
                 ? "公网穿透已配置启用；状态："+GatewayApp.tunnelStatus()
                 : "公网穿透默认关闭；本机 8787 不受影响",
             12,0xFF65708F,false);
         margin(settings,publicStatus,8);
+        Button refreshPublic=button(settings,"刷新 Relay 实际连接状态",false);
+        refreshPublic.setOnClickListener(v->refreshRelayStatus());
         Button togglePublic=button(settings,"手动开启 / 关闭原有穿透",false);
         togglePublic.setOnClickListener(v -> {
             if(GatewayApp.tunnelEnabled()){
                 GatewayApp.setTunnelEnabled(false);
-                if(SidecarService.isServiceAlive()){
-                    Intent stopRelay=new Intent(this,SidecarService.class);
-                    stopRelay.setAction(SidecarService.ACTION_RESTART_RELAY);
-                    startService(stopRelay);
-                }
-                publicStatus.setText("公网穿透已关闭，8787 本地 API 继续保留");
+                RelayRuntime.stop();
+                refreshRelayStatus();
                 return;
             }
             if(GatewayApp.relayKey().length()<24){
-                publicStatus.setText("先保存与原 Worker 匹配的 Relay 配对 Key；未开启");
+                publicStatus.setText("需要先保存正确的 Relay 配对 Key；未连接");
                 return;
             }
             new android.app.AlertDialog.Builder(this)
-                .setTitle("开启已有 OmniGate 公网穿透？")
-                .setMessage("只复用 "+GatewayApp.OWN_PUBLIC_BASE+
-                    "/v1，不创建新域名。公网要求精确 API Key；本机测试 key 不可在公网使用。" +
-                    "只有确认原配对 Key 可用后，才连接手机端 Relay。")
+                .setTitle("开启现有 OmniGate 公网穿透？")
+                .setMessage("沿用 "+GatewayApp.OWN_PUBLIC_BASE+
+                    "/v1。此操作会在当前应用进程内建立唯一 Relay WebSocket，"+
+                    "不依赖前台服务启动成功。公网必须使用独立 API Key，"+
+                    "后台可能被 Android 回收，不保证一直在线。")
                 .setNegativeButton("取消",null)
-                .setPositiveButton("确认开启",(dialog,which)->{
+                .setPositiveButton("确认连接",(dialog,which)->{
                     GatewayApp.setTunnelEnabled(true);
                     try {
-                        Intent startRelay=new Intent(this,SidecarService.class);
-                        startRelay.setAction(SidecarService.isServiceAlive()
-                            ? SidecarService.ACTION_RESTART_RELAY
-                            : SidecarService.ACTION_ENSURE_RUNNING);
-                        if(SidecarService.isServiceAlive())startService(startRelay);
-                        else if(Build.VERSION.SDK_INT>=26)startForegroundService(startRelay);
-                        else startService(startRelay);
-                        publicStatus.setText(
-                            "已请求连接原穿透；需检查 Relay 状态和 HTTPS 实际请求");
-                    } catch(RuntimeException startup){
+                        RelayRuntime.ensureStarted();
+                        refreshRelayStatus();
+                    } catch(RuntimeException e){
                         GatewayApp.setTunnelEnabled(false);
-                        publicStatus.setText("公网启动失败："+startup.getClass().getSimpleName()
-                            +"；已回退关闭状态，本地 8787 不变");
+                        RelayRuntime.stop();
+                        publicStatus.setText("Relay 初始化失败："+
+                            e.getClass().getSimpleName()+"；开关已恢复关闭");
                     }
                 }).show();
         });
@@ -423,6 +418,19 @@ public final class CompatSettingsActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (localBadge != null && upstreamBadge != null) updateState();
+        refreshRelayStatus();
+    }
+
+    private void refreshRelayStatus() {
+        if(publicStatus==null)return;
+        boolean toggle=GatewayApp.tunnelEnabled();
+        boolean started=RelayRuntime.isStarted();
+        boolean connected=RelayRuntime.isConnected();
+        publicStatus.setText("公网开关="+(toggle?"开启":"关闭")+
+            "；Relay 客户端="+(started?"已启动":"未启动")+
+            "；WebSocket="+(connected?"已连接":"未连接")+
+            "；状态="+GatewayApp.tunnelStatus()+
+            "。仅端口可达不代表模型 API 可用。");
     }
 
     private void updateState() {
@@ -527,7 +535,13 @@ public final class CompatSettingsActivity extends Activity {
         try {
             GatewayApp.setUpstreamApiKey(upstreamKey.getText().toString());
             GatewayApp.setApiKey(publicKey.getText().toString());
+            String previousRelayKey=GatewayApp.relayKey();
             GatewayApp.setRelayKey(relayKey.getText().toString());
+            if(GatewayApp.tunnelEnabled() &&
+                !previousRelayKey.equals(GatewayApp.relayKey())) {
+                RelayRuntime.restart();
+            }
+            refreshRelayStatus();
             toast("配置已保存");
         } catch (RuntimeException e) {
             toast("保存失败：" + e.getMessage());
