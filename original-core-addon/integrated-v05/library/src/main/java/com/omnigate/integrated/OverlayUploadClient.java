@@ -35,7 +35,7 @@ public final class OverlayUploadClient {
             recoveryStage="baseline_unavailable";
             return null;
         }
-        final long deadline=android.os.SystemClock.uptimeMillis()+12000L;
+        final long deadline=android.os.SystemClock.uptimeMillis()+60000L;
         String previous="";
         int stable=0;
         recoveryStage="waiting_for_matching_user_turn";
@@ -43,7 +43,7 @@ public final class OverlayUploadClient {
             try {
                 JSONObject owner=OriginalCoreBridge.diagnoseVisibleHostSocket();
                 if(!owner.optBoolean("visibleHostOwnsPort",false) ||
-                        "different".equals(owner.optString("webDriverIdentity",""))) {
+                        !"same".equals(owner.optString("webDriverIdentity",""))) {
                     recoveryStage="visible_driver_or_socket_mismatch";
                     return null;
                 }
