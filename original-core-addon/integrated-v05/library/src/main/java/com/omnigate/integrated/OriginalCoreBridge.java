@@ -152,6 +152,55 @@ public final class OriginalCoreBridge {
             .put("nativeGeneration", cls.getMethod("getGeneration").invoke(state));
     }
 
+    /**
+     * Observe the ACTUAL socket bound by the original MainActivity ApiServer.
+     * ApiServer.isRunning and TCP reachability alone cannot establish that
+     * the visible MainActivity owns the listening socket. The original
+     * OverlayService contains its own independent server/driver/browser.
+     *
+     * Read-only: never start, stop or replace either original server.
+     */
+    public static JSONObject diagnoseVisibleHostSocket() {
+        JSONObject result=new JSONObject();
+        Activity owner=originalMain.get();
+        try {
+            result.put("activityAlive",owner!=null && !owner.isFinishing()
+                && !owner.isDestroyed());
+            result.put("configuredPort",configuredPort());
+            result.put("tcpReachable",isListening());
+            if(owner==null || owner.isFinishing() || owner.isDestroyed()) {
+                result.put("socketOwner","visible_host_missing"); return result;
+            }
+            Field serverField=owner.getClass().getDeclaredField("server");
+            serverField.setAccessible(true);
+            Object server=serverField.get(owner);
+            if(server==null) {
+                result.put("socketOwner","visible_host_server_null");return result;
+            }
+            result.put("runningFlag",nativeOwnerRunning());
+            Field socketField=server.getClass().getDeclaredField("serverSocket");
+            socketField.setAccessible(true);
+            Object rawSocket=socketField.get(server);
+            if(!(rawSocket instanceof java.net.ServerSocket)) {
+                result.put("socketOwner","visible_host_socket_null");return result;
+            }
+            java.net.ServerSocket socket=(java.net.ServerSocket)rawSocket;
+            boolean bound=socket.isBound(), closed=socket.isClosed();
+            int boundPort=bound?socket.getLocalPort():-1;
+            result.put("socketBound",bound).put("socketClosed",closed)
+                .put("actualPort",boundPort);
+            result.put("visibleHostOwnsPort",bound && !closed &&
+                boundPort==configuredPort());
+            result.put("socketOwner",bound && !closed
+                ? "visible_host_has_live_socket" : "visible_host_no_live_socket");
+        } catch(Throwable ex) {
+            try {result.put("socketOwner","inspect_failed_"+
+                ex.getClass().getSimpleName());}
+            catch(org.json.JSONException ignored){}
+        }
+        return result;
+    }
+
     /** Original frozen MainActivity.server is the actual ownership evidence. */
     public static boolean nativeOwnerRunning() {
         Activity owner=originalMain.get();
