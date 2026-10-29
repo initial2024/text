@@ -22,6 +22,42 @@ public final class OverlayUploadClient {
     private OverlayUploadClient() {}
     public static boolean isSending() { return SENDING.get(); }
 
+    /** Recover only a specifically matched and completed original page answer.
+     * Never invent a result, retry a sent image, or expose an older turn.
+     */
+    private static String correlatedRecovery(String requestId, String baseline) {
+        if(baseline==null) return null;
+        final long deadline=android.os.SystemClock.uptimeMillis()+12000L;
+        String previous=""; int stable=0;
+        while(android.os.SystemClock.uptimeMillis()<deadline) {
+            try {
+                JSONObject owner=OriginalCoreBridge.diagnoseVisibleHostSocket();
+                if(!owner.optBoolean("visibleHostOwnsPort",false))return null;
+                JSONObject page=OriginalCoreBridge.diagnoseCurrentPage();
+                if(!requestId.equals(page.optString("attachmentRequestId","")))return null;
+                if(!"new_explicit_user_turn".equals(
+                        page.optString("attachmentSendEvidence","")))return null;
+                if(!page.optBoolean("assistantReplyChangedSinceSend",false)
+                        || page.optBoolean("generationRaw",true)
+                        || page.optBoolean("autoRolloverActive",false)){
+                    previous="";stable=0;
+                } else {
+                    JSONObject nativeState=OriginalCoreBridge.inspectNativeAnswerForUserRequest();
+                    String answer=nativeState.optString("answer","");
+                    if(!nativeState.optBoolean("generating",true)
+                            && !answer.isEmpty() && !answer.equals(baseline)
+                            && answer.length()==page.optInt("assistantReplyChars",-1)){
+                        stable=answer.equals(previous)?stable+1:1;
+                        previous=answer;
+                        if(stable>=2)return answer;
+                    } else {previous="";stable=0;}
+                }
+            } catch(Throwable ignored) {return null;}
+            android.os.SystemClock.sleep(500L);
+        }
+        return null;
+    }
+
     public static String start() {
         if (!SENDING.compareAndSet(false,true)) return "已有发送任务在进行，未重复提交";
         byte[] bytes = OverlayAttachmentDraft.bytes();
@@ -29,6 +65,7 @@ public final class OverlayUploadClient {
         final String mime = OverlayAttachmentDraft.mime();
         final String question = OverlayAttachmentDraft.prompt();
         final String model = OriginalCoreBridge.activeProviderModel();
+        final String requestId = UUID.randomUUID().toString();
         if (bytes == null || file == null) {
             SENDING.set(false); return "请先通过系统文件选择器选择文件";
         }
@@ -43,12 +80,18 @@ public final class OverlayUploadClient {
         }
         // The website must be open and signed in; this can only be proven by
         // the original bridge receiving a successful provider-side reply.
+        OverlayAttachmentDraft.setReply("");
         OverlayAttachmentDraft.report("正在通过 " + model + " 的原版 V2 注入链路发送，等待网页回执…");
         new Thread(() -> {
             HttpURLConnection conn = null;
             try {
+                String baselineAnswer=null;
+                try {
+                    baselineAnswer=OriginalCoreBridge.inspectNativeAnswerForUserRequest()
+                        .optString("answer","");
+                } catch(Throwable ignored){}
                 JSONObject attachment = new JSONObject()
-                    .put("id",UUID.randomUUID().toString())
+                    .put("id",requestId)
                     .put("name",file).put("mime",mime)
                     .put("current",true)
                     .put("data",Base64.encodeToString(bytes,Base64.NO_WRAP));
@@ -89,8 +132,16 @@ public final class OverlayUploadClient {
                 }
                 String raw=response.toString("UTF-8");
                 if(code==502 && raw.contains("no reply")) {
-                    OverlayAttachmentDraft.report(
-                        "HTTP 502 / no reply：图片可能仅停留在编辑器，描述写入或发送回执尚未确认；请打开网页桥诊断查看附件步骤。请勿重复点击，以免迟到的网页消息导致重复发送。");
+                    String recovered=correlatedRecovery(requestId,baselineAnswer);
+                    if(recovered!=null){
+                        OverlayAttachmentDraft.setReply(recovered);
+                        OverlayAttachmentDraft.report(
+                            "原核心 HTTP 502；已用本次附件 ID、新用户消息和稳定原生回答恢复"
+                            +recovered.length()+" 字。没有伪称 API HTTP 200。");
+                    } else {
+                        OverlayAttachmentDraft.report(
+                            "原核心 HTTP 502；无法安全确认本次图片的回复，未重复发送。");
+                    }
                 } else if(code>=400) {
                     OverlayAttachmentDraft.report("HTTP "+code+"：上游拒绝或未应答（未确认上传）。"+
                         raw.substring(0,Math.min(raw.length(),180)));
@@ -106,8 +157,9 @@ public final class OverlayUploadClient {
                         OverlayAttachmentDraft.report("HTTP "+code+
                             "：没有有效模型文本回复，附件未确认送达");
                     } else {
-                        OverlayAttachmentDraft.report("收到模型回复（仍需网页附件迹象确认）：" +
-                            responseText.substring(0,Math.min(responseText.length(),180)));
+                        OverlayAttachmentDraft.setReply(responseText);
+                        OverlayAttachmentDraft.report("HTTP "+code+
+                            "：收到模型回答 "+responseText.length()+" 字，请核对网页。");
                     }
                 }
             } catch(Exception e) {
