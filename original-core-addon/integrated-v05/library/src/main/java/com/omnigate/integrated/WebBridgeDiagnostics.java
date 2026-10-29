@@ -94,6 +94,11 @@ public final class WebBridgeDiagnostics {
                     status+="。原生已经得到答复且停止生成，下一步检查 WebDriver 完成判断。";
                 else if(nativeChars>0)
                     status+="。原生已获取内容但仍认为生成中，检查生成标记。";
+                status+="\\n【附件步骤】阶段="
+                    +obj.optString("attachmentSendPhase","旧桥未提供")
+                    +"；发送证据="+obj.optString("attachmentSendEvidence","未知")
+                    +"；描述字数="+obj.optInt("attachmentPromptChars",-1)
+                    +"；本轮缓存附件数="+obj.optInt("uploadedAttachments",-1);
                 status+="\\n【注入】最近动作="+sendOutcome
                     +"；模型="+provider
                     +"；网页就绪="+ready
