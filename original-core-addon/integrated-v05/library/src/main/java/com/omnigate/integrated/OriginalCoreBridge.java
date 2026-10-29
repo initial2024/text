@@ -321,28 +321,28 @@ public final class OriginalCoreBridge {
     public static synchronized String requestMainOwnerHandoff(Activity caller) {
         if(handoffPending.get())return handoffState;
         if(!originalOverlayActive()){
-            handoffState="拒绝接管：当前未观察到原版悬浮服务运行";
+            handoffState="拒绝接管：未观察到原版悬浮服务运行；不能假设 1601 的监听者";
             return handoffState;
         }
         if(OverlayTextClient.isSending() || OverlayUploadClient.isSending()){
-            handoffState="拒绝接管：OmniGate 正有请求运行";
+            handoffState="拒绝接管：OmniGate 仍有请求进行中";
             return handoffState;
         }
+        JSONObject currentOwner=diagnoseVisibleHostSocket();
         if(nativeOwnerRunning()){
-            handoffState="拒绝接管：当前主界面 API 已运行，不迁移运行中的实例";
+            if(FALLBACK_PORT==configuredPort() &&
+                "main_socket_and_driver_match".equals(
+                    observedRouteState(currentOwner))){
+                handoffState="无需接管：主界面已经持有 1601 且 WebDriver 匹配";
+            }else{
+                handoffState="拒绝接管：当前主界面 API 仍运行；"+
+                    "不自动关闭可能正在接收的请求";
+            }
             return handoffState;
         }
-        JSONObject observed=diagnoseVisibleHostSocket();
-        if(observed.optBoolean("visibleHostOwnsPort",false)){
-            handoffState="拒绝接管：主界面已持有原端口";
-            return handoffState;
-        }
-        if(!listeningAt(FALLBACK_PORT)){
-            handoffState="1601 未被占用，不必关闭悬浮运行时；请正常启动主 API";
-            return handoffState;
-        }
-        // Main page, if available, must not be generating. Overlay's private
-        // WebDriver cannot be safely inspected from Activity alone.
+        // The overlay may own port 1601 OR the previous migrated 1602.
+        // Do not assume a missing 1601 listener means it is safe to stop
+        // the overlay's private runtime. User consent is still required.
         if(originalHostAlive()){
             try {
                 JSONObject current=inspectNativeAnswerForUserRequest();
@@ -350,20 +350,19 @@ public final class OriginalCoreBridge {
                 if(current.optBoolean("generating",true) ||
                     page.optBoolean("generationRaw",false) ||
                     page.optBoolean("autoRolloverActive",false)){
-                    handoffState="拒绝接管：当前主网页可能仍在生成";
+                    handoffState="拒绝接管：主网页仍可能正在生成";
                     return handoffState;
                 }
             }catch(Throwable e){
-                handoffState="拒绝接管：主界面状态无法确认("
-                    +e.getClass().getSimpleName()+")";
+                handoffState="拒绝接管：主界面状态未能核验("+
+                    e.getClass().getSimpleName()+")";
                 return handoffState;
             }
         }
-        // Do not change the port while the overlay is running. Only after
-        // original OverlayService has returned and port 1601 is free.
         handoffOldPort=configuredPort();
         handoffAttempts=0;
-        handoffState="正在请求原版悬浮窗安全返回主界面；等待旧 1601 释放";
+        handoffState="已收到用户确认；请求原版悬浮服务返回主界面。"+
+            "原悬浮 WebDriver 会被原版 stopRuntime 关闭";
         handoffPending.set(true);
         try {
             Intent intent=new Intent();
@@ -372,45 +371,72 @@ public final class OriginalCoreBridge {
             intent.setAction(ORIGINAL_RETURN_FROM_OVERLAY);
             caller.startService(intent);
             return handoffState;
-        } catch(Throwable failed) {
+        }catch(Throwable failed){
             handoffPending.set(false);
-            handoffState="原版返回失败："+failed.getClass().getSimpleName()+
-                "；未更改端口";
+            handoffState="原版悬浮窗返回失败："+
+                failed.getClass().getSimpleName()+"；未改端口";
             return handoffState;
         }
     }
 
-    /** Runs only after original MainActivity resumes. The old overlay must
-     * really release port 1601. Bounded retries; never bypass ownership check.
+    /** Only after the original OverlayService has finished stopRuntime().
+     * The original MainActivity may already start its own 1602 server during
+     * onCreate. A user-consented handoff can rebind this otherwise-idle API
+     * to 1601 using the SAME MainActivity WebDriver. Fail closed if the
+     * original overlay did not close, if 1601 remains bound, or if the
+     * current model is generating.
      */
     private static void completeMainOwnerHandoff(Activity owner) {
         if(!handoffPending.get() || owner==null || owner.isFinishing() ||
             owner.isDestroyed())return;
-        if(nativeOwnerRunning()){
-            // A new original server may have started at the old Prefs.port;
-            // never move/restart it while live.
-            handoffPending.set(false);
-            handoffState="主界面已有原版服务运行，未强制切端口。请核对 /health 归属";
-            return;
-        }
         if(originalOverlayActive() || listeningAt(FALLBACK_PORT)){
-            if(++handoffAttempts>=14){
+            if(++handoffAttempts>=18){
                 handoffPending.set(false);
-                handoffState="接管未完成：1601 仍有监听者或悬浮服务尚未退出；"+
-                    "未杀进程、未迁移端口";
+                handoffState="接管未完成：原悬浮服务或 1601 仍被占用。"+
+                    "未杀进程，也未修改原版端口";
                 return;
             }
             owner.getWindow().getDecorView().postDelayed(
-                ()->completeMainOwnerHandoff(owner),400);
+                ()->completeMainOwnerHandoff(owner),450);
             return;
         }
+        if(OverlayTextClient.isSending() || OverlayUploadClient.isSending()){
+            handoffPending.set(false);
+            handoffState="接管停止：新的 OmniGate 请求开始运行";
+            return;
+        }
+        JSONObject ownerRoute=diagnoseVisibleHostSocket();
+        if(nativeOwnerRunning() &&
+            !"main_socket_and_driver_match".equals(
+                observedRouteState(ownerRoute))){
+            handoffPending.set(false);
+            handoffState="接管停止：现有 MainActivity API 运行但 WebDriver 归属不匹配";
+            return;
+        }
+        try {
+            JSONObject current=inspectNativeAnswerForUserRequest();
+            JSONObject page=diagnoseCurrentPage();
+            if(current.optBoolean("generating",true) ||
+                page.optBoolean("generationRaw",false) ||
+                page.optBoolean("autoRolloverActive",false)){
+                handoffPending.set(false);
+                handoffState="接管停止：主网页正在生成中；没有重启 API";
+                return;
+            }
+        }catch(Throwable inspectError){
+            handoffPending.set(false);
+            handoffState="接管停止：主网页空闲状态无法核验("+
+                inspectError.getClass().getSimpleName()+")";
+            return;
+        }
+        final int previous=configuredPort();
         try {
             Object p=preferences();
             p.getClass().getMethod("setPort",Context.class,int.class)
                 .invoke(p,GatewayApp.applicationContext(),FALLBACK_PORT);
             if(configuredPort()!=FALLBACK_PORT){
                 handoffPending.set(false);
-                handoffState="接管失败：Prefs.port 写入回读不一致";
+                handoffState="接管失败：1601 写入回读不一致";
                 return;
             }
             if(!alignOriginalInstancePort(owner)){
@@ -419,13 +445,37 @@ public final class OriginalCoreBridge {
                 return;
             }
             handoffPending.set(false);
-            handoffState="旧悬浮 API 已释放 1601，主界面正在接管；"+
-                "仍须检查 main_socket_and_driver_match";
-            startNativeOnResumedOwner(owner);
-        } catch(Throwable e){
+            // The original MainActivity.startServer() first calls stopServer()
+            // and then creates ApiServer with the existing driver. This is a
+            // consented rebind, NOT a seamless migration of in-flight calls.
+            if(nativeOwnerRunning()){
+                Method start=owner.getClass().getDeclaredMethod("startServer");
+                start.setAccessible(true);
+                start.invoke(owner);
+            }else{
+                startNativeOnResumedOwner(owner);
+            }
+            handoffState="原版正在由当前主界面接管 1601；"+
+                "还需核对当前 /health 中的 WebDriver 归属";
+            owner.getWindow().getDecorView().postDelayed(()->{
+                JSONObject verified=diagnoseVisibleHostSocket();
+                if("main_socket_and_driver_match".equals(
+                    observedRouteState(verified)) &&
+                    configuredPort()==FALLBACK_PORT &&
+                    nativeOwnerRunning()){
+                    handoffState="PASS：MainActivity 和 WebDriver 已共同持有 1601";
+                }else{
+                    handoffState="PARTIAL：已尝试恢复 1601，但归属尚未通过；"+
+                        observedRouteState(verified)+
+                        "；原端口="+previous+
+                        "。禁止绕过 409";
+                }
+            },900);
+        }catch(Throwable e){
             handoffPending.set(false);
             handoffState="接管失败："+e.getClass().getSimpleName()+
-                "；原端口="+handoffOldPort;
+                "；原端口="+previous+
+                "。可能需要手动恢复，不会自动重试";
         }
     }
 
