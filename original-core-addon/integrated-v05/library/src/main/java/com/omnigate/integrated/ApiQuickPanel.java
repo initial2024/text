@@ -494,9 +494,61 @@ public final class ApiQuickPanel {
                 render();
             });
             test.setOnClickListener(v->render());
+            String route=OriginalCoreBridge.observedRouteState(
+                OriginalCoreBridge.diagnoseVisibleHostSocket());
+            boolean originalOverlay=OriginalCoreBridge.originalOverlayActive();
+            if(upstream && !"main_socket_and_driver_match".equals(route)){
+                TextView occupied=text("原版端口 "+nativePort+
+                    " 已可连接，但当前模型主界面并未验证持有它。"+
+                    (originalOverlay?" 原悬浮运行时仍运行，可能是竞争者。":" 监听者归属未知。")+
+                    " 不要反复点击原版蓝色「启动」，也不要继续逐个换端口。",
+                    11,0xFF9B5A24,true);
+                add(body,occupied,7);
+            }
+            if(originalOverlay && activity.getClass().getName().equals(
+                    "com.deepseek2.app.ui.MainActivity") &&
+                !"main_socket_and_driver_match".equals(route)){
+                Button handoff=button("将 API 交接给当前模型界面（需确认）",true);
+                add(body,handoff,6);
+                handoff.setOnClickListener(v->
+                    new android.app.AlertDialog.Builder(activity)
+                        .setTitle("停止旧悬浮运行时，接管原生 API？")
+                        .setMessage("原版悬浮窗拥有独立 WebDriver 和 API 监听者。" +
+                            "交接调用原版返回主界面动作，会关闭悬浮运行时的网页。" +
+                            "请确认它没有正在生成回答、上传图片或其他任务。" +
+                            "若无法确认，请取消。当前端口为 "+nativePort+
+                            "；只有原监听者确实释放后才尝试恢复主界面 1601。")
+                        .setNegativeButton("取消",null)
+                        .setPositiveButton("已确认空闲，交接",
+                            (dialog,which)->{
+                                String result=OriginalCoreBridge
+                                    .requestMainOwnerHandoff(activity);
+                                lastState=result;
+                                TextView status=text(result,11,0xFF8E5C25,false);
+                                add(body,status,6);
+                                main.postDelayed(()->{
+                                    if(attached && !activity.isDestroyed()){
+                                        lastState=OriginalCoreBridge.handoffStatus();
+                                        status.setText(lastState);
+                                        render();
+                                    }
+                                },7500);
+                            }).show());
+            }
             Button recover=button("恢复原版 API（不关闭网页）",false);
             add(body,recover,6);
             recover.setOnClickListener(v->{
+                String actualRoute=OriginalCoreBridge.observedRouteState(
+                    OriginalCoreBridge.diagnoseVisibleHostSocket());
+                if(OriginalCoreBridge.isListening() &&
+                   !"main_socket_and_driver_match".equals(actualRoute)){
+                    lastState="当前原版端口已有监听者，但不是已验证的主界面 API。"+
+                        "请先检查归属；如原悬浮窗仍在运行，使用上方"+
+                        "明确确认后的「交接 API」按钮。禁止重复抢占或盲目改端口。";
+                    TextView warning=text(lastState,11,0xFF9B5A24,true);
+                    add(body,warning,5);
+                    return;
+                }
                 String result=OriginalCoreBridge.requestExplicitNativeStart(activity);
                 lastState=result;
                 TextView notice=text(result,10,0xFF956132,false);
