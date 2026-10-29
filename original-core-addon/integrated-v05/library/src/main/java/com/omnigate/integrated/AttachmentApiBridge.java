@@ -60,6 +60,8 @@ public final class AttachmentApiBridge {
             if(root.optBoolean("stream",false))
                 throw new IllegalArgumentException("attachment_streaming_not_supported");
             String encoded=plain.substring(begin+START.length(),end);
+            if(encoded.length()>20*1024*1024)
+                throw new IllegalArgumentException("attachment_envelope_too_large");
             byte[] bytes=Base64.decode(encoded,Base64.DEFAULT);
             JSONObject envelope=new JSONObject(new String(bytes,StandardCharsets.UTF_8));
             JSONArray attachments=envelope.optJSONArray("attachments");
@@ -70,6 +72,11 @@ public final class AttachmentApiBridge {
             String id=a==null?"":a.optString("id","");
             if(!validId(id))
                 throw new IllegalArgumentException("invalid_attachment_request_id");
+            String data=a.optString("data","");
+            if(data.isEmpty() || data.length()>12*1024*1024)
+                throw new IllegalArgumentException("attachment_bytes_too_large");
+            if(Base64.decode(data,Base64.DEFAULT).length>MAX_IMAGE_BYTES)
+                throw new IllegalArgumentException("attachment_bytes_too_large");
             return new Prepared(input,id,model);
         }
         if(!(content instanceof JSONArray))return null;
@@ -198,6 +205,9 @@ public final class AttachmentApiBridge {
                     }
                 } catch(Exception ignored){}
             }
+            if(code!=200 && code!=502)
+                return failure(code>=400?code:502,
+                    "original_native_http_"+code,true,"not_retried");
             // Original 502 (or an empty HTTP200) is a transport failure,
             // NOT evidence that the image was never submitted.
             String answer=OverlayUploadClient.correlatedRecovery(req.requestId,baseline);
@@ -209,7 +219,7 @@ public final class AttachmentApiBridge {
             if(!submitted)
                 return failure(503,"original_native_transport_failed",false,"not_submitted");
             String recovered=OverlayUploadClient.correlatedRecovery(req.requestId,baseline);
-            if(recovered!=null)return recovered(req,recovered,502);
+            if(recovered!=null)return recovered(req,recovered,-1);
             return failure(502,"original_native_stream_ended",true,
                 "unverified_no_retry_"+OverlayUploadClient.recoveryStage());
         } finally {
@@ -234,7 +244,8 @@ public final class AttachmentApiBridge {
             .put("choices",choices)
             .put("omnigate",new JSONObject()
                 .put("delivery","correlated_native_recovery")
-                .put("native_http_status",nativeHttp)
+                .put("native_http_status",
+                    nativeHttp<0?JSONObject.NULL:nativeHttp)
                 .put("attachment_request_id",req.requestId)
                 .put("browser_reply_verified",true));
         return new Result(200,result);
