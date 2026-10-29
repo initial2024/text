@@ -389,6 +389,15 @@ public final class OriginalCoreBridge {
     private static void completeMainOwnerHandoff(Activity owner) {
         if(!handoffPending.get() || owner==null || owner.isFinishing() ||
             owner.isDestroyed())return;
+        JSONObject mainAlready=diagnoseVisibleHostSocket();
+        if(!originalOverlayActive() && configuredPort()==FALLBACK_PORT &&
+            nativeOwnerRunning() &&
+            "main_socket_and_driver_match".equals(
+                observedRouteState(mainAlready))){
+            handoffPending.set(false);
+            handoffState="PASS：主界面已正常持有 1601，无须再次启动";
+            return;
+        }
         if(originalOverlayActive() || listeningAt(FALLBACK_PORT)){
             if(++handoffAttempts>=18){
                 handoffPending.set(false);
