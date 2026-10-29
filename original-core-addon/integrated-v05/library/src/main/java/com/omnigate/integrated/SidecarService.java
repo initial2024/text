@@ -105,6 +105,7 @@ public final class SidecarService extends Service {
     @Override
     public void onDestroy() {
         serviceAlive = false;
+        AutoStartRuntime.onForegroundServiceGone();
         watchdogHandler.removeCallbacks(watchdog);
 
         // A service stopped by Android must not tear down a WebSocket
