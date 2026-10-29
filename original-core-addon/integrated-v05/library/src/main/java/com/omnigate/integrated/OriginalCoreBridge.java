@@ -123,6 +123,35 @@ public final class OriginalCoreBridge {
         return (JSONObject)value;
     }
 
+    /** Observe the ORIGINAL native WebDriver's cached PageState, without
+     * extracting chat content. The frozen class exposes getAnswer(),
+     * getGenerating(), getProviderReady(), getComposerReady() and getGeneration().
+     * A working Gecko DOM is not proof this cached native state has been updated.
+     */
+    public static JSONObject diagnoseNativePageState() throws Exception {
+        Activity owner=originalMain.get();
+        if(owner==null || owner.isFinishing() || owner.isDestroyed())
+            throw new IllegalStateException("original_activity_missing");
+        Field field=owner.getClass().getDeclaredField("driver");
+        field.setAccessible(true);
+        Object driver=field.get(owner);
+        if(driver==null)throw new IllegalStateException("original_driver_null");
+        Method read=driver.getClass().getDeclaredMethod("readPageState");
+        read.setAccessible(true);
+        Object state=read.invoke(driver);
+        if(state==null)throw new IllegalStateException("native_page_state_null");
+        Class<?> cls=state.getClass();
+        Object answer=cls.getMethod("getAnswer").invoke(state);
+        Object thinking=cls.getMethod("getThinking").invoke(state);
+        return new JSONObject()
+            .put("nativeAnswerChars", answer instanceof String ? ((String)answer).length():-1)
+            .put("nativeThinkingChars", thinking instanceof String ? ((String)thinking).length():-1)
+            .put("nativeGenerating", cls.getMethod("getGenerating").invoke(state))
+            .put("nativeProviderReady", cls.getMethod("getProviderReady").invoke(state))
+            .put("nativeComposerReady", cls.getMethod("getComposerReady").invoke(state))
+            .put("nativeGeneration", cls.getMethod("getGeneration").invoke(state));
+    }
+
     /** Original frozen MainActivity.server is the actual ownership evidence. */
     public static boolean nativeOwnerRunning() {
         Activity owner=originalMain.get();
