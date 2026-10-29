@@ -263,14 +263,35 @@ public final class SidecarProxyServer {
                 }
             }
 
-            proxyToFrozenCore(request, out);
+            // Keep ordinary requests unchanged. Minis' known non-streaming
+            // auto-title system instruction is translated into ONE explicit
+            // user message, so the webpage can really submit it. No fake
+            // title is generated locally and no automatic retry is allowed.
+            boolean titleRequest=false;
+            if("POST".equals(request.method) &&
+                    "/v1/chat/completions".equals(request.path)){
+                try{
+                    TitleCompat.Prepared title=TitleCompat.prepare(request.body);
+                    if(title!=null){
+                        request=new Request(request.method,request.path,
+                            request.version,request.headers,title.body);
+                        titleRequest=true;
+                    }
+                }catch(org.json.JSONException invalid){
+                    writeJson(out,422,new JSONObject()
+                        .put("error","title_request_rejected")
+                        .put("message",invalid.getMessage()));
+                    return;
+                }
+            }
+            proxyToFrozenCore(request, out, titleRequest);
         } catch (Throwable e) {
             status("Sidecar 请求异常 · " + shortError(e));
         }
     }
 
-    private void proxyToFrozenCore(Request request, BufferedOutputStream clientOut)
-            throws IOException {
+    private void proxyToFrozenCore(Request request, BufferedOutputStream clientOut,
+            boolean titleRequest) throws IOException {
         HttpURLConnection upstream = null;
         InputStream upstreamBody = null;
 
@@ -357,6 +378,18 @@ public final class SidecarProxyServer {
             upstreamBody = statusCode >= 400
                     ? upstream.getErrorStream()
                     : upstream.getInputStream();
+
+            if (upstreamBody != null && statusCode==200 &&
+                "POST".equals(request.method) &&
+                "/v1/chat/completions".equals(request.path) &&
+                isNonStreamingChatRequest(request) &&
+                isJsonResponse(responseHeaders)) {
+                if(proxyNormalizedJsonReply(upstreamBody,clientOut,statusCode,
+                        responseHeaders,titleRequest))return;
+                // The body was already streamed on oversize or invalid JSON
+                // fallback. Never read it twice or send another response head.
+                return;
+            }
 
             if (upstreamBody == null) {
                 if (downstreamOpen) {
@@ -588,6 +621,81 @@ public final class SidecarProxyServer {
         } catch (NumberFormatException e) {
             throw new IOException("invalid content-length", e);
         }
+    }
+
+    private static boolean isNonStreamingChatRequest(Request request){
+        if(request.body==null || request.body.length>512*1024)return false;
+        try{
+            return !new JSONObject(new String(request.body,
+                StandardCharsets.UTF_8)).optBoolean("stream",false);
+        }catch(Exception ignored){return false;}
+    }
+    private static boolean isJsonResponse(Map<String,String> headers){
+        for(Map.Entry<String,String> entry:headers.entrySet())
+            if("content-type".equalsIgnoreCase(entry.getKey()))
+                return entry.getValue().toLowerCase(Locale.ROOT).contains("json");
+        return false;
+    }
+
+    /** No buffering or mutation of SSE. On JSON overflow / invalid JSON,
+     * stream captured bytes unmodified and keep draining the original.
+     * A downstream disconnect must never cancel in-flight model generation.
+     */
+    private boolean proxyNormalizedJsonReply(InputStream upstream,
+            BufferedOutputStream clientOut,int statusCode,
+            Map<String,String> headers,boolean title) throws IOException {
+        ByteArrayOutputStream captured=new ByteArrayOutputStream();
+        byte[] buffer=new byte[8192];
+        int n;
+        while((n=upstream.read(buffer))!=-1){
+            if(n==0)continue;
+            if(captured.size()+n>1024*1024){
+                boolean open=true;
+                try{
+                    writeChunkedResponseHead(clientOut,statusCode,headers);
+                    byte[] initial=captured.toByteArray();
+                    if(initial.length>0)writeChunk(clientOut,initial,initial.length);
+                    writeChunk(clientOut,buffer,n);
+                }catch(IOException closed){open=false;}
+                while((n=upstream.read(buffer))!=-1)if(open && n>0){
+                    try{writeChunk(clientOut,buffer,n);}
+                    catch(IOException e){open=false;}
+                }
+                if(open)try{writeFinalChunk(clientOut);}
+                catch(IOException ignored){}
+                return true;
+            }
+            captured.write(buffer,0,n);
+        }
+        byte[] raw=captured.toByteArray();
+        try{
+            JSONObject json=new JSONObject(new String(raw,StandardCharsets.UTF_8));
+            JSONArray choices=json.optJSONArray("choices");
+            JSONObject choice=choices==null?null:choices.optJSONObject(0);
+            JSONObject msg=choice==null?null:choice.optJSONObject("message");
+            if(msg!=null && msg.opt("content") instanceof String){
+                String original=msg.optString("content","");
+                String clean=title?TitleCompat.normalizeTitle(original)
+                    :TitleCompat.stripSpeakerPrefix(original);
+                if(!clean.equals(original)){
+                    msg.put("content",clean);
+                    if(title)json.put("omnigate",new JSONObject()
+                        .put("delivery","original_native_http_200")
+                        .put("auto_title_adapted",true));
+                    writeJson(clientOut,statusCode,json);
+                    return true;
+                }
+            }
+        }catch(Exception ignored){
+            // Cannot confidently parse; retain the exact original bytes.
+        }
+        boolean open=true;
+        try{
+            writeChunkedResponseHead(clientOut,statusCode,headers);
+            if(raw.length>0)writeChunk(clientOut,raw,raw.length);
+            writeFinalChunk(clientOut);
+        }catch(IOException disconnected){open=false;}
+        return true;
     }
 
     private void writeJson(
