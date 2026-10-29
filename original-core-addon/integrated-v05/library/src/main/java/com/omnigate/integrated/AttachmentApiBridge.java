@@ -218,6 +218,7 @@ public final class AttachmentApiBridge {
         }
     }
     private static Result recovered(Prepared req,String raw,int nativeHttp){
+        try {
         String answer=raw.replaceFirst(
             "^(?:ChatGPT|AI|助手|Assistant)\\s*(?:说|says)?\\s*[:：]\\s*","");
         JSONArray choices=new JSONArray().put(new JSONObject()
@@ -237,8 +238,12 @@ public final class AttachmentApiBridge {
                 .put("attachment_request_id",req.requestId)
                 .put("browser_reply_verified",true));
         return new Result(200,result);
+        } catch(Exception invalidJson) {
+            return failure(502,"recovery_response_encoding_failed",true,"unverified_no_retry");
+        }
     }
     private static Result failure(int code,String error,boolean maybeSent,String stage){
+        try {
         JSONObject result=new JSONObject().put("error",new JSONObject()
             .put("type","omnigate_attachment_error")
             .put("code",error)
@@ -247,5 +252,8 @@ public final class AttachmentApiBridge {
                 .put("possible_provider_submission",maybeSent)
                 .put("recovery_stage",stage));
         return new Result(code,result);
+        } catch(Exception invalidJson) {
+            return new Result(code,new JSONObject());
+        }
     }
 }
