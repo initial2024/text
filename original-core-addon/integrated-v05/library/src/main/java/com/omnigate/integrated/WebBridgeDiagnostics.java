@@ -66,12 +66,16 @@ public final class WebBridgeDiagnostics {
                     nativeProblem=e.getClass().getSimpleName();
                 }
                 JSONObject ownership=OriginalCoreBridge.diagnoseVisibleHostSocket();
-                String serviceStatus="【1601归属】可见主界面持有端口="
+                String serviceStatus="【1601归属】路由="
+                    +OriginalCoreBridge.observedRouteState(ownership)
+                    +"；可见主界面持有监听="
                     +ownership.optBoolean("visibleHostOwnsPort",false)
+                    +"；WebDriver对象="+ownership.optString("webDriverIdentity","unknown")
                     +"；实际端口="+ownership.optInt("actualPort",-1)
+                    +"；绑定范围="+ownership.optString("bindAddressScope","unknown")
                     +"；TCP可连接="+ownership.optBoolean("tcpReachable",false)
                     +"；原版返回服务="+ownership.opt("originalOverlayServiceActive")
-                    +"；结果="+ownership.optString("socketOwner","unknown");
+                    +"；监听状态="+ownership.optString("socketOwner","unknown");
                 String status=serviceStatus+"\\n【传输核心】网页回复字数="+answerChars
                     +"；原生缓存字数="+nativeChars
                     +"；网页回答较发送前更新="+replyChanged
