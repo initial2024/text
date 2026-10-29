@@ -278,16 +278,22 @@ public final class CompatSettingsActivity extends Activity {
                 .setNegativeButton("取消",null)
                 .setPositiveButton("已确认悬浮窗空闲，执行交接",
                     (dialog,which)->{
-                        String outcome=OriginalCoreBridge
-                            .requestMainOwnerHandoff(this);
-                        upstreamGuide.setText(outcome);
-                        main.postDelayed(()->{
-                            if(!isDestroyed()){
-                                upstreamGuide.setText(
-                                    OriginalCoreBridge.handoffStatus());
-                                updateState();
-                            }
-                        },7200);
+                        upstreamGuide.setText("正在核查原网页是否空闲；不停止生成");
+                        new Thread(()->{
+                            String outcome=OriginalCoreBridge
+                                .requestMainOwnerHandoff(this);
+                            main.post(()->{
+                                if(isDestroyed() || isFinishing())return;
+                                upstreamGuide.setText(outcome);
+                                main.postDelayed(()->{
+                                    if(!isDestroyed()){
+                                        upstreamGuide.setText(
+                                            OriginalCoreBridge.handoffStatus());
+                                        updateState();
+                                    }
+                                },7200);
+                            });
+                        },"omnigate-handoff-precheck").start();
                     }).show()
         );
         margin(connection,text("仅用于原悬浮服务争用 1601 的情况。" +
