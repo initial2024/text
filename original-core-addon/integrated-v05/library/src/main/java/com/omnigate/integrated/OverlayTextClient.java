@@ -41,8 +41,14 @@ public final class OverlayTextClient {
      */
     public static void presentAttachmentReply(String answer, String evidence) {
         if(answer==null || answer.trim().isEmpty())return;
-        response=answer.substring(0,Math.min(answer.length(),8000));
-        status="附件结果（"+evidence+"），可在此页复制；不是纯文本测试通过";
+        // AttachmentDraft owns the exact verified copy text; do not store a
+        // shorter secondary 8k preview as the source for "Copy".
+        response=OverlayAttachmentDraft.reply();
+        status="附件回复（"+evidence+"）；已接收 "+
+            OverlayAttachmentDraft.replyStoredChars()+" / "+
+            OverlayAttachmentDraft.replySourceChars()+" 字符"+
+            (OverlayAttachmentDraft.replyTruncated()?" [已截断]":" [未截断]")+
+            "。复制完整回复不代表纯文本 HTTP 200。";
         revision++;
     }
 
