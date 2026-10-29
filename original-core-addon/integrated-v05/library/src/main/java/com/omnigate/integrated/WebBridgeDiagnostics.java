@@ -112,6 +112,7 @@ public final class WebBridgeDiagnostics {
                     +"；补发次数="+leaseWakeCount
                     +"；最近调度="+leaseReason
                     +"；角色标签="+roleNorm;
+                status+="\n【附件回复恢复】"+OverlayUploadClient.recoveryStage();
                 report(status);
             } catch(Throwable ex){
                 Throwable cause=ex instanceof java.lang.reflect.InvocationTargetException
