@@ -139,6 +139,8 @@ public final class SidecarProxyServer {
                             observedOwner.opt("originalOverlayServiceActive"))
                         .put("originalSocketBindScope",
                             observedOwner.optString("bindAddressScope", "unknown"))
+                        .put("originalWebDriverIdentity",
+                            observedOwner.optString("webDriverIdentity", "unknown"))
                         .put("portConflict", OriginalCoreBridge.isPortConflicted())
                         .put("originalApiStartStatus", OriginalCoreBridge.lastStartStatus())
                         .put("publicRelay", GatewayApp.tunnelEnabled())
@@ -207,14 +209,17 @@ public final class SidecarProxyServer {
                     && request.path.startsWith("/v1/chat/completions")) {
                 JSONObject observed=OriginalCoreBridge.diagnoseVisibleHostSocket();
                 String route=OriginalCoreBridge.observedRouteState(observed);
-                if ("port_not_owned_by_main".equals(route)) {
+                if ("port_not_owned_by_main".equals(route)
+                        || "main_socket_driver_mismatch".equals(route)) {
                     writeJson(out, 409, new JSONObject()
                         .put("error", "original_runtime_owner_mismatch")
-                        .put("message", "Port is reachable but the original MainActivity does not own the listener; refusing to send a prompt to a different WebDriver")
+                        .put("message", "The native API listener does not map to the visible MainActivity WebDriver; request not sent")
                         .put("observedRuntimeRoute", route)
                         .put("originalSocketOwner",
                             observed.optString("socketOwner", "unknown"))
-                        .put("hint", "Inspect the original overlay service and visible browser ownership; do not restart or stop an active chat"));
+                        .put("originalWebDriverIdentity",
+                            observed.optString("webDriverIdentity", "unknown"))
+                        .put("hint", "Inspect which original runtime owns the WebDriver; do not restart or stop an active chat"));
                     return;
                 }
             }
