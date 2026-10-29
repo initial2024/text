@@ -30,6 +30,10 @@ public final class WebBridgeDiagnostics {
                 boolean composerVisible=obj.optBoolean("composerVisible",false);
                 boolean ready=obj.optBoolean("effectiveReady",false);
                 boolean guest=obj.optBoolean("guestComposerEligible",false);
+                String answerMode=obj.optString("assistantCaptureMode","未知");
+                int fallbackMatches=obj.optInt("assistantFallbackMatches",-1);
+                int answerChars=obj.optInt("assistantReplyChars",-1);
+                boolean replyChanged=obj.optBoolean("assistantReplyChangedSinceSend",false);
                 boolean auth=obj.optBoolean("accountUiVisible",false);
                 String pageReady=obj.optString("readyState","unknown");
                 int generic=obj.optInt("genericEditableCount",-1);
@@ -51,7 +55,11 @@ public final class WebBridgeDiagnostics {
                     +"；最终输入可用="+resolved
                     +"；输入选择方式="+selection
                     +"；最近注入动作="+sendOutcome
-                    +"；答案元素="+answerCount
+                    +"；原答案元素="+answerCount
+                    +"；回复提取="+answerMode
+                    +"；回退匹配="+fallbackMatches
+                    +"；提取字数="+answerChars
+                    +"；较发送前更新="+replyChanged
                     +"；游客就绪="+guest
                     +"；账号 UI="+auth
                     +"；注入就绪="+ready;
