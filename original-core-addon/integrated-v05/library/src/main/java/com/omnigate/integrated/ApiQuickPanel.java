@@ -395,7 +395,7 @@ public final class ApiQuickPanel {
         String textE2ESummary(){
             if(OverlayTextClient.isSending()) return "文本：已发送，正在等待真正的模型回复…";
             if(OverlayTextClient.lastSuccess())
-                return "文本：HTTP 200 · 已得到模型回复（可以进入文件验收）";
+                return "仅纯文本：HTTP 200 · 图片/描述/发送尚需单独验收";
             if(OverlayTextClient.lastHttp()!=0)
                 return "文本：HTTP "+OverlayTextClient.lastHttp()+" · 尚未获得有效回复";
             return "文本：尚未完成 API 端到端验证";
