@@ -42,7 +42,15 @@ public final class SidecarService extends Service {
         GatewayApp.initialize(getApplicationContext());
         serviceAlive = true;
         createChannel();
-        startForeground(NOTIFICATION_ID, buildNotification());
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification());
+        } catch(RuntimeException denied) {
+            serviceAlive=false;
+            GatewayApp.setLocalApiStatus(
+                "Android 未允许通知保活："+denied.getClass().getSimpleName());
+            stopSelf();
+            return;
+        }
         ensureProxyAlive();
         syncRelay();
         watchdogHandler.postDelayed(watchdog, 4_000L);
@@ -89,6 +97,7 @@ public final class SidecarService extends Service {
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         ensureProxyAlive();
+        if(GatewayApp.tunnelEnabled())RelayRuntime.ensureStarted();
         refreshNotification();
         super.onTaskRemoved(rootIntent);
     }
@@ -164,8 +173,9 @@ public final class SidecarService extends Service {
         boolean upstream =
                 SidecarProxyServer.isUpstreamReachable();
 
+        int nativePort=OriginalCoreBridge.configuredPort();
         String text =
-                "8787 → 1601 "
+                "8787 → " + nativePort + " "
                         + (upstream ? "· 原核心可达" : "· 等待原核心")
                         + (GatewayApp.tunnelEnabled()
                         ? " · " + GatewayApp.tunnelStatus()
