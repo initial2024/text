@@ -33,7 +33,8 @@ public final class CompatBootstrapProvider extends ContentProvider {
             new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityResumed(Activity a) {
                     if(isOriginalUi(a) ||
-                        a instanceof CompatSettingsActivity){
+                        a instanceof CompatSettingsActivity ||
+                        a instanceof OmniGateHomeActivity){
                         AutoStartRuntime.onActivityVisible(a);
                     }
                     if(!isOriginalUi(a))return;
