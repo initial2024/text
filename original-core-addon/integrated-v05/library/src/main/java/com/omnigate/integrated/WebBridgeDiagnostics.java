@@ -45,7 +45,15 @@ public final class WebBridgeDiagnostics {
                 String selection=obj.optString("composerSelectionMode","诊断脚本未升级");
                 String sendOutcome=obj.optString("lastSendOutcome","无发送诊断");
                 String roleNorm=obj.optString("plainTextPrefixHandling","未提供");
+                boolean leasePending=obj.optBoolean("generationLeaseWakePending",false);
+                long leaseLeft=obj.optLong("generationLeaseRemainingMs",0);
+                int leaseWakeCount=obj.optInt("leaseWakeCount",0);
+                String leaseReason=obj.optString("lastLeaseWakeOutcome","旧版未提供");
                 String status="网页桥已响应："+provider
+                    +"；生成宽限补发="+leasePending
+                    +"；宽限剩余毫秒="+leaseLeft
+                    +"；补发次数="+leaseWakeCount
+                    +"；最近调度="+leaseReason
                     +"；DOM="+pageReady
                     +"；原选择器输入框="+selectorCount
                     +"；可见="+composerVisible
