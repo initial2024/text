@@ -67,9 +67,11 @@ final class TitleCompat {
     }
     static String normalizeTitle(String input) {
         String str=stripSpeakerPrefix(input).trim();
-        if(str.startsWith("`)) {
-            str=str.replaceFirst("^``(?:json)?\\s*","")
-                .replaceFirst("\\s*``\\s*$","").trim();
+        String fence=new String(new char[]{96,96,96});
+        if(str.startsWith(fence)){
+            String quote=java.util.regex.Pattern.quote(fence);
+            str=str.replaceFirst("^"+quote+"(?:json)?\\s*","")
+                .replaceFirst("\\s*"+quote+"\\s*$","").trim();
         }
         JSONObject json=null;
         try {json=new JSONObject(str);}
