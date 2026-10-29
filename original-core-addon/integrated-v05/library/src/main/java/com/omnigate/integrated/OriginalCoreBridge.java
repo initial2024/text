@@ -188,6 +188,24 @@ public final class OriginalCoreBridge {
                 result.put("socketOwner","visible_host_server_null");return result;
             }
             result.put("runningFlag",nativeOwnerRunning());
+            // Port ownership is insufficient: verify the ApiServer and the
+            // displayed MainActivity reference the SAME WebDriver object.
+            // This is a read-only identity check. Unknown cannot mean PASS.
+            try {
+                Field visibleDriverField=owner.getClass().getDeclaredField("driver");
+                Field serverDriverField=server.getClass().getDeclaredField("driver");
+                visibleDriverField.setAccessible(true);
+                serverDriverField.setAccessible(true);
+                Object visibleDriver=visibleDriverField.get(owner);
+                Object serverDriver=serverDriverField.get(server);
+                result.put("webDriverIdentity",
+                    visibleDriver==null || serverDriver==null
+                        ? "unknown_null" :
+                        (visibleDriver==serverDriver ? "same" : "different"));
+            } catch(Throwable reflectionFailure) {
+                result.put("webDriverIdentity",
+                    "unknown_"+reflectionFailure.getClass().getSimpleName());
+            }
             Field socketField=server.getClass().getDeclaredField("serverSocket");
             socketField.setAccessible(true);
             Object rawSocket=socketField.get(server);
@@ -227,8 +245,13 @@ public final class OriginalCoreBridge {
             return "upstream_unreachable";
         if(!diagnosis.optBoolean("activityAlive",false))
             return "unknown_no_original_main";
-        if(diagnosis.optBoolean("visibleHostOwnsPort",false))
-            return "main_socket_matches_loopback";
+        if(diagnosis.optBoolean("visibleHostOwnsPort",false)) {
+            if("different".equals(diagnosis.optString("webDriverIdentity","")))
+                return "main_socket_driver_mismatch";
+            if("same".equals(diagnosis.optString("webDriverIdentity","")))
+                return "main_socket_and_driver_match";
+            return "main_socket_only_driver_unknown";
+        }
         if(diagnosis.optString("socketOwner","").startsWith("inspect_failed_"))
             return "unknown_reflection_failed";
         return "port_not_owned_by_main";
