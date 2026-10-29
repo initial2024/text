@@ -137,7 +137,8 @@ public final class OverlayUploadClient {
                         OverlayAttachmentDraft.setReply(recovered);
                         OverlayAttachmentDraft.report(
                             "原核心 HTTP 502；已用本次附件 ID、新用户消息和稳定原生回答恢复"
-                            +recovered.length()+" 字。没有伪称 API HTTP 200。");
+                            +recovered.length()+" 字。API 状态仍为 502。回复摘录："+
+                            recovered.substring(0,Math.min(recovered.length(),160)));
                     } else {
                         OverlayAttachmentDraft.report(
                             "原核心 HTTP 502；无法安全确认本次图片的回复，未重复发送。");
