@@ -283,7 +283,8 @@ public final class OriginalCoreBridge {
             lastStartStatus="原版页面已关闭；未重复启动";
             return;
         }
-        if(!alignOriginalInstancePort(owner)) return;
+        // Never rewrite an already-running original Activity's port field:
+        // the live ApiServer and its WebDriver may be processing a reply.
         JSONObject observed=diagnoseVisibleHostSocket();
         if(nativeOwnerRunning()) {
             lastStartStatus=observed.optBoolean("visibleHostOwnsPort",false)
@@ -298,6 +299,7 @@ public final class OriginalCoreBridge {
                 +"）；为避免双 WebDriver，未调用 startServer";
             return;
         }
+        if(!alignOriginalInstancePort(owner)) return;
         try {
             Method start=owner.getClass().getDeclaredMethod("startServer");
             start.setAccessible(true);
