@@ -15,6 +15,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.ImageView;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import org.json.JSONObject;
@@ -95,7 +96,10 @@ public final class OmniGateHomeActivity extends Activity {
         sc.addView(page);
 
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
-        Diamond logo=new Diamond(this);
+        ImageView logo=new ImageView(this);
+        try { logo.setImageDrawable(getPackageManager().getApplicationIcon(getPackageName())); }
+        catch(Exception e){ logo.setVisibility(View.INVISIBLE); }
+        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         header.addView(logo,new LinearLayout.LayoutParams(dp(64),dp(64)));
         LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);
         names.setPadding(dp(14),0,0,0);
