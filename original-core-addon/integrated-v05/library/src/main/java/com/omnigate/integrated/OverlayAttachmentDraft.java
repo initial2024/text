@@ -11,6 +11,9 @@ public final class OverlayAttachmentDraft {
     private static String prompt = "请描述附件内容。";
     private static int revision;
     private static String reply="";
+    private static int replySourceChars=0;
+    private static boolean replyTruncated=false;
+    private static final int MAX_REPLY_CHARS=65536;
     private OverlayAttachmentDraft() {}
 
     public static synchronized void select(byte[] data, String name, String type) {
@@ -20,7 +23,7 @@ public final class OverlayAttachmentDraft {
         content = Arrays.copyOf(data, data.length);
         fileName = name == null || name.trim().isEmpty() ? "attachment" : name;
         mime = type == null || type.trim().isEmpty() ? "application/octet-stream" : type;
-        reply="";
+        reply=""; replySourceChars=0; replyTruncated=false;
         status = "已选：" + fileName + " · " + content.length + " 字节";
         revision++;
     }
@@ -31,7 +34,8 @@ public final class OverlayAttachmentDraft {
     }
     public static synchronized void clear() {
         clearBytes();
-        fileName=null; mime=null; status="未选择文件"; reply=""; revision++;
+        fileName=null; mime=null; status="未选择文件";
+        reply=""; replySourceChars=0; replyTruncated=false; revision++;
     }
     public static synchronized byte[] bytes() {
         return content == null ? null : Arrays.copyOf(content, content.length);
@@ -44,7 +48,22 @@ public final class OverlayAttachmentDraft {
         status = s; revision++;
     }
     public static synchronized String reply() { return reply; }
-    public static synchronized void setReply(String s) { reply=s==null?"":s.substring(0,Math.min(s.length(),16000));revision++; }
+    public static synchronized int replySourceChars() { return replySourceChars; }
+    public static synchronized int replyStoredChars() { return reply.length(); }
+    public static synchronized boolean replyTruncated() { return replyTruncated; }
+    /** Keep complete recoverable text up to a clearly reported safety bound;
+     * never quietly cut a reply at 16k or 8k characters.
+     */
+    public static synchronized void setReply(String answer) {
+        String source=answer==null?"":answer;
+        replySourceChars=source.length();
+        int length=Math.min(replySourceChars,MAX_REPLY_CHARS);
+        if(length>0 && length<replySourceChars &&
+                Character.isHighSurrogate(source.charAt(length-1)))length--;
+        reply=source.substring(0,length);
+        replyTruncated=length<replySourceChars;
+        revision++;
+    }
     public static synchronized String prompt() { return prompt; }
     public static synchronized void setPrompt(String s) {
         prompt = s == null ? "" : s.substring(0, Math.min(s.length(), 1200));
