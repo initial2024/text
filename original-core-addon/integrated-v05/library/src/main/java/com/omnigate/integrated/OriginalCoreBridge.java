@@ -39,6 +39,17 @@ public final class OriginalCoreBridge {
 
     private static volatile WeakReference<Activity> originalMain =
         new WeakReference<>(null);
+    // Observation only. Do NOT use this cache to route a new chat to a
+    // previous WebDriver or silently revive a socket.
+    private static volatile WeakReference<Activity> lastVerifiedMain =
+        new WeakReference<>(null);
+    private static volatile WeakReference<Object> lastVerifiedServer =
+        new WeakReference<>(null);
+    private static volatile long lastVerifiedAt = 0L;
+    private static volatile int lastVerifiedPort = -1;
+    private static volatile String lastOwnerTransition = "no_verified_owner_yet";
+    private static volatile String lastLifecycleEvent = "not_observed";
+    private static volatile int mainInstanceEpoch = 0;
     private static final AtomicBoolean pendingNativeStart = new AtomicBoolean(false);
 
     private OriginalCoreBridge() {}
@@ -98,7 +109,77 @@ public final class OriginalCoreBridge {
     }
 
     public static void onOriginalMainDestroyed(Activity a) {
+        if(a!=null)lastLifecycleEvent="main_destroyed_"+
+            System.identityHashCode(a);
         if (originalMain.get() == a) originalMain.clear();
+    }
+
+    /** Read-only owner state epoch and prior socket evidence. All IDs are
+     * process-local object identity hashes, not external identifiers.
+     * A previous socket can remain connected after its MainActivity field
+     * has been cleared; that alone MUST NOT establish routing authority.
+     */
+    public static synchronized JSONObject inspectOwnerContinuity(
+        JSONObject observed) {
+        JSONObject out=new JSONObject();
+        Activity main=originalMain.get();
+        boolean good="main_socket_and_driver_match".equals(
+            observedRouteState(observed));
+        Object previous=lastVerifiedServer.get();
+        Activity oldMain=lastVerifiedMain.get();
+        String previousSocket="unknown";
+        if(previous!=null){
+            try{
+                Field sf=previous.getClass().getDeclaredField("serverSocket");
+                sf.setAccessible(true);
+                Object raw=sf.get(previous);
+                if(raw instanceof java.net.ServerSocket){
+                    java.net.ServerSocket socket=(java.net.ServerSocket)raw;
+                    previousSocket=socket.isBound() && !socket.isClosed()
+                        ? "live" : "not_live";
+                }else previousSocket="no_socket";
+            }catch(Throwable e){
+                previousSocket="inspect_failed_"+e.getClass().getSimpleName();
+            }
+        }else if(lastVerifiedAt>0)previousSocket="collected_or_unavailable";
+        if(good && main!=null){
+            try{
+                Field sf=main.getClass().getDeclaredField("server");
+                sf.setAccessible(true);
+                Object server=sf.get(main);
+                if(server!=null){
+                    lastVerifiedMain=new WeakReference<>(main);
+                    lastVerifiedServer=new WeakReference<>(server);
+                    lastVerifiedPort=configuredPort();
+                    lastVerifiedAt=android.os.SystemClock.elapsedRealtime();
+                    lastOwnerTransition="current_main_verified";
+                }
+            }catch(Throwable ignored){lastOwnerTransition="owner_capture_failed";}
+        }else if(lastVerifiedAt>0){
+            if(main==null){
+                lastOwnerTransition="current_main_missing_after_prior_verification";
+            }else if(main==oldMain){
+                lastOwnerTransition="same_main_lost_verified_server_reference";
+            }else{
+                lastOwnerTransition="different_main_resumed_after_prior_verification";
+            }
+            if("live".equals(previousSocket))
+                lastOwnerTransition+="_previous_socket_still_live";
+        }
+        try{
+            out.put("currentMainInstance",
+                main==null?-1:System.identityHashCode(main))
+                .put("mainInstanceEpoch",mainInstanceEpoch)
+                .put("lastLifecycleEvent",lastLifecycleEvent)
+                .put("currentOwnerVerified",good)
+                .put("lastOwnerTransition",lastOwnerTransition)
+                .put("lastVerifiedPort",lastVerifiedPort)
+                .put("previousVerifiedSocketState",previousSocket)
+                .put("lastVerifiedAgeMs",lastVerifiedAt==0?-1:
+                    Math.max(0,android.os.SystemClock.elapsedRealtime()-
+                        lastVerifiedAt));
+        }catch(org.json.JSONException ignored){}
+        return out;
     }
 
     public static String requestOriginalOverlay(Activity settings) {
@@ -821,6 +902,14 @@ public final class OriginalCoreBridge {
 
     /** MainActivity already calls startServer() from onCreate; do NOT restart it. */
     public static void onOriginalMainResumed(Activity activity) {
+        if(originalMain.get()!=activity){
+            mainInstanceEpoch++;
+            lastLifecycleEvent="main_resumed_new_instance_"+
+                System.identityHashCode(activity);
+        }else{
+            lastLifecycleEvent="main_resumed_existing_instance_"+
+                System.identityHashCode(activity);
+        }
         originalMain = new WeakReference<>(activity);
         if(handoffPending.get())activity.getWindow().getDecorView()
             .postDelayed(()->completeMainOwnerHandoff(activity),450);
