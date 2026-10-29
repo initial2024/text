@@ -374,6 +374,24 @@ public final class CompatSettingsActivity extends Activity {
                 : "公网穿透默认关闭；本机 8787 不受影响",
             12,0xFF65708F,false);
         margin(settings,publicStatus,8);
+        Button connectPublic=button(settings,
+            "立即连接 / 重连已配置 Relay",true);
+        connectPublic.setOnClickListener(v->{
+            if(!GatewayApp.tunnelEnabled()){
+                publicStatus.setText("请先明确开启公网开关；尚未连接");
+                return;
+            }
+            if(GatewayApp.relayKey().length()<24){
+                publicStatus.setText("配对 Key 不完整；未连接");
+                return;
+            }
+            if(RelayRuntime.isConnected()){
+                refreshRelayStatus();
+                return;
+            }
+            RelayRuntime.restart();
+            refreshRelayStatus();
+        });
         Button refreshPublic=button(settings,"刷新 Relay 实际连接状态",false);
         refreshPublic.setOnClickListener(v->refreshRelayStatus());
         Button togglePublic=button(settings,"手动开启 / 关闭原有穿透",false);
