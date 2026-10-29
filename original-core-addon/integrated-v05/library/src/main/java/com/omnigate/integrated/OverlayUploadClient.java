@@ -25,75 +25,90 @@ public final class OverlayUploadClient {
     private static volatile String recoveryStage="not_checked";
     public static String recoveryStage(){return recoveryStage;}
 
-    /** A transport break or upstream 502 is NOT proof that a photo failed
-     * to send. Read only; never POST again. A recovery is permitted only
-     * for this request's exact UUID and explicitly observed sent user turn,
-     * changed scoped assistant answer and TWO completed stable snapshots.
+    private static final long RECOVERY_WINDOW_MS=120000L;
+    private static final long ANSWER_QUIET_MS=8000L;
+
+    private static boolean meaningfulAnswer(String candidate) {
+        if(candidate==null)return false;
+        // An original WebDriver PageState may initially contain only
+        // "ChatGPT 说：" before any assistant tokens are delivered.
+        String text=candidate.trim()
+            .replaceFirst("^(?:ChatGPT|AI|助手|Assistant)\\s*(?:说|says)?\\s*[:：]\\s*","")
+            .trim();
+        return !text.isEmpty()
+            && !text.matches("^[\\p{Punct}\\p{IsPunctuation}\\s]+$");
+    }
+
+    /** Never treat a speaker label or a two-poll partial as a final answer.
+     * Only a new, complete and stable answer correlated with the exact sent
+     * attachment may be displayed. Fail closed when evidence is incomplete.
+     * No POST is ever retried.
      */
     private static String correlatedRecovery(String requestId,String baseline) {
-        if(baseline==null) {
-            recoveryStage="baseline_unavailable";
-            return null;
+        if(baseline==null){
+            recoveryStage="baseline_unavailable";return null;
         }
-        final long deadline=android.os.SystemClock.uptimeMillis()+60000L;
+        final long deadline=android.os.SystemClock.uptimeMillis()+RECOVERY_WINDOW_MS;
         String previous="";
         int stable=0;
+        long stableSince=0L;
         recoveryStage="waiting_for_matching_user_turn";
-        while(android.os.SystemClock.uptimeMillis()<deadline) {
+        while(android.os.SystemClock.uptimeMillis()<deadline){
             try {
                 JSONObject owner=OriginalCoreBridge.diagnoseVisibleHostSocket();
-                if(!owner.optBoolean("visibleHostOwnsPort",false) ||
-                        !"same".equals(owner.optString("webDriverIdentity",""))) {
-                    recoveryStage="visible_driver_or_socket_mismatch";
-                    return null;
+                if(!owner.optBoolean("visibleHostOwnsPort",false)
+                    || !"same".equals(owner.optString("webDriverIdentity",""))){
+                    recoveryStage="visible_driver_or_socket_mismatch";return null;
                 }
                 JSONObject page=OriginalCoreBridge.diagnoseCurrentPage();
                 String observedId=page.optString("attachmentRequestId","");
-                if(!observedId.isEmpty() && !requestId.equals(observedId)) {
-                    recoveryStage="another_request_replaced_current";
-                    return null;
+                if(!observedId.isEmpty() && !requestId.equals(observedId)){
+                    recoveryStage="another_request_replaced_current";return null;
                 }
-                if(!requestId.equals(observedId)) {
-                    recoveryStage="attachment_id_not_visible";
-                    stable=0;previous="";
-                } else if(!"new_explicit_user_turn".equals(
-                        page.optString("attachmentSendEvidence",""))) {
-                    recoveryStage="new_user_turn_not_verified";
-                    stable=0;previous="";
-                } else if(!page.optBoolean("assistantReplyChangedSinceSend",false)) {
-                    recoveryStage="assistant_reply_not_changed";
-                    stable=0;previous="";
-                } else if(page.optBoolean("generationRaw",true) ||
-                        page.optBoolean("autoRolloverActive",false)) {
-                    recoveryStage="provider_still_generating";
-                    stable=0;previous="";
+                boolean correlated=requestId.equals(observedId)
+                    && "new_explicit_user_turn".equals(
+                        page.optString("attachmentSendEvidence",""));
+                if(!correlated){
+                    recoveryStage="waiting_for_confirmed_user_turn";
+                    stable=0;previous="";stableSince=0L;
+                } else if(!page.optBoolean("assistantReplyChangedSinceSend",false)){
+                    recoveryStage="waiting_for_new_scoped_assistant_answer";
+                    stable=0;previous="";stableSince=0L;
+                } else if(page.optBoolean("generationRaw",true)
+                    || page.optBoolean("autoRolloverActive",false)
+                    || page.optLong("generationLeaseRemainingMs",0L)>0L){
+                    recoveryStage="waiting_for_provider_generation_to_finish";
+                    stable=0;previous="";stableSince=0L;
                 } else {
                     JSONObject nativeState=OriginalCoreBridge.inspectNativeAnswerForUserRequest();
                     String answer=nativeState.optString("answer","");
                     int expected=page.optInt("assistantReplyChars",-1);
-                    if(nativeState.optBoolean("generating",true)) {
-                        recoveryStage="native_still_generating";
-                        stable=0;previous="";
-                    } else if(answer.isEmpty() || answer.equals(baseline) ||
-                            answer.length()!=expected) {
-                        recoveryStage="new_answer_or_length_not_verified";
-                        stable=0;previous="";
+                    if(nativeState.optBoolean("generating",true)){
+                        recoveryStage="native_generation_still_active";
+                        stable=0;previous="";stableSince=0L;
+                    } else if(!meaningfulAnswer(answer) || answer.equals(baseline)
+                        || expected<0 || answer.length()!=expected){
+                        recoveryStage="answer_placeholder_stale_or_length_mismatch";
+                        stable=0;previous="";stableSince=0L;
                     } else {
-                        stable=answer.equals(previous)?stable+1:1;
-                        previous=answer;
-                        recoveryStage="answer_stability_"+stable+"_of_2";
-                        if(stable>=2) {
+                        long now=android.os.SystemClock.uptimeMillis();
+                        if(!answer.equals(previous)){
+                            previous=answer;stable=1;stableSince=now;
+                        } else {
+                            stable++;
+                        }
+                        long quietMs=now-stableSince;
+                        recoveryStage="awaiting_final_answer_quiet_"+quietMs+"ms";
+                        if(stable>=3 && quietMs>=ANSWER_QUIET_MS){
                             recoveryStage="verified_current_attachment_reply";
                             return answer;
                         }
                     }
                 }
-            } catch(Throwable transientFailure) {
-                // Original Gecko diagnostic can momentarily race with the
-                // WebDriver poller. Retry READ-ONLY instead of giving up.
+            } catch(Throwable transientFailure){
                 recoveryStage="diagnostic_temporarily_unavailable_"
                     +transientFailure.getClass().getSimpleName();
-                stable=0;previous="";
+                previous="";stable=0;stableSince=0L;
             }
             android.os.SystemClock.sleep(450L);
         }
