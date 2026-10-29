@@ -1,5 +1,6 @@
 package com.omnigate.integrated;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
