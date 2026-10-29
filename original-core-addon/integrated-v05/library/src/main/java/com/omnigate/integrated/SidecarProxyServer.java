@@ -225,6 +225,20 @@ public final class SidecarProxyServer {
                     && request.path.startsWith("/v1/chat/completions")) {
                 JSONObject observed=OriginalCoreBridge.diagnoseVisibleHostSocket();
                 String route=OriginalCoreBridge.observedRouteState(observed);
+                // Narrow safe recovery only: a previously verified live
+                // ApiServer reference of THIS SAME MainActivity + WebDriver
+                // may have been cleared. Reattach exactly that reference;
+                // never start a server, stop an overlay, switch sessions,
+                // rotate the port or route to an unverified listener.
+                if ("port_not_owned_by_main".equals(route)
+                        && !OriginalCoreBridge.originalOverlayActive()) {
+                    String recovered=OriginalCoreBridge
+                        .recoverTrackedMainServerReference();
+                    if(recovered.startsWith("PASS")){
+                        observed=OriginalCoreBridge.diagnoseVisibleHostSocket();
+                        route=OriginalCoreBridge.observedRouteState(observed);
+                    }
+                }
                 if ("port_not_owned_by_main".equals(route)
                         || "main_socket_driver_mismatch".equals(route)) {
                     writeJson(out, 409, new JSONObject()
