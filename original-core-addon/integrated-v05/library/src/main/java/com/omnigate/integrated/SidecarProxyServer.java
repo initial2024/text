@@ -224,6 +224,36 @@ public final class SidecarProxyServer {
                 }
             }
 
+            // Only the explicit single-image, non-streaming chat route
+            // uses the correlated sidecar recovery. All text, models and
+            // other original API paths remain on the frozen proxy.
+            if ("POST".equals(request.method)
+                    && "/v1/chat/completions".equals(request.path)) {
+                AttachmentApiBridge.Prepared prepared;
+                try {
+                    prepared=AttachmentApiBridge.prepare(request.body);
+                } catch(IllegalArgumentException invalid) {
+                    writeJson(out,422,new JSONObject()
+                        .put("error",new JSONObject()
+                            .put("type","invalid_request_error")
+                            .put("code",invalid.getMessage())
+                            .put("message","Unsupported or oversized image request")));
+                    return;
+                } catch(Exception malformed) {
+                    writeJson(out,422,new JSONObject()
+                        .put("error",new JSONObject()
+                            .put("type","invalid_request_error")
+                            .put("code","malformed_attachment_envelope")));
+                    return;
+                }
+                if(prepared!=null) {
+                    AttachmentApiBridge.Result result=
+                        AttachmentApiBridge.execute(prepared);
+                    writeJson(out,result.http,result.body);
+                    return;
+                }
+            }
+
             proxyToFrozenCore(request, out);
         } catch (Throwable e) {
             status("Sidecar 请求异常 · " + shortError(e));
@@ -659,6 +689,7 @@ public final class SidecarProxyServer {
             case 404: return "Not Found";
             case 408: return "Request Timeout";
             case 409: return "Conflict";
+            case 422: return "Unprocessable Entity";
             case 413: return "Payload Too Large";
             case 429: return "Too Many Requests";
             case 500: return "Internal Server Error";
