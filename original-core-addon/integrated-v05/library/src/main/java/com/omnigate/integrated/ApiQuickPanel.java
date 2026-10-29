@@ -521,18 +521,25 @@ public final class ApiQuickPanel {
                         .setNegativeButton("取消",null)
                         .setPositiveButton("已确认空闲，交接",
                             (dialog,which)->{
-                                String result=OriginalCoreBridge
-                                    .requestMainOwnerHandoff(activity);
-                                lastState=result;
-                                TextView status=text(result,11,0xFF8E5C25,false);
+                                lastState="正在非主线程确认主网页是否空闲；未停止原服务";
+                                TextView status=text(lastState,11,0xFF8E5C25,false);
                                 add(body,status,6);
-                                main.postDelayed(()->{
-                                    if(attached && !activity.isDestroyed()){
-                                        lastState=OriginalCoreBridge.handoffStatus();
-                                        status.setText(lastState);
-                                        render();
-                                    }
-                                },7500);
+                                new Thread(()->{
+                                    String result=OriginalCoreBridge
+                                        .requestMainOwnerHandoff(activity);
+                                    main.post(()->{
+                                        lastState=result;
+                                        if(attached && !activity.isDestroyed()){
+                                            status.setText(result);
+                                            main.postDelayed(()->{
+                                                if(attached && !activity.isDestroyed()){
+                                                    lastState=OriginalCoreBridge.handoffStatus();
+                                                    render();
+                                                }
+                                            },7500);
+                                        }
+                                    });
+                                },"omnigate-handoff-precheck").start();
                             }).show());
             }
             Button recover=button("恢复原版 API（不关闭网页）",false);
