@@ -49,49 +49,53 @@ public final class WebBridgeDiagnostics {
                 long leaseLeft=obj.optLong("generationLeaseRemainingMs",0);
                 int leaseWakeCount=obj.optInt("leaseWakeCount",0);
                 String leaseReason=obj.optString("lastLeaseWakeOutcome","旧版未提供");
-                String status="网页桥已响应："+provider
-                    +"；生成宽限补发="+leasePending
-                    +"；宽限剩余毫秒="+leaseLeft
-                    +"；补发次数="+leaseWakeCount
-                    +"；最近调度="+leaseReason
-                    +"；DOM="+pageReady
-                    +"；原选择器输入框="+selectorCount
-                    +"；可见="+composerVisible
-                    +"；通用可编辑元素="+generic
-                    +"（可见="+genericVisible+"）"
-                    +"；frame="+frames+"；顶层="+topFrame
-                    +"；站点匹配="+hostMatched
-                    +"；最终输入可用="+resolved
-                    +"；输入选择方式="+selection
-                    +"；最近注入动作="+sendOutcome
-                    +"；角色标签规范化="+roleNorm
-                    +"；原答案元素="+answerCount
-                    +"；回复提取="+answerMode
-                    +"；回退匹配="+fallbackMatches
-                    +"；提取字数="+answerChars
-                    +"；较发送前更新="+replyChanged
-                    +"；游客就绪="+guest
-                    +"；账号 UI="+auth
-                    +"；注入就绪="+ready;
-                if(!hostMatched) status+="。可能注入到了错误页面/文档，先检查网页宿主。";
-                else if(genericVisible>0 && Integer.parseInt(selectorCount)==0 && !resolved)
-                    status+="。存在可编辑元素但未能唯一确定输入框；不执行自动注入。";
-                else if(genericVisible>0 && Integer.parseInt(selectorCount)==0 && resolved)
-                    status+="。原选择器过期，已用 ChatGPT 专用唯一编辑器回退候选；需验证发送按钮实际点击和真实模型回复。";
-                else if(genericVisible==0)
-                    status+="。未找到可见编辑器，检查页面加载、遮罩、iframe 或网页版式。";
-                else if(!ready) status+="。有输入框但就绪门禁未通过，需检查桥配置。";
+                // Put the actual reply hand-off FIRST. Android's compact dock
+                // previously clipped these fields after a long selector dump.
+                int nativeChars=-1;
+                boolean nativeGenerating=false;
+                boolean nativeReady=false;
+                int nativeGeneration=-1;
+                String nativeProblem="";
                 try {
                     JSONObject nativeState=OriginalCoreBridge.diagnoseNativePageState();
-                    status+="；原生缓存回答字数="+
-                        nativeState.optInt("nativeAnswerChars",-1)
-                        +"；原生生成中="+nativeState.optBoolean("nativeGenerating",false)
-                        +"；原生输入就绪="+nativeState.optBoolean("nativeComposerReady",false)
-                        +"；原生提供商就绪="+nativeState.optBoolean("nativeProviderReady",false)
-                        +"；原生版本代="+nativeState.optInt("nativeGeneration",-1);
+                    nativeChars=nativeState.optInt("nativeAnswerChars",-1);
+                    nativeGenerating=nativeState.optBoolean("nativeGenerating",false);
+                    nativeReady=nativeState.optBoolean("nativeProviderReady",false);
+                    nativeGeneration=nativeState.optInt("nativeGeneration",-1);
                 } catch(Throwable e) {
-                    status+="；原生 PageState 读取失败="+e.getClass().getSimpleName();
+                    nativeProblem=e.getClass().getSimpleName();
                 }
+                String status="【传输核心】网页回复字数="+answerChars
+                    +"；原生缓存字数="+nativeChars
+                    +"；网页回答较发送前更新="+replyChanged
+                    +"；原生仍生成="+nativeGenerating
+                    +"；原生就绪="+nativeReady
+                    +"；原生版本代="+nativeGeneration
+                    +"；回复来源="+answerMode
+                    +"；回退匹配="+fallbackMatches;
+                if(!nativeProblem.isEmpty())
+                    status+="；原生状态读取失败="+nativeProblem;
+                if(answerChars>0 && nativeChars==0)
+                    status+="。网页能提取回复但原生缓存为 0，问题位于 GeckoBridge 状态传递。";
+                else if(answerChars==0)
+                    status+="。网页回复尚未被安全的 assistant 元素规则捕获。";
+                else if(nativeChars>0 && !nativeGenerating)
+                    status+="。原生已经得到答复且停止生成，下一步检查 WebDriver 完成判断。";
+                else if(nativeChars>0)
+                    status+="。原生已获取内容但仍认为生成中，检查生成标记。";
+                status+="\\n【注入】最近动作="+sendOutcome
+                    +"；模型="+provider
+                    +"；网页就绪="+ready
+                    +"；选择方式="+selection
+                    +"；可见编辑器="+genericVisible
+                    +"；原选择器="+selectorCount
+                    +"；同站点="+hostMatched
+                    +"；顶层="+topFrame;
+                status+="\\n【调度】宽限补发="+leasePending
+                    +"；剩余毫秒="+leaseLeft
+                    +"；补发次数="+leaseWakeCount
+                    +"；最近调度="+leaseReason
+                    +"；角色标签="+roleNorm;
                 report(status);
             } catch(Throwable ex){
                 Throwable cause=ex instanceof java.lang.reflect.InvocationTargetException
