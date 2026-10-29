@@ -35,6 +35,17 @@ public final class OverlayTextClient {
     public static boolean lastSuccess() { return lastSuccess; }
     public static int revision() { return revision; }
 
+    /** Display a verified attachment result using the existing scrollable
+     * text reply and Copy action. Never mark it as a successful text E2E
+     * check, and never turn an upstream HTTP 502 into HTTP 200.
+     */
+    public static void presentAttachmentReply(String answer, String evidence) {
+        if(answer==null || answer.trim().isEmpty())return;
+        response=answer.substring(0,Math.min(answer.length(),8000));
+        status="附件结果（"+evidence+"），可在此页复制；不是纯文本测试通过";
+        revision++;
+    }
+
     public static void setDraft(String input) {
         if (input != null) draft = input.substring(0, Math.min(input.length(), 3000));
     }
