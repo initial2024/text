@@ -137,6 +137,9 @@ public final class SidecarProxyServer {
                             observedOwner.optString("socketOwner", "unknown"))
                         .put("originalOverlayActive",
                             observedOwner.opt("originalOverlayServiceActive"))
+                        .put("originalOverlaySocketOwnerVerified", false)
+                        .put("originalOwnerHandoffStatus",
+                            OriginalCoreBridge.handoffStatus())
                         .put("originalSocketBindScope",
                             observedOwner.optString("bindAddressScope", "unknown"))
                         .put("originalWebDriverIdentity",
