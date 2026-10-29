@@ -1,5 +1,11 @@
 name: OmniGate Integrated v0.5 compile and fixed-signing preflight
 on:
+  pull_request:
+    branches:
+      - original-core-addon
+    paths:
+      - '.github/workflows/omnigate-integrated-v05-preflight.yml'
+      - 'original-core-addon/integrated-v05/**'
   push:
     branches:
       - work/omnigate-integrated-v05
