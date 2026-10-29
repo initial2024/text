@@ -355,6 +355,69 @@ public final class OriginalCoreBridge {
         return result;
     }
 
+    /** Explicit, nondestructive repair of ONLY a lost MainActivity.server
+     * Java reference. It NEVER binds/restarts a socket, stops an old driver,
+     * or attaches a different Activity's server. Expected to fail closed
+     * in the usual EADDRINUSE case, where the listener belongs elsewhere.
+     */
+    public static synchronized String recoverTrackedMainServerReference(){
+        Activity current=originalMain.get();
+        if(current==null || current.isFinishing() || current.isDestroyed())
+            return "REFUSAL：当前原模型主界面不存在";
+        if(current!=lastVerifiedMain.get())
+            return "REFUSAL：已切换 MainActivity 实例，旧 WebDriver 不能重新挂载";
+        Object old=lastVerifiedServer.get();
+        if(old==null)return "REFUSAL：没有保存过该主界面的已验证 ApiServer 引用";
+        if(OverlayTextClient.isSending() || OverlayUploadClient.isSending())
+            return "REFUSAL：已有请求正在执行";
+        try{
+            Field currentField=current.getClass().getDeclaredField("server");
+            Field mainDriverField=current.getClass().getDeclaredField("driver");
+            Field oldDriverField=old.getClass().getDeclaredField("driver");
+            Field oldSocketField=old.getClass().getDeclaredField("serverSocket");
+            currentField.setAccessible(true);
+            mainDriverField.setAccessible(true);
+            oldDriverField.setAccessible(true);
+            oldSocketField.setAccessible(true);
+            if(currentField.get(current)!=null)
+                return "REFUSAL：当前主界面已另有 ApiServer，禁止覆盖";
+            Object currentDriver=mainDriverField.get(current);
+            Object oldDriver=oldDriverField.get(old);
+            if(currentDriver==null || currentDriver!=oldDriver)
+                return "REFUSAL：原 WebDriver 对象不再与当前主界面一致";
+            Object sock=oldSocketField.get(old);
+            if(!(sock instanceof java.net.ServerSocket))
+                return "REFUSAL：旧 ApiServer 未持有 ServerSocket";
+            java.net.ServerSocket socket=(java.net.ServerSocket)sock;
+            if(socket.isClosed() || !socket.isBound() ||
+                socket.getLocalPort()!=configuredPort())
+                return "REFUSAL：旧 ApiServer 的端口或存活状态不符合";
+            java.net.InetAddress addr=socket.getInetAddress();
+            if(addr==null || !(addr.isAnyLocalAddress() ||
+                addr.isLoopbackAddress()))
+                return "REFUSAL：旧服务不覆盖本地回环接口";
+            Object running=old.getClass().getMethod("isRunning").invoke(old);
+            if(!Boolean.TRUE.equals(running))
+                return "REFUSAL：旧 ApiServer 报告已停止";
+            // Cross-check immediately before restoring the field: this
+            // is a reference reattachment, NOT another socket binding.
+            if(!listeningAt(configuredPort()))
+                return "REFUSAL：原端口不再接受连接";
+            currentField.set(current,old);
+            JSONObject observed=diagnoseVisibleHostSocket();
+            if("main_socket_and_driver_match".equals(
+                observedRouteState(observed))){
+                lastOwnerTransition="same_main_live_server_reference_restored";
+                return "PASS：仅恢复同一主界面的已验证原 ApiServer 引用；"+
+                    "没有创建新监听或关闭网页";
+            }
+            if(currentField.get(current)==old)currentField.set(current,null);
+            return "REFUSAL：写回后归属验证未通过；已撤销引用恢复";
+        }catch(Throwable ex){
+            return "REFUSAL：原服务引用恢复失败："+ex.getClass().getSimpleName();
+        }
+    }
+
     /** Route evidence is intentionally ternary: unknown is NOT verified.
      * This is a local diagnostic, not proof of which browser generated a reply.
      */
