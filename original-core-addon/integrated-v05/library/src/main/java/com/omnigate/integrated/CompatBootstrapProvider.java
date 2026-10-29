@@ -25,10 +25,17 @@ public final class CompatBootstrapProvider extends ContentProvider {
         if(ctx==null)return false;
         Context app=ctx.getApplicationContext();
         GatewayApp.initialize(app);
+        // App-process only: restore localhost 8787 and a previously authorized
+        // Relay without starting the frozen native model/runtime.
+        AutoStartRuntime.onProcessCreated();
         if(!(app instanceof Application))return false;
         ((Application)app).registerActivityLifecycleCallbacks(
             new Application.ActivityLifecycleCallbacks() {
                 @Override public void onActivityResumed(Activity a) {
+                    if(isOriginalUi(a) ||
+                        a instanceof CompatSettingsActivity){
+                        AutoStartRuntime.onActivityVisible(a);
+                    }
                     if(!isOriginalUi(a))return;
                     a.runOnUiThread(()->{
                         ApiQuickPanel.show(a);
