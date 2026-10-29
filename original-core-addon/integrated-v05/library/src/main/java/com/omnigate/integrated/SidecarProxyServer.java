@@ -121,6 +121,7 @@ public final class SidecarProxyServer {
             if ("GET".equals(request.method)
                     && ("/health".equals(request.path)
                     || "/__sidecar_health".equals(request.path))) {
+                JSONObject observedOwner=OriginalCoreBridge.diagnoseVisibleHostSocket();
                 writeJson(out, 200, new JSONObject()
                         .put("ok", true)
                         .put("service", "OmniGate Sidecar")
@@ -131,11 +132,13 @@ public final class SidecarProxyServer {
                         .put("originalServerRunning", OriginalCoreBridge.nativeOwnerRunning())
                         .put("originalLifecycle", OriginalCoreBridge.nativeLifecycleState())
                         .put("observedRuntimeRoute",
-                            OriginalCoreBridge.observedRouteState(
-                                OriginalCoreBridge.diagnoseVisibleHostSocket()))
+                            OriginalCoreBridge.observedRouteState(observedOwner))
                         .put("originalSocketOwner",
-                            OriginalCoreBridge.diagnoseVisibleHostSocket()
-                                .optString("socketOwner", "unknown"))
+                            observedOwner.optString("socketOwner", "unknown"))
+                        .put("originalOverlayActive",
+                            observedOwner.opt("originalOverlayServiceActive"))
+                        .put("originalSocketBindScope",
+                            observedOwner.optString("bindAddressScope", "unknown"))
                         .put("portConflict", OriginalCoreBridge.isPortConflicted())
                         .put("originalApiStartStatus", OriginalCoreBridge.lastStartStatus())
                         .put("publicRelay", GatewayApp.tunnelEnabled())
