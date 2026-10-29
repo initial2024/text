@@ -30,6 +30,8 @@ public final class OriginalCoreBridge {
         "com.deepseek2.app.action.RETURN_FROM_OVERLAY";
     private static final java.util.concurrent.atomic.AtomicBoolean handoffPending =
         new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static final java.util.concurrent.atomic.AtomicBoolean handoffChecking =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
     private static volatile int handoffOldPort = -1;
     private static volatile int handoffAttempts = 0;
     private static volatile String handoffState = "未请求主界面接管";
@@ -439,20 +441,68 @@ public final class OriginalCoreBridge {
             handoffState="接管停止：现有 MainActivity API 运行但 WebDriver 归属不匹配";
             return;
         }
-        try {
-            JSONObject current=inspectNativeAnswerForUserRequest();
-            JSONObject page=diagnoseCurrentPage();
-            if(current.optBoolean("generating",true) ||
-                page.optBoolean("generationRaw",false) ||
-                page.optBoolean("autoRolloverActive",false)){
-                handoffPending.set(false);
-                handoffState="接管停止：主网页正在生成中；没有重启 API";
-                return;
+        if(!handoffChecking.compareAndSet(false,true))return;
+        handoffState="正在非主线程核验模型网页是否空闲；没有停止服务";
+        new Thread(()->{
+            String issue=null;
+            try {
+                JSONObject current=inspectNativeAnswerForUserRequest();
+                JSONObject page=diagnoseCurrentPage();
+                if(!page.has("generationRaw")){
+                    issue="未获得网页生成状态；拒绝未知状态接管";
+                }else if(current.optBoolean("generating",true) ||
+                    page.optBoolean("generationRaw",true) ||
+                    page.optBoolean("autoRolloverActive",false)){
+                    issue="网页正在生成或仍处于生成租约中";
+                }
+            }catch(Throwable err){
+                issue="网页空闲诊断失败："+err.getClass().getSimpleName();
             }
-        }catch(Throwable inspectError){
+            final String failure=issue;
+            owner.runOnUiThread(()->{
+                handoffChecking.set(false);
+                if(!handoffPending.get() || owner.isFinishing() || owner.isDestroyed())
+                    return;
+                if(failure!=null){
+                    handoffPending.set(false);
+                    handoffState="接管停止："+failure+"；原端口与网页保持不变";
+                    return;
+                }
+                finishMainOwnerHandoff(owner);
+            });
+        },"omnigate-native-handoff-idle-check").start();
+    }
+
+    /** All Service/port facts are refreshed AFTER the async WebDriver check.
+     * This method is UI-thread only because original startServer touches
+     * MainActivity state and view lifecycle.
+     */
+    private static void finishMainOwnerHandoff(Activity owner) {
+        if(!handoffPending.get() || owner==null || owner.isFinishing() ||
+            owner.isDestroyed())return;
+        if(originalOverlayActive() || listeningAt(FALLBACK_PORT)){
             handoffPending.set(false);
-            handoffState="接管停止：主网页空闲状态无法核验("+
-                inspectError.getClass().getSimpleName()+")";
+            handoffState="接管停止：异步核验期间旧悬浮服务或 1601 再次被占用";
+            return;
+        }
+        if(OverlayTextClient.isSending() || OverlayUploadClient.isSending()){
+            handoffPending.set(false);
+            handoffState="接管停止：异步核验期间出现新请求";
+            return;
+        }
+        JSONObject checked=diagnoseVisibleHostSocket();
+        String route=observedRouteState(checked);
+        if(handoffOldPort!=FALLBACK_PORT && handoffOldPort>0 &&
+            listeningAt(handoffOldPort) &&
+            !"main_socket_and_driver_match".equals(route)){
+            handoffPending.set(false);
+            handoffState="接管停止：旧端口 "+handoffOldPort+" 归属未知";
+            return;
+        }
+        if(nativeOwnerRunning() &&
+            !"main_socket_and_driver_match".equals(route)){
+            handoffPending.set(false);
+            handoffState="接管停止：主界面服务器与 WebDriver 不匹配";
             return;
         }
         final int previous=configuredPort();
