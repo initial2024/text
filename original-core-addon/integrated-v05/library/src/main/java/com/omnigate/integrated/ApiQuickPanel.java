@@ -448,7 +448,7 @@ public final class ApiQuickPanel {
                 dp(activity,7),dp(activity,6));
             textAnswer.setBackground(bg(0xFFF0F3FB,dp(activity,9),0));
             add(body,textAnswer,6);
-            Button copy=button("复制回复",false);
+            Button copy=button("复制完整回复",false);
             add(body,copy,6);
             copy.setOnClickListener(v->{
                 String reply=OverlayTextClient.response();
