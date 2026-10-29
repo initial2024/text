@@ -119,6 +119,17 @@ public final class OriginalCoreBridge {
      * A previous socket can remain connected after its MainActivity field
      * has been cleared; that alone MUST NOT establish routing authority.
      */
+    public static int installedMainLaunchMode(){
+        try{
+            Context ctx=GatewayApp.applicationContext();
+            if(ctx==null)return -1;
+            android.content.pm.ActivityInfo info=ctx.getPackageManager()
+                .getActivityInfo(new android.content.ComponentName(
+                    ctx.getPackageName(),"com.deepseek2.app.ui.MainActivity"),0);
+            return info.launchMode;
+        }catch(Throwable e){return -1;}
+    }
+
     public static synchronized JSONObject inspectOwnerContinuity(
         JSONObject observed) {
         JSONObject out=new JSONObject();
@@ -167,8 +178,12 @@ public final class OriginalCoreBridge {
                 lastOwnerTransition+="_previous_socket_still_live";
         }
         try{
-            out.put("currentMainInstance",
-                main==null?-1:System.identityHashCode(main))
+            int mode=installedMainLaunchMode();
+            out.put("installedMainLaunchMode",mode)
+                .put("mainSingleTaskDeclared",mode==2)
+                .put("currentMainTaskId",main==null?-1:main.getTaskId())
+                .put("currentMainInstance",
+                    main==null?-1:System.identityHashCode(main))
                 .put("mainInstanceEpoch",mainInstanceEpoch)
                 .put("lastLifecycleEvent",lastLifecycleEvent)
                 .put("currentOwnerVerified",good)
