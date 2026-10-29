@@ -16,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.text.InputType;
+import android.text.method.PasswordTransformationMethod;
 import android.util.Base64;
 import android.view.Gravity;
 import android.view.View;
@@ -158,6 +159,41 @@ public final class CompatSettingsActivity extends Activity {
         if (value != null) e.setText(value);
         margin(parent, e, 10);
         return e;
+    }
+
+    /** Explicit reveal/copy controls: no secret in logs or /health.
+     * Clipboard sharing occurs ONLY after tapping Copy.
+     */
+    private void addKeyControls(LinearLayout panel, EditText field, String keyType) {
+        LinearLayout actions = rowButtons(panel);
+        Button reveal = rowButton(actions, "显示", false);
+        Button copySaved = rowButton(actions, "复制已保存", false);
+        reveal.setOnClickListener(v -> {
+            boolean hidden = field.getTransformationMethod()!=null;
+            int selection=field.getSelectionStart();
+            field.setTransformationMethod(hidden?null:
+                PasswordTransformationMethod.getInstance());
+            reveal.setText(hidden?"隐藏":"显示");
+            if(selection>=0)field.setSelection(
+                Math.min(selection,field.length()));
+        });
+        copySaved.setOnClickListener(v -> {
+            String saved = "public".equals(keyType)
+                ? GatewayApp.apiKey()
+                : "upstream".equals(keyType)
+                ? GatewayApp.upstreamApiKey()
+                : GatewayApp.relayKey();
+            if(saved==null || saved.isEmpty()){
+                toast("没有已保存的 Key；上游留空时读取原版保存的 Key");
+                return;
+            }
+            ClipboardManager cb=(ClipboardManager)
+                getSystemService(Context.CLIPBOARD_SERVICE);
+            if(cb==null){toast("无法访问系统剪贴板");return;}
+            cb.setPrimaryClip(ClipData.newPlainText(
+                "OmniGate 已保存密钥",saved));
+            toast("已复制已保存的 Key；剪贴板属于敏感数据，请及时清理");
+        });
     }
 
     private void toast(String msg) {
@@ -353,9 +389,24 @@ public final class CompatSettingsActivity extends Activity {
             settings.setVisibility(show ? View.VISIBLE : View.GONE);
             expand.setText(show ? "高级配置  ▴  点击折叠" : "高级配置  ▾  密钥与公网选项");
         });
-        upstreamKey = field(settings, "原 1601 上游 Key（可留空）", GatewayApp.upstreamApiKey(), true);
-        publicKey = field(settings, "公网 API Key", GatewayApp.apiKey(), true);
-        relayKey = field(settings, "Relay 配对 Key（默认不用）", GatewayApp.relayKey(), true);
+        margin(settings,text("三种密钥不能随意互换：公网 Key 给 Minis；"+
+            "原版上游 Key 可留空自动读取；Relay 配对 Key 只负责公网设备连接。",
+            12,0xFF976012,true),8);
+        upstreamKey = field(settings,"原版上游 Key（1601/1602，可留空）",
+            GatewayApp.upstreamApiKey(),true);
+        addKeyControls(settings,upstreamKey,"upstream");
+        Button clearUpstream=button(settings,
+            "清空上游覆盖 Key（使用原版已保存的 Key）",false);
+        clearUpstream.setOnClickListener(v->{
+            upstreamKey.setText("");
+            toast("已清空输入框；还须点击保存配置才能生效");
+        });
+        publicKey = field(settings,"公网 API Key（供 Minis 使用）",
+            GatewayApp.apiKey(),true);
+        addKeyControls(settings,publicKey,"public");
+        relayKey = field(settings,"Relay 配对 Key（连接 Cloudflare）",
+            GatewayApp.relayKey(),true);
+        addKeyControls(settings,relayKey,"relay");
         Button save = button(settings, "保存配置", true);
         save.setOnClickListener(v -> saveConfig());
 
@@ -550,19 +601,54 @@ public final class CompatSettingsActivity extends Activity {
     }
 
     private void saveConfig() {
+        String upstream=upstreamKey.getText().toString().trim();
+        String publicApi=publicKey.getText().toString().trim();
+        String relay=relayKey.getText().toString().trim();
+        // Fail closed against accidentally persisting a public client credential
+        // into the original native 1601/1602 API auth override.
+        if(!upstream.isEmpty() && upstream.equals(publicApi)) {
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("公网 Key 与原版上游 Key 相同")
+                .setMessage("你把同一把公网密钥填入了两个不同层级。"+
+                    "原版服务器可能因此返回 Invalid API key。"+
+                    "建议清空上游覆盖项，让 OmniGate 读取原版已有密钥。"+
+                    "本操作不会清空登录数据，也不会修改 Relay 配对 Key。")
+                .setNegativeButton("取消",null)
+                .setNeutralButton("仍然保存",(dialog,which)->
+                    persistConfig(upstream,publicApi,relay))
+                .setPositiveButton("清空上游并保存",(dialog,which)->{
+                    upstreamKey.setText("");
+                    persistConfig("",publicApi,relay);
+                }).show();
+            return;
+        }
+        persistConfig(upstream,publicApi,relay);
+    }
+
+    private void persistConfig(String upstream,String publicApi,String relay) {
         try {
-            GatewayApp.setUpstreamApiKey(upstreamKey.getText().toString());
-            GatewayApp.setApiKey(publicKey.getText().toString());
+            // Validate all inputs before writing any of the three settings.
+            if(publicApi.length()<12 || publicApi.length()>256 ||
+                upstream.length()>256 ||
+                (!relay.isEmpty() && (relay.length()<24 || relay.length()>256)) ||
+                (upstream+publicApi+relay).contains("\\n") ||
+                (upstream+publicApi+relay).contains("\\r")) {
+                toast("密钥长度或格式不正确；所有配置均未修改");
+                return;
+            }
             String previousRelayKey=GatewayApp.relayKey();
-            GatewayApp.setRelayKey(relayKey.getText().toString());
+            GatewayApp.setUpstreamApiKey(upstream);
+            GatewayApp.setApiKey(publicApi);
+            GatewayApp.setRelayKey(relay);
             if(GatewayApp.tunnelEnabled() &&
                 !previousRelayKey.equals(GatewayApp.relayKey())) {
                 RelayRuntime.restart();
             }
             refreshRelayStatus();
-            toast("配置已保存");
+            toast("配置已保存；上游 Key="+
+                (upstream.isEmpty()?"自动读取原版":"手动覆盖"));
         } catch (RuntimeException e) {
-            toast("保存失败：" + e.getMessage());
+            toast("保存失败：" + e.getClass().getSimpleName());
         }
     }
 
