@@ -151,6 +151,12 @@ public final class SidecarProxyServer {
                             observedOwner.optString("webDriverIdentity", "unknown"))
                         .put("portConflict", OriginalCoreBridge.isPortConflicted())
                         .put("originalApiStartStatus", OriginalCoreBridge.lastStartStatus())
+                        .put("autoStartEnabled", GatewayApp.autoStartEnabled())
+                        .put("backgroundKeepAliveEnabled",
+                            GatewayApp.backgroundKeepAliveEnabled())
+                        .put("autoStartStatus",AutoStartRuntime.status())
+                        .put("sidecarForegroundServiceRunning",
+                            SidecarService.isServiceAlive())
                         .put("publicRelay", GatewayApp.tunnelEnabled())
                         .put("publicRelayClientStarted", RelayRuntime.isStarted())
                         .put("publicRelayWebSocketConnected", RelayRuntime.isConnected())
@@ -229,7 +235,11 @@ public final class SidecarProxyServer {
                             observed.optString("socketOwner", "unknown"))
                         .put("originalWebDriverIdentity",
                             observed.optString("webDriverIdentity", "unknown"))
-                        .put("hint", "Inspect which original runtime owns the WebDriver; do not restart or stop an active chat"));
+                        .put("originalOverlayServiceActive",
+                            observed.opt("originalOverlayServiceActive"))
+                        .put("hint","Port has another or unknown original owner. "+
+                            "Check /health ownerContinuity and originalOverlayActive. "+
+                            "Do not auto-restart/stop a generating model or rotate ports."));
                     return;
                 }
             }
