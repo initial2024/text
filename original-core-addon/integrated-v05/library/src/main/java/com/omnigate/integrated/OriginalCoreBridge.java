@@ -168,6 +168,16 @@ public final class OriginalCoreBridge {
                 && !owner.isDestroyed());
             result.put("configuredPort",configuredPort());
             result.put("tcpReachable",isListening());
+            try {
+                Class<?> serviceClass=Class.forName(
+                    "com.deepseek2.app.ui.OverlayService");
+                Field active=serviceClass.getDeclaredField("isRunning");
+                active.setAccessible(true);
+                result.put("originalOverlayServiceActive",
+                    active.getBoolean(null));
+            } catch(Throwable ex) {
+                result.put("originalOverlayServiceActive","unknown");
+            }
             if(owner==null || owner.isFinishing() || owner.isDestroyed()) {
                 result.put("socketOwner","visible_host_missing"); return result;
             }
