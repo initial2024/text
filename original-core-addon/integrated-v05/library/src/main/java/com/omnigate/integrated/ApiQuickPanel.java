@@ -460,7 +460,7 @@ public final class ApiQuickPanel {
             Button diagnose=button("诊断原网页桥 / 游客输入状态",false);
             add(body,diagnose,6);
             guestDiagText=text(WebBridgeDiagnostics.state(),10,0xFF666E8C,false);
-            guestDiagText.setMaxLines(5);
+            guestDiagText.setMaxLines(14);
             add(body,guestDiagText,5);
             diagnose.setOnClickListener(v->{
                 guestDiagText.setText(WebBridgeDiagnostics.run());
@@ -495,6 +495,14 @@ public final class ApiQuickPanel {
             add(body,recover,6);
             recover.setOnClickListener(v->{
                 String result=OriginalCoreBridge.requestExplicitNativeStart(activity);
+                lastState=result;
+                TextView notice=text(result,10,0xFF956132,false);
+                add(body,notice,4);
+            });
+            Button originalReturn=button("收起 / 展开原版「返回」浮窗",false);
+            add(body,originalReturn,6);
+            originalReturn.setOnClickListener(view->{
+                String result=OriginalOverlayControl.toggleOriginalReturn(activity);
                 lastState=result;
                 TextView notice=text(result,10,0xFF956132,false);
                 add(body,notice,4);
