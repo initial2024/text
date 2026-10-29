@@ -89,11 +89,17 @@ public final class OverlayTextClient {
         new Thread(() -> {
             HttpURLConnection connection = null;
             try {
+                // The frozen original ApiServer.extractPrompt() formats each
+                // user message as "用户：" + content. A narrow private bridge
+                // recognizes this marker ONLY for this single-user plain text
+                // path and removes both label and marker before website input.
+                // Do not strip role tags from history, tools or other clients.
+                final String markedPrompt = "<<<OMNIGATE_PLAIN_TEXT_V1>>>" + prompt;
                 JSONObject payload = new JSONObject()
                     .put("model", model)
                     .put("stream", false)
                     .put("messages", new JSONArray().put(new JSONObject()
-                        .put("role", "user").put("content", prompt)));
+                        .put("role", "user").put("content", markedPrompt)));
                 byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
                 connection = (HttpURLConnection)new URL(
                     "http://127.0.0.1:8787/v1/chat/completions").openConnection();
