@@ -402,6 +402,97 @@ public final class OriginalCoreBridge {
         }
     }
 
+    /** User-approved non-destructive escape hatch when another unowned
+     * listener occupies the original native port. Changes ONLY original
+     * Prefs.port and does not stop anyone else's server or WebDriver.
+     *
+     * This method can inspect the native cached page and must be called from
+     * a worker thread. The caller explicitly asks permission BEFORE calling.
+     * The UI must call requestExplicitNativeStart on the main thread only
+     * when the returned string begins with ALTERNATE_PORT_PREPARED.
+     */
+    public static synchronized String prepareAlternatePortOnExplicitConsent() {
+        if(!originalHostAlive()) {
+            lastStartStatus="备用端口拒绝：原版 MainActivity 不存在；请先打开原版网页";
+            return lastStartStatus;
+        }
+        if(nativeOwnerRunning()) {
+            lastStartStatus="备用端口拒绝：当前 MainActivity 的原 API 已运行";
+            return lastStartStatus;
+        }
+        if(OverlayTextClient.isSending() || OverlayUploadClient.isSending()) {
+            lastStartStatus="备用端口拒绝：当前仍有请求进行中";
+            return lastStartStatus;
+        }
+        if(!isListening()) {
+            lastStartStatus="备用端口无需切换：当前原生端口未被监听，应先正常恢复";
+            return lastStartStatus;
+        }
+        JSONObject owner=diagnoseVisibleHostSocket();
+        if(owner.optBoolean("visibleHostOwnsPort",false)) {
+            lastStartStatus="备用端口拒绝：当前可见 MainActivity 已持有原端口";
+            return lastStartStatus;
+        }
+        try {
+            // Never move a live user conversation while reply generation
+            // might still be in progress; unknown state fails closed.
+            JSONObject nativeAnswer=inspectNativeAnswerForUserRequest();
+            JSONObject page=diagnoseCurrentPage();
+            if(nativeAnswer.optBoolean("generating",true)
+                || (page.has("generationRaw")
+                    && page.optBoolean("generationRaw",true))
+                || page.optBoolean("autoRolloverActive",false)) {
+                lastStartStatus="备用端口拒绝：原网页可能仍在生成回答";
+                return lastStartStatus;
+            }
+        } catch(Throwable inspectError) {
+            lastStartStatus="备用端口拒绝：无法确认原网页处于空闲状态（"
+                +inspectError.getClass().getSimpleName()+"）";
+            return lastStartStatus;
+        }
+        Context ctx=GatewayApp.applicationContext();
+        if(ctx==null) {
+            lastStartStatus="备用端口拒绝：缺少原配置上下文";
+            return lastStartStatus;
+        }
+        final int oldPort=configuredPort();
+        int freePort=-1;
+        for(int port=1602;port<=1610;port++) {
+            if(port==oldPort || port==SidecarProxyServer.LISTEN_PORT)continue;
+            try(java.net.ServerSocket probe=new java.net.ServerSocket()) {
+                probe.setReuseAddress(false);
+                probe.bind(new InetSocketAddress(
+                    InetAddress.getByName("127.0.0.1"),port));
+                freePort=port;
+                break;
+            } catch(java.io.IOException occupied) {
+                // Do not stop/kill the listener.
+            }
+        }
+        if(freePort<0) {
+            lastStartStatus="备用端口失败：1602–1610 均不可安全绑定";
+            return lastStartStatus;
+        }
+        try {
+            Object p=preferences();
+            p.getClass().getMethod("setPort",Context.class,int.class)
+                .invoke(p,ctx,freePort);
+            if(configuredPort()!=freePort) {
+                // Do not start either port if Prefs failed readback.
+                lastStartStatus="备用端口失败：原版端口配置回读不一致；未启动";
+                return lastStartStatus;
+            }
+            lastStartStatus="ALTERNATE_PORT_PREPARED：已由用户确认从 "
+                +oldPort+" 切换至 "+freePort
+                +"；原占用者未停止。下一步恢复当前 MainActivity API";
+            return lastStartStatus;
+        } catch(Throwable configError) {
+            lastStartStatus="备用端口写入失败："
+                +configError.getClass().getSimpleName()+"；未启动";
+            return lastStartStatus;
+        }
+    }
+
     public static boolean isListening() {
         if (isPortConflicted()) return false;
         try (Socket socket = new Socket()) {
