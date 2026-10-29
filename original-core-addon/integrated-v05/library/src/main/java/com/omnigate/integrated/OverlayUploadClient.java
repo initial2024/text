@@ -90,7 +90,7 @@ public final class OverlayUploadClient {
                 String raw=response.toString("UTF-8");
                 if(code==502 && raw.contains("no reply")) {
                     OverlayAttachmentDraft.report(
-                        "HTTP 502 / no reply：网页注入未得到模型响应。附件未确认送达；请检查网页是否已加载、登录及上传完成。");
+                        "HTTP 502 / no reply：图片可能仅停留在编辑器，描述写入或发送回执尚未确认；请打开网页桥诊断查看附件步骤。请勿重复点击，以免迟到的网页消息导致重复发送。");
                 } else if(code>=400) {
                     OverlayAttachmentDraft.report("HTTP "+code+"：上游拒绝或未应答（未确认上传）。"+
                         raw.substring(0,Math.min(raw.length(),180)));
