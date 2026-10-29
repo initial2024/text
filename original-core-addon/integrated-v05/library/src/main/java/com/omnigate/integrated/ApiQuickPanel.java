@@ -93,6 +93,7 @@ public final class ApiQuickPanel {
         TextView status;
         TextView textStatus;
         TextView textAnswer;
+        TextView pinnedTextResult;
         TextView guestDiagText;
         Button textSend;
         EditText prompt;
@@ -132,6 +133,11 @@ public final class ApiQuickPanel {
                         guestDiagText.setText(WebBridgeDiagnostics.state());
                     }
                 }
+                if(pinnedTextResult!=null){
+                    pinnedTextResult.setText(textE2ESummary());
+                    pinnedTextResult.setTextColor(OverlayTextClient.lastSuccess()?
+                        0xFF126F4D:0xFF96612C);
+                }
                 main.postDelayed(this,1100);
             }
         };
@@ -167,7 +173,7 @@ public final class ApiQuickPanel {
             attached=false;
             main.removeCallbacks(refresh);
             status=null;prompt=null;textStatus=null;textAnswer=null;
-            textPrompt=null;textSend=null;guestDiagText=null;
+            textPrompt=null;textSend=null;guestDiagText=null;pinnedTextResult=null;
             if(shell!=null&&shell.getParent()==frame)frame.removeView(shell);
             shell=null;body=null;innerScroll=null;
         }
@@ -303,7 +309,7 @@ public final class ApiQuickPanel {
             shell.removeAllViews();body=null;innerScroll=null;
             status=null;prompt=null;
             textStatus=null;textAnswer=null;textPrompt=null;textSend=null;
-            guestDiagText=null;
+            guestDiagText=null;pinnedTextResult=null;
             shell.setPadding(0,0,0,0);
             if(!expanded){
                 params.width=dp(activity,CHIP);
@@ -366,6 +372,10 @@ public final class ApiQuickPanel {
                 if(selectedTab==0)renderText();
                 else if(selectedTab==1)renderApi();
                 else renderUpload();
+                pinnedTextResult=text(textE2ESummary(),10,
+                    OverlayTextClient.lastSuccess()?0xFF126F4D:0xFF96612C,true);
+                pinnedTextResult.setMaxLines(2);
+                add(shell,pinnedTextResult,4);
                 LinearLayout footer=horizontal(shell,0);
                 TextView hint=text("拖动标题移动 · 拖动右下角缩放",10,0xFF7D86A0,false);
                 hint.setGravity(Gravity.CENTER_VERTICAL);
@@ -381,6 +391,14 @@ public final class ApiQuickPanel {
             frame.post(()->{
                 if(attached) position(lastX,lastY);
             });
+        }
+        String textE2ESummary(){
+            if(OverlayTextClient.isSending()) return "文本：已发送，正在等待真正的模型回复…";
+            if(OverlayTextClient.lastSuccess())
+                return "文本：HTTP 200 · 已得到模型回复（可以进入文件验收）";
+            if(OverlayTextClient.lastHttp()!=0)
+                return "文本：HTTP "+OverlayTextClient.lastHttp()+" · 尚未获得有效回复";
+            return "文本：尚未完成 API 端到端验证";
         }
         void addThird(LinearLayout row,View v) {
             LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(activity,35),1);
@@ -447,7 +465,7 @@ public final class ApiQuickPanel {
             diagnose.setOnClickListener(v->{
                 guestDiagText.setText(WebBridgeDiagnostics.run());
             });
-            TextView note=text("游客输入框就绪≠账户已登录。HTTP 502/no reply 需查看桥诊断；不主动终止生成。",
+            TextView note=text("此处仅显示通用说明；本次真实 HTTP 结果固定显示在面板底部。未确认服务器回复前不验收附件。",
                 10,0xFF9D664B,false);
             add(body,note,6);
         }
