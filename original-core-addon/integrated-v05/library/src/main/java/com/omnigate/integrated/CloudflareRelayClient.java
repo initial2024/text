@@ -206,7 +206,9 @@ public final class CloudflareRelayClient {
                     "http://127.0.0.1:" + localPort + path).openConnection();
             conn.setRequestMethod(method);
             conn.setConnectTimeout(10_000);
-            conn.setReadTimeout(620_000);
+            // Do not end a still-running native model response at 620s.
+            // Relay/edge disconnects may still occur independently.
+            conn.setReadTimeout(0);
             conn.setInstanceFollowRedirects(false);
 
             JSONObject headers = msg.optJSONObject("headers");
