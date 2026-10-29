@@ -44,6 +44,7 @@ public final class WebBridgeDiagnostics {
                 boolean resolved=obj.optBoolean("effectiveComposerReady",false);
                 String selection=obj.optString("composerSelectionMode","诊断脚本未升级");
                 String sendOutcome=obj.optString("lastSendOutcome","无发送诊断");
+                String roleNorm=obj.optString("plainTextPrefixHandling","未提供");
                 String status="网页桥已响应："+provider
                     +"；DOM="+pageReady
                     +"；原选择器输入框="+selectorCount
@@ -55,6 +56,7 @@ public final class WebBridgeDiagnostics {
                     +"；最终输入可用="+resolved
                     +"；输入选择方式="+selection
                     +"；最近注入动作="+sendOutcome
+                    +"；角色标签规范化="+roleNorm
                     +"；原答案元素="+answerCount
                     +"；回复提取="+answerMode
                     +"；回退匹配="+fallbackMatches
