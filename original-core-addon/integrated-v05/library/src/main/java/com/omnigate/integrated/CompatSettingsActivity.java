@@ -322,6 +322,63 @@ public final class CompatSettingsActivity extends Activity {
         Button save = button(settings, "保存配置", true);
         save.setOnClickListener(v -> saveConfig());
 
+        margin(settings,text("沿用原穿透地址："+
+            GatewayApp.OWN_PUBLIC_BASE+"/v1",12,0xFF323B83,true),8);
+        Button copyPublic = button(settings,"复制原公网 Base URL",false);
+        copyPublic.setOnClickListener(v -> {
+            ClipboardManager cb=(ClipboardManager)getSystemService(
+                Context.CLIPBOARD_SERVICE);
+            if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText(
+                "OmniGate HTTPS API",GatewayApp.OWN_PUBLIC_BASE+"/v1"));
+        });
+        final TextView publicStatus=text(
+            GatewayApp.tunnelEnabled()
+                ? "公网穿透已配置启用；状态："+GatewayApp.tunnelStatus()
+                : "公网穿透默认关闭；本机 8787 不受影响",
+            12,0xFF65708F,false);
+        margin(settings,publicStatus,8);
+        Button togglePublic=button(settings,"手动开启 / 关闭原有穿透",false);
+        togglePublic.setOnClickListener(v -> {
+            if(GatewayApp.tunnelEnabled()){
+                GatewayApp.setTunnelEnabled(false);
+                if(SidecarService.isServiceAlive()){
+                    Intent stopRelay=new Intent(this,SidecarService.class);
+                    stopRelay.setAction(SidecarService.ACTION_RESTART_RELAY);
+                    startService(stopRelay);
+                }
+                publicStatus.setText("公网穿透已关闭，8787 本地 API 继续保留");
+                return;
+            }
+            if(GatewayApp.relayKey().length()<24){
+                publicStatus.setText("先保存与原 Worker 匹配的 Relay 配对 Key；未开启");
+                return;
+            }
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("开启已有 OmniGate 公网穿透？")
+                .setMessage("只复用 "+GatewayApp.OWN_PUBLIC_BASE+
+                    "/v1，不创建新域名。公网要求精确 API Key；本机测试 key 不可在公网使用。" +
+                    "只有确认原配对 Key 可用后，才连接手机端 Relay。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("确认开启",(dialog,which)->{
+                    GatewayApp.setTunnelEnabled(true);
+                    try {
+                        Intent startRelay=new Intent(this,SidecarService.class);
+                        startRelay.setAction(SidecarService.isServiceAlive()
+                            ? SidecarService.ACTION_RESTART_RELAY
+                            : SidecarService.ACTION_ENSURE_RUNNING);
+                        if(SidecarService.isServiceAlive())startService(startRelay);
+                        else if(Build.VERSION.SDK_INT>=26)startForegroundService(startRelay);
+                        else startService(startRelay);
+                        publicStatus.setText(
+                            "已请求连接原穿透；需检查 Relay 状态和 HTTPS 实际请求");
+                    } catch(RuntimeException startup){
+                        GatewayApp.setTunnelEnabled(false);
+                        publicStatus.setText("公网启动失败："+startup.getClass().getSimpleName()
+                            +"；已回退关闭状态，本地 8787 不变");
+                    }
+                }).show();
+        });
+
         LinearLayout note = panel(page, "连续生成", "代理不按固定时间主动截停");
         margin(note, text("8787 不设读取截止时间；原 1601、网站及 Android 后台仍可能中断。", 12, 0xFF5C6582, false), 0);
 
