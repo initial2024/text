@@ -225,6 +225,41 @@ public final class CompatSettingsActivity extends Activity {
             }
             updateState();
         });
+        // Explicit recovery only: never evict the unknown 1601 listener.
+        // A port migration must not run during a model response.
+        Button fallbackPort=button(connection,
+            "1601 被占用：安全使用备用原生端口（需确认）",false);
+        fallbackPort.setOnClickListener(v->
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("使用原版 API 备用端口？")
+                .setMessage("当前 1601 可连接，但并非由可见 MainActivity 持有。" +
+                    "仅在网页空闲时尝试把原版 API 改到 1602–1610 的空闲端口。" +
+                    "不杀进程、不停止原网页、不清除登录数据；" +
+                    "8787 自动读取新的原生端口。" +
+                    "如果原页面正在生成回答，请取消。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("检查并切换",(dialog,which)->{
+                    fallbackPort.setEnabled(false);
+                    originalApi.setEnabled(false);
+                    upstreamGuide.setText(
+                        "正在核对原网页、端口归属和生成状态；不会中断旧请求");
+                    new Thread(()->{
+                        String result=OriginalCoreBridge.prepareAlternatePortOnExplicitConsent();
+                        main.post(()->{
+                            if(isDestroyed() || isFinishing())return;
+                            fallbackPort.setEnabled(true);
+                            originalApi.setEnabled(true);
+                            if(result.startsWith("ALTERNATE_PORT_PREPARED")) {
+                                String started=OriginalCoreBridge
+                                    .requestExplicitNativeStart(this);
+                                upstreamGuide.setText(result+"。"+started+
+                                    "；返回原模型页后再次核对 1601 归属/当前端口。");
+                            } else upstreamGuide.setText(result);
+                            updateState();
+                        });
+                    },"omnigate-alternate-native-port-check").start();
+                }).show()
+        );
         Button originalOverlay = button(connection, "打开原版悬浮窗（可能需要授权）", false);
         originalOverlay.setOnClickListener(v -> {
             String result = OriginalCoreBridge.requestOriginalOverlay(this);
