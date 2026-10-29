@@ -35,6 +35,8 @@ public final class CloudflareRelayClient {
     private final OkHttpClient client;
 
     private volatile boolean running;
+    private volatile boolean connected;
+    public boolean isConnected(){return running && connected;}
     private volatile WebSocket socket;
     private volatile int reconnectAttempt;
 
@@ -66,6 +68,7 @@ public final class CloudflareRelayClient {
 
     public synchronized void stop() {
         running = false;
+        connected = false;
         WebSocket current = socket;
         socket = null;
         if (current != null) {
@@ -92,6 +95,7 @@ public final class CloudflareRelayClient {
         socket = client.newWebSocket(request, new WebSocketListener() {
             @Override
             public void onOpen(WebSocket webSocket, Response response) {
+                connected = true;
                 socket = webSocket;
                 reconnectAttempt = 0;
                 status("自有穿透已连接 · 正在验证公网");
@@ -115,12 +119,14 @@ public final class CloudflareRelayClient {
 
             @Override
             public void onClosed(WebSocket webSocket, int code, String reason) {
+                connected = false;
                 if (socket == webSocket) socket = null;
                 if (running) scheduleReconnect("连接关闭 " + code);
             }
 
             @Override
             public void onFailure(WebSocket webSocket, Throwable t, Response response) {
+                connected = false;
                 if (socket == webSocket) socket = null;
                 String detail = t == null
                         ? "unknown"
