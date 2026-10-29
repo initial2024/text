@@ -22,39 +22,82 @@ public final class OverlayUploadClient {
     private OverlayUploadClient() {}
     public static boolean isSending() { return SENDING.get(); }
 
-    /** Recover only a specifically matched and completed original page answer.
-     * Never invent a result, retry a sent image, or expose an older turn.
+    private static volatile String recoveryStage="not_checked";
+    public static String recoveryStage(){return recoveryStage;}
+
+    /** A transport break or upstream 502 is NOT proof that a photo failed
+     * to send. Read only; never POST again. A recovery is permitted only
+     * for this request's exact UUID and explicitly observed sent user turn,
+     * changed scoped assistant answer and TWO completed stable snapshots.
      */
-    private static String correlatedRecovery(String requestId, String baseline) {
-        if(baseline==null) return null;
+    private static String correlatedRecovery(String requestId,String baseline) {
+        if(baseline==null) {
+            recoveryStage="baseline_unavailable";
+            return null;
+        }
         final long deadline=android.os.SystemClock.uptimeMillis()+12000L;
-        String previous=""; int stable=0;
+        String previous="";
+        int stable=0;
+        recoveryStage="waiting_for_matching_user_turn";
         while(android.os.SystemClock.uptimeMillis()<deadline) {
             try {
                 JSONObject owner=OriginalCoreBridge.diagnoseVisibleHostSocket();
-                if(!owner.optBoolean("visibleHostOwnsPort",false))return null;
+                if(!owner.optBoolean("visibleHostOwnsPort",false) ||
+                        "different".equals(owner.optString("webDriverIdentity",""))) {
+                    recoveryStage="visible_driver_or_socket_mismatch";
+                    return null;
+                }
                 JSONObject page=OriginalCoreBridge.diagnoseCurrentPage();
-                if(!requestId.equals(page.optString("attachmentRequestId","")))return null;
-                if(!"new_explicit_user_turn".equals(
-                        page.optString("attachmentSendEvidence","")))return null;
-                if(!page.optBoolean("assistantReplyChangedSinceSend",false)
-                        || page.optBoolean("generationRaw",true)
-                        || page.optBoolean("autoRolloverActive",false)){
-                    previous="";stable=0;
+                String observedId=page.optString("attachmentRequestId","");
+                if(!observedId.isEmpty() && !requestId.equals(observedId)) {
+                    recoveryStage="another_request_replaced_current";
+                    return null;
+                }
+                if(!requestId.equals(observedId)) {
+                    recoveryStage="attachment_id_not_visible";
+                    stable=0;previous="";
+                } else if(!"new_explicit_user_turn".equals(
+                        page.optString("attachmentSendEvidence",""))) {
+                    recoveryStage="new_user_turn_not_verified";
+                    stable=0;previous="";
+                } else if(!page.optBoolean("assistantReplyChangedSinceSend",false)) {
+                    recoveryStage="assistant_reply_not_changed";
+                    stable=0;previous="";
+                } else if(page.optBoolean("generationRaw",true) ||
+                        page.optBoolean("autoRolloverActive",false)) {
+                    recoveryStage="provider_still_generating";
+                    stable=0;previous="";
                 } else {
                     JSONObject nativeState=OriginalCoreBridge.inspectNativeAnswerForUserRequest();
                     String answer=nativeState.optString("answer","");
-                    if(!nativeState.optBoolean("generating",true)
-                            && !answer.isEmpty() && !answer.equals(baseline)
-                            && answer.length()==page.optInt("assistantReplyChars",-1)){
+                    int expected=page.optInt("assistantReplyChars",-1);
+                    if(nativeState.optBoolean("generating",true)) {
+                        recoveryStage="native_still_generating";
+                        stable=0;previous="";
+                    } else if(answer.isEmpty() || answer.equals(baseline) ||
+                            answer.length()!=expected) {
+                        recoveryStage="new_answer_or_length_not_verified";
+                        stable=0;previous="";
+                    } else {
                         stable=answer.equals(previous)?stable+1:1;
                         previous=answer;
-                        if(stable>=2)return answer;
-                    } else {previous="";stable=0;}
+                        recoveryStage="answer_stability_"+stable+"_of_2";
+                        if(stable>=2) {
+                            recoveryStage="verified_current_attachment_reply";
+                            return answer;
+                        }
+                    }
                 }
-            } catch(Throwable ignored) {return null;}
-            android.os.SystemClock.sleep(500L);
+            } catch(Throwable transientFailure) {
+                // Original Gecko diagnostic can momentarily race with the
+                // WebDriver poller. Retry READ-ONLY instead of giving up.
+                recoveryStage="diagnostic_temporarily_unavailable_"
+                    +transientFailure.getClass().getSimpleName();
+                stable=0;previous="";
+            }
+            android.os.SystemClock.sleep(450L);
         }
+        recoveryStage="time_limit_"+recoveryStage;
         return null;
     }
 
@@ -84,8 +127,8 @@ public final class OverlayUploadClient {
         OverlayAttachmentDraft.report("正在通过 " + model + " 的原版 V2 注入链路发送，等待网页回执…");
         new Thread(() -> {
             HttpURLConnection conn = null;
+            String baselineAnswer=null;
             try {
-                String baselineAnswer=null;
                 try {
                     baselineAnswer=OriginalCoreBridge.inspectNativeAnswerForUserRequest()
                         .optString("answer","");
@@ -115,6 +158,10 @@ public final class OverlayUploadClient {
                 conn.setRequestMethod("POST");
                 conn.setConnectTimeout(10000);
                 conn.setReadTimeout(0);
+                // Avoid pooled stale HTTP/1.1 connections after an upstream
+                // native server unexpectedly closes the response stream.
+                conn.setUseCaches(false);
+                conn.setRequestProperty("Connection","close");
                 conn.setRequestProperty("Authorization","Bearer test");
                 conn.setRequestProperty("Content-Type","application/json");
                 conn.setDoOutput(true);
@@ -135,13 +182,16 @@ public final class OverlayUploadClient {
                     String recovered=correlatedRecovery(requestId,baselineAnswer);
                     if(recovered!=null){
                         OverlayAttachmentDraft.setReply(recovered);
+                        OverlayTextClient.presentAttachmentReply(
+                            recovered,"原核心 HTTP 502；已验证关联，原状态仍为 502");
                         OverlayAttachmentDraft.report(
                             "原核心 HTTP 502；已用本次附件 ID、新用户消息和稳定原生回答恢复"
                             +recovered.length()+" 字。API 状态仍为 502。回复摘录："+
                             recovered.substring(0,Math.min(recovered.length(),160)));
                     } else {
                         OverlayAttachmentDraft.report(
-                            "原核心 HTTP 502；无法安全确认本次图片的回复，未重复发送。");
+                            "原核心 HTTP 502，不能确认本轮回复（"+recoveryStage
+                            +"）；未重复发送图片。");
                     }
                 } else if(code>=400) {
                     OverlayAttachmentDraft.report("HTTP "+code+"：上游拒绝或未应答（未确认上传）。"+
@@ -159,14 +209,32 @@ public final class OverlayUploadClient {
                             "：没有有效模型文本回复，附件未确认送达");
                     } else {
                         OverlayAttachmentDraft.setReply(responseText);
+                        OverlayTextClient.presentAttachmentReply(
+                            responseText,"原生 HTTP "+code);
                         OverlayAttachmentDraft.report("HTTP "+code+
                             "：收到模型回答 "+responseText.length()+" 字，请核对网页。");
                     }
                 }
             } catch(Exception e) {
-                OverlayAttachmentDraft.report("附件注入失败："+e.getClass().getSimpleName()+
-                    (e.getMessage()==null?"":" · "+
-                        e.getMessage().substring(0,Math.min(100,e.getMessage().length()))));
+                // Never blindly retry an attachment POST: even an unexpected
+                // end of stream may occur AFTER the browser sent the image.
+                // A read-only recovery is valid only if the exact same
+                // request ID and finished reply can be proven.
+                String recovered=correlatedRecovery(requestId,baselineAnswer);
+                if(recovered!=null) {
+                    OverlayAttachmentDraft.setReply(recovered);
+                    OverlayTextClient.presentAttachmentReply(recovered,
+                        "连接中断但网页回答已验证；原 HTTP 未完成");
+                    OverlayAttachmentDraft.report(
+                        "网络连接异常（"+e.getClass().getSimpleName()
+                        +"），但已关联恢复本次图片的模型回复 "+recovered.length()
+                        +" 字；原 HTTP 未完成，未重发。");
+                } else {
+                    OverlayAttachmentDraft.report(
+                        "附件连接异常："+e.getClass().getSimpleName()
+                        +"；只读回复恢复未通过（"+recoveryStage
+                        +"），未重复发送。");
+                }
             } finally {
                 if(conn!=null)conn.disconnect();
                 java.util.Arrays.fill(bytes,(byte)0);
