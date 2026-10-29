@@ -101,9 +101,14 @@ public final class SidecarService extends Service {
         // A service stopped by Android must not tear down a WebSocket
         // explicitly started in the still-live API console.
         // The user-facing Stop service control explicitly stops RelayRuntime.
-        LocalProxyRuntime.stop();
+        // A service termination must not silently close the separately
+        // running in-process 8787 when user has explicitly enabled relay.
+        // The explicit Stop button disables relay first and stops 8787.
+        if(!GatewayApp.tunnelEnabled())LocalProxyRuntime.stop();
 
-        GatewayApp.setLocalApiStatus("Sidecar 服务已停止");
+        GatewayApp.setLocalApiStatus(GatewayApp.tunnelEnabled()
+            ? "前台服务已结束；进程内 8787 按原状态保留"
+            : "Sidecar 服务已停止");
         if(!GatewayApp.tunnelEnabled())
             GatewayApp.setTunnelStatus("公网 Relay 已关闭");
         super.onDestroy();
