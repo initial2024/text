@@ -22,7 +22,8 @@ public final class SidecarService extends Service {
 
     private static volatile boolean serviceAlive;
 
-    private CloudflareRelayClient cloudflareRelay;
+    // Relay connection is owned by RelayRuntime process-wide. A foreground
+    // service may observe it, but must not create a duplicate WebSocket.
 
     private final Handler watchdogHandler =
             new Handler(Looper.getMainLooper());
@@ -61,35 +62,8 @@ public final class SidecarService extends Service {
     }
 
     private synchronized void syncRelay() {
-        if (cloudflareRelay != null) {
-            cloudflareRelay.stop();
-            cloudflareRelay = null;
-        }
-
-        if (!GatewayApp.tunnelEnabled()) {
-            GatewayApp.setTunnelStatus("公网 Relay 已关闭");
-            refreshNotification();
-            return;
-        }
-
-        String relayKey = GatewayApp.relayKey();
-        if (relayKey.isEmpty()) {
-            GatewayApp.setTunnelStatus("需要配置 Relay Key");
-            refreshNotification();
-            return;
-        }
-
-        GatewayApp.setTunnelStatus("OmniGate Relay 正在连接");
-        cloudflareRelay = new CloudflareRelayClient(
-                GatewayApp.OWN_RELAY_WS,
-                GatewayApp.effectivePublicUrl(),
-                relayKey,
-                SidecarProxyServer.LISTEN_PORT,
-                status -> {
-                    GatewayApp.setTunnelStatus(status);
-                    refreshNotification();
-                });
-        cloudflareRelay.start();
+        if(GatewayApp.tunnelEnabled())RelayRuntime.ensureStarted();
+        else RelayRuntime.stop();
         refreshNotification();
     }
 
@@ -102,9 +76,11 @@ public final class SidecarService extends Service {
 
         if (intent != null
                 && ACTION_RESTART_RELAY.equals(intent.getAction())) {
-            syncRelay();
-        } else {
+            if(GatewayApp.tunnelEnabled())RelayRuntime.restart();
+            else RelayRuntime.stop();
             refreshNotification();
+        } else {
+            syncRelay();
         }
 
         return START_STICKY;
@@ -122,15 +98,14 @@ public final class SidecarService extends Service {
         serviceAlive = false;
         watchdogHandler.removeCallbacks(watchdog);
 
-        if (cloudflareRelay != null) {
-            cloudflareRelay.stop();
-            cloudflareRelay = null;
-        }
-
+        // A service stopped by Android must not tear down a WebSocket
+        // explicitly started in the still-live API console.
+        // The user-facing Stop service control explicitly stops RelayRuntime.
         LocalProxyRuntime.stop();
 
         GatewayApp.setLocalApiStatus("Sidecar 服务已停止");
-        GatewayApp.setTunnelStatus("公网 Relay 已停止");
+        if(!GatewayApp.tunnelEnabled())
+            GatewayApp.setTunnelStatus("公网 Relay 已关闭");
         super.onDestroy();
     }
 
