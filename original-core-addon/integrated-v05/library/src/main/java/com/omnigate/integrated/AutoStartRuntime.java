@@ -16,6 +16,12 @@ public final class AutoStartRuntime {
     private static volatile String status = "尚未运行自动恢复";
     private AutoStartRuntime(){}
     public static String status(){return status;}
+    /** Called when Android destroys the optional service, permitting a new
+     * user-visible Activity to request it again (not a background FGS loop).
+     */
+    public static void onForegroundServiceGone(){
+        fgsRequested.set(false);
+    }
 
     public static void onProcessCreated(){ ensureAsync("process_start"); }
     public static void onActivityVisible(Activity activity){
