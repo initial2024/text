@@ -44,7 +44,7 @@ public final class OverlayUploadClient {
      * attachment may be displayed. Fail closed when evidence is incomplete.
      * No POST is ever retried.
      */
-    private static String correlatedRecovery(String requestId,String baseline) {
+    static String correlatedRecovery(String requestId,String baseline) {
         if(baseline==null){
             recoveryStage="baseline_unavailable";return null;
         }
