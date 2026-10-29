@@ -144,6 +144,8 @@ public final class SidecarProxyServer {
                         .put("portConflict", OriginalCoreBridge.isPortConflicted())
                         .put("originalApiStartStatus", OriginalCoreBridge.lastStartStatus())
                         .put("publicRelay", GatewayApp.tunnelEnabled())
+                        .put("publicRelayClientStarted", RelayRuntime.isStarted())
+                        .put("publicRelayWebSocketConnected", RelayRuntime.isConnected())
                         .put("publicRelayStatus", GatewayApp.tunnelStatus()));
                 return;
             }
