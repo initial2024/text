@@ -32,8 +32,16 @@ public final class CompatBootstrapProvider extends ContentProvider {
                     if(!isOriginalUi(a))return;
                     a.runOnUiThread(()->{
                         ApiQuickPanel.show(a);
-                        if("com.deepseek2.app.ui.MainActivity".equals(a.getClass().getName()))
+                        if("com.deepseek2.app.ui.MainActivity".equals(a.getClass().getName())) {
                             OriginalCoreBridge.onOriginalMainResumed(a);
+                            // The v0.7.1 original DEX patches TOGGLE to an
+                            // idempotent collapse. Never stop OverlayService:
+                            // it may own the active WebDriver and ApiServer.
+                            a.getWindow().getDecorView().postDelayed(() -> {
+                                if(!a.isFinishing() && !a.isDestroyed())
+                                    OriginalOverlayControl.collapseIfRunning(a);
+                            }, 650);
+                        }
                     });
                 }
                 @Override public void onActivityPaused(Activity a) {
