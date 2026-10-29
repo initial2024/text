@@ -364,6 +364,15 @@ public final class OriginalCoreBridge {
         handoffState="已收到用户确认；请求原版悬浮服务返回主界面。"+
             "原悬浮 WebDriver 会被原版 stopRuntime 关闭";
         handoffPending.set(true);
+        // An already-resumed MainActivity might receive onNewIntent rather
+        // than another onResume. Schedule the same bounded completion on its
+        // UI thread as well; duplicate calls only inspect and short-circuit
+        // once handoffPending is cleared.
+        Activity live=originalMain.get();
+        if(live!=null && !live.isDestroyed() && !live.isFinishing()){
+            live.getWindow().getDecorView().postDelayed(
+                ()->completeMainOwnerHandoff(live),650);
+        }
         try {
             Intent intent=new Intent();
             intent.setClassName(caller.getPackageName(),
@@ -415,9 +424,17 @@ public final class OriginalCoreBridge {
             return;
         }
         JSONObject ownerRoute=diagnoseVisibleHostSocket();
+        String currentRoute=observedRouteState(ownerRoute);
+        if(handoffOldPort>0 && handoffOldPort!=FALLBACK_PORT &&
+            listeningAt(handoffOldPort) &&
+            !"main_socket_and_driver_match".equals(currentRoute)){
+            handoffPending.set(false);
+            handoffState="接管停止：旧端口 "+handoffOldPort+
+                " 仍被非当前主界面持有，保留原服务，不继续改端口";
+            return;
+        }
         if(nativeOwnerRunning() &&
-            !"main_socket_and_driver_match".equals(
-                observedRouteState(ownerRoute))){
+            !"main_socket_and_driver_match".equals(currentRoute)){
             handoffPending.set(false);
             handoffState="接管停止：现有 MainActivity API 运行但 WebDriver 归属不匹配";
             return;
