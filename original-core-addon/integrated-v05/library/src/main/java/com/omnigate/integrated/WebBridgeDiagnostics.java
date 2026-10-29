@@ -71,6 +71,17 @@ public final class WebBridgeDiagnostics {
                 else if(genericVisible==0)
                     status+="。未找到可见编辑器，检查页面加载、遮罩、iframe 或网页版式。";
                 else if(!ready) status+="。有输入框但就绪门禁未通过，需检查桥配置。";
+                try {
+                    JSONObject nativeState=OriginalCoreBridge.diagnoseNativePageState();
+                    status+="；原生缓存回答字数="+
+                        nativeState.optInt("nativeAnswerChars",-1)
+                        +"；原生生成中="+nativeState.optBoolean("nativeGenerating",false)
+                        +"；原生输入就绪="+nativeState.optBoolean("nativeComposerReady",false)
+                        +"；原生提供商就绪="+nativeState.optBoolean("nativeProviderReady",false)
+                        +"；原生版本代="+nativeState.optInt("nativeGeneration",-1);
+                } catch(Throwable e) {
+                    status+="；原生 PageState 读取失败="+e.getClass().getSimpleName();
+                }
                 report(status);
             } catch(Throwable ex){
                 Throwable cause=ex instanceof java.lang.reflect.InvocationTargetException
