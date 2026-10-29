@@ -542,6 +542,32 @@ public final class ApiQuickPanel {
                                 },"omnigate-handoff-precheck").start();
                             }).show());
             }
+            if(upstream && !nativeRunning){
+                Button reattach=button("尝试找回当前主界面已验证的原服务引用",false);
+                add(body,reattach,6);
+                reattach.setOnClickListener(v->
+                    new android.app.AlertDialog.Builder(activity)
+                        .setTitle("仅恢复同一主界面的原 ApiServer 引用？")
+                        .setMessage("只有以前在这个进程中验证过该主界面的 ApiServer，"+
+                            "并且它仍然运行、监听同一端口、使用完全相同的 WebDriver，"+
+                            "才会恢复 Java 引用。不会重新绑定端口、关闭原网页或重试请求。"+
+                            "如果是另一实例占用 1604，将明确拒绝。")
+                        .setNegativeButton("取消",null)
+                        .setPositiveButton("尝试安全恢复",(dialog,which)->{
+                            reattach.setEnabled(false);
+                            new Thread(()->{
+                                String result=OriginalCoreBridge
+                                    .recoverTrackedMainServerReference();
+                                main.post(()->{
+                                    if(!attached || activity.isDestroyed())return;
+                                    lastState=result;
+                                    reattach.setEnabled(true);
+                                    TextView outcome=text(result,11,0xFF99612D,true);
+                                    add(body,outcome,5);
+                                });
+                            },"omnigate-recover-tracked-owner").start();
+                        }).show());
+            }
             Button recover=button("恢复原版 API（不关闭网页）",false);
             add(body,recover,6);
             recover.setOnClickListener(v->{
