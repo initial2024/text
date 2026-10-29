@@ -310,10 +310,9 @@ public final class OriginalCoreBridge {
         // the live ApiServer and its WebDriver may be processing a reply.
         JSONObject observed=diagnoseVisibleHostSocket();
         if(nativeOwnerRunning()) {
-            lastStartStatus=observed.optBoolean("visibleHostOwnsPort",false)
-                ? "原版 MainActivity 真实套接字已持有 "+configuredPort()+"；未重启"
-                : "MainActivity 已标记运行，但套接字归属未证实（"
-                    +observedRouteState(observed)+"）；保护既有会话，拒绝重启";
+            String route=observedRouteState(observed);
+            lastStartStatus="MainActivity 原 API 已运行；路由="+route
+                +"；为保护可能正在生成的回复，没有重启 WebDriver 或 API";
             return;
         }
         if(observed.optBoolean("tcpReachable",false)) {
@@ -398,10 +397,8 @@ public final class OriginalCoreBridge {
         if (!repairNativePortOnExplicitClick()) return lastStartStatus;
         if (originalHostAlive() && nativeOwnerRunning()) {
             JSONObject observed=diagnoseVisibleHostSocket();
-            lastStartStatus=observed.optBoolean("visibleHostOwnsPort",false)
-                ? "现有 MainActivity 已持有原版端口，未重复创建"
-                : "现有 MainActivity API 已运行，但归属异常（"
-                    +observedRouteState(observed)+"）；禁止覆盖正在运行的会话";
+            lastStartStatus="现有 MainActivity API 已运行；路由="
+                +observedRouteState(observed)+"；禁止覆盖运行中的会话";
             return lastStartStatus;
         }
         if (isListening()) {
