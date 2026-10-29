@@ -197,10 +197,18 @@ public final class OriginalCoreBridge {
             java.net.ServerSocket socket=(java.net.ServerSocket)rawSocket;
             boolean bound=socket.isBound(), closed=socket.isClosed();
             int boundPort=bound?socket.getLocalPort():-1;
+            java.net.InetAddress address=bound?socket.getInetAddress():null;
+            boolean coversLoopback=address!=null
+                && (address.isAnyLocalAddress() || address.isLoopbackAddress());
+            String bindScope=address==null?"unbound":
+                (address.isAnyLocalAddress()?"wildcard":
+                (address.isLoopbackAddress()?"loopback":"other_interface"));
             result.put("socketBound",bound).put("socketClosed",closed)
-                .put("actualPort",boundPort);
+                .put("actualPort",boundPort)
+                .put("bindAddressScope",bindScope)
+                .put("socketCoversLoopback",coversLoopback);
             result.put("visibleHostOwnsPort",bound && !closed &&
-                boundPort==configuredPort());
+                coversLoopback && boundPort==configuredPort());
             result.put("socketOwner",bound && !closed
                 ? "visible_host_has_live_socket" : "visible_host_no_live_socket");
         } catch(Throwable ex) {
@@ -209,6 +217,21 @@ public final class OriginalCoreBridge {
             catch(org.json.JSONException ignored){}
         }
         return result;
+    }
+
+    /** Route evidence is intentionally ternary: unknown is NOT verified.
+     * This is a local diagnostic, not proof of which browser generated a reply.
+     */
+    public static String observedRouteState(JSONObject diagnosis) {
+        if(!diagnosis.optBoolean("tcpReachable",false))
+            return "upstream_unreachable";
+        if(!diagnosis.optBoolean("activityAlive",false))
+            return "unknown_no_original_main";
+        if(diagnosis.optBoolean("visibleHostOwnsPort",false))
+            return "main_socket_matches_loopback";
+        if(diagnosis.optString("socketOwner","").startsWith("inspect_failed_"))
+            return "unknown_reflection_failed";
+        return "port_not_owned_by_main";
     }
 
     /** Original frozen MainActivity.server is the actual ownership evidence. */
@@ -261,8 +284,18 @@ public final class OriginalCoreBridge {
             return;
         }
         if(!alignOriginalInstancePort(owner)) return;
-        if(nativeOwnerRunning() && isListening()) {
-            lastStartStatus="原版 API 已运行于 "+configuredPort()+"；不重复创建或重启";
+        JSONObject observed=diagnoseVisibleHostSocket();
+        if(nativeOwnerRunning()) {
+            lastStartStatus=observed.optBoolean("visibleHostOwnsPort",false)
+                ? "原版 MainActivity 真实套接字已持有 "+configuredPort()+"；未重启"
+                : "MainActivity 已标记运行，但套接字归属未证实（"
+                    +observedRouteState(observed)+"）；保护既有会话，拒绝重启";
+            return;
+        }
+        if(observed.optBoolean("tcpReachable",false)) {
+            lastStartStatus="端口 "+configuredPort()
+                +" 已由其他或未知实例监听（"+observedRouteState(observed)
+                +"）；为避免双 WebDriver，未调用 startServer";
             return;
         }
         try {
@@ -281,9 +314,11 @@ public final class OriginalCoreBridge {
             if(owner.isDestroyed() || owner.isFinishing()) return;
             boolean running=nativeOwnerRunning();
             boolean tcp=isListening();
+            JSONObject observedAfter=diagnoseVisibleHostSocket();
             lastStartStatus="原版 API："+(running?"server.isRunning=true":"server 未运行")
                 +"；端口 "+configuredPort()+"："+(tcp?"TCP 可连接":"TCP 不可连接")
-                +"。TCP 连通不等于模型已回复。";
+                +"；路由="+observedRouteState(observedAfter)
+                +"。未完成网页回复端到端验收。";
             GatewayApp.setLocalApiStatus(lastStartStatus);
         },700);
     }
@@ -336,8 +371,16 @@ public final class OriginalCoreBridge {
         // The original Activity owns ApiServer. NEVER create a second MainActivity
         // when the previous host still exists: its onDestroy closes the server.
         if (!repairNativePortOnExplicitClick()) return lastStartStatus;
-        if (originalHostAlive() && nativeOwnerRunning() && isListening()) {
-            lastStartStatus="现有原版 MainActivity 的 API 已运行，未重复创建";
+        if (originalHostAlive() && nativeOwnerRunning()) {
+            JSONObject observed=diagnoseVisibleHostSocket();
+            lastStartStatus=observed.optBoolean("visibleHostOwnsPort",false)
+                ? "现有 MainActivity 已持有原版端口，未重复创建"
+                : "现有 MainActivity API 已运行，但归属异常（"
+                    +observedRouteState(observed)+"）；禁止覆盖正在运行的会话";
+            return lastStartStatus;
+        }
+        if (isListening()) {
+            lastStartStatus="原生端口已经有监听者；归属尚未核对，拒绝新建第二个浏览器/API";
             return lastStartStatus;
         }
         Activity live=originalMain.get();
