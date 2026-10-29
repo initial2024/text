@@ -225,7 +225,7 @@ public final class CompatSettingsActivity extends Activity {
         margin(page, hero, 14);
         margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
         margin(hero, text("API 控制台   /   v0.7.0", 13, 0xFFE5E7FF, false), 7);
-        margin(hero, text("本地优先 · 手动启停 · 网页注入保持不变", 12, 0xFFD6E9FF, false), 0);
+        margin(hero, text("自动恢复本地 8787 · Relay 按已有授权重连 · 原版模型不自动重启", 12, 0xFFD6E9FF, false), 0);
 
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
         localBadge = statusBadge(connection, "○ 8787 检查中");
@@ -237,6 +237,10 @@ public final class CompatSettingsActivity extends Activity {
         start.setOnClickListener(v -> startLocalServer());
         Button stop = rowButton(actions, "停止服务", false);
         stop.setOnClickListener(v -> {
+            // "Stop" is an explicit revocation: do not restart the listener
+            // as soon as this activity is resumed again.
+            GatewayApp.setAutoStartEnabled(false);
+            GatewayApp.setBackgroundKeepAliveEnabled(false);
             GatewayApp.setTunnelEnabled(false);
             RelayRuntime.stop();
             stopService(new Intent(this, SidecarService.class));
@@ -245,6 +249,33 @@ public final class CompatSettingsActivity extends Activity {
             healthState.setText("未连接");
             updateState();
         });
+        android.widget.CheckBox autoStart = new android.widget.CheckBox(this);
+        autoStart.setText("打开应用自动启动 8787；原 Relay 已授权时自动连接");
+        autoStart.setChecked(GatewayApp.autoStartEnabled());
+        margin(connection,autoStart,5);
+        autoStart.setOnCheckedChangeListener((button,checked)->{
+            GatewayApp.setAutoStartEnabled(checked);
+            if(checked)AutoStartRuntime.requestRefresh();
+            else GatewayApp.setBackgroundKeepAliveEnabled(false);
+        });
+        android.widget.CheckBox keepAlive = new android.widget.CheckBox(this);
+        keepAlive.setText("通知保活（可选）：允许 Android 前台服务维持后台连接");
+        keepAlive.setChecked(GatewayApp.backgroundKeepAliveEnabled());
+        margin(connection,keepAlive,5);
+        keepAlive.setOnCheckedChangeListener((button,checked)->{
+            if(checked && !GatewayApp.autoStartEnabled()){
+                keepAlive.setChecked(false);
+                toast("请先开启自动启动 8787");
+                return;
+            }
+            GatewayApp.setBackgroundKeepAliveEnabled(checked);
+            if(checked)AutoStartRuntime.onActivityVisible(this);
+            else toast("下次启动不再申请通知保活；可用停止服务彻底结束");
+        });
+        margin(connection,text("自动恢复仅在 OmniGate 应用进程启动时生效。"+
+            "Android 强制停止、关机重启后未打开应用、或系统终止后台进程时，"+
+            "公网可能离线；不能保证永久在线。通知保活可能需要系统许可。",
+            11,0xFF8C6321,false),7);
         Button health = button(connection, "检测 /health 连接", false);
         health.setOnClickListener(v -> probeHealth());
         healthState = text("未执行 HTTP 测试", 12, 0xFF59657E, false);
@@ -579,17 +610,16 @@ public final class CompatSettingsActivity extends Activity {
     }
 
     private void startLocalServer() {
+        GatewayApp.setAutoStartEnabled(true);
         if (!LocalProxyRuntime.start()) {
             updateState();
             healthState.setText("无法绑定 8787，可能被独立 Sidecar 占用");
             return;
         }
         updateState();
-        // Do not launch an Android 14+ foreground service in the first
-        // recovery candidate. A bad service type or restriction may kill the
-        // entire app process asynchronously even when Activity catches errors.
-        // Foreground-only localhost listener is safer and independently testable.
-        healthState.setText("本地服务已尝试启动；切换到后台后可能被系统回收");
+        // Foreground service is never started implicitly here; user must
+        // separately authorize the optional notification keepalive.
+        healthState.setText("本地服务已启动；下次应用启动自动恢复；后台保活取决于系统");
         probeHealth();
     }
 
