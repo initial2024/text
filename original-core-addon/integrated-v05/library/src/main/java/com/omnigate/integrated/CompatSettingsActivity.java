@@ -298,7 +298,18 @@ public final class CompatSettingsActivity extends Activity {
         // A port migration must not run during a model response.
         Button fallbackPort=button(connection,
             "1601 被占用：安全使用备用原生端口（需确认）",false);
-        fallbackPort.setOnClickListener(v->
+        fallbackPort.setOnClickListener(v->{
+            if(OriginalCoreBridge.originalOverlayActive()){
+                new android.app.AlertDialog.Builder(this)
+                    .setTitle("原版悬浮服务仍在运行")
+                    .setMessage("继续换到 1603、1604 等端口不会解决独立 ApiServer"+
+                        " 争用问题。请先确认悬浮窗没有正在进行的任务，"+
+                        "再使用上方「在模型主界面接管 1601」按钮。"+
+                        "不能确认空闲时应取消，不关闭网页。")
+                    .setPositiveButton("知道了",null)
+                    .show();
+                return;
+            }
             new android.app.AlertDialog.Builder(this)
                 .setTitle("使用原版 API 备用端口？")
                 .setMessage("当前 1601 可连接，但并非由可见 MainActivity 持有。" +
@@ -327,8 +338,8 @@ public final class CompatSettingsActivity extends Activity {
                             updateState();
                         });
                     },"omnigate-alternate-native-port-check").start();
-                }).show()
-        );
+                }).show();
+        });
         Button originalOverlay = button(connection, "打开原版悬浮窗（可能需要授权）", false);
         originalOverlay.setOnClickListener(v -> {
             String result = OriginalCoreBridge.requestOriginalOverlay(this);
