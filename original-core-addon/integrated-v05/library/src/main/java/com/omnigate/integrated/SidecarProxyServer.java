@@ -130,6 +130,12 @@ public final class SidecarProxyServer {
                         .put("originalOwnerAlive", OriginalCoreBridge.originalHostAlive())
                         .put("originalServerRunning", OriginalCoreBridge.nativeOwnerRunning())
                         .put("originalLifecycle", OriginalCoreBridge.nativeLifecycleState())
+                        .put("observedRuntimeRoute",
+                            OriginalCoreBridge.observedRouteState(
+                                OriginalCoreBridge.diagnoseVisibleHostSocket()))
+                        .put("originalSocketOwner",
+                            OriginalCoreBridge.diagnoseVisibleHostSocket()
+                                .optString("socketOwner", "unknown"))
                         .put("portConflict", OriginalCoreBridge.isPortConflicted())
                         .put("originalApiStartStatus", OriginalCoreBridge.lastStartStatus())
                         .put("publicRelay", GatewayApp.tunnelEnabled())
@@ -187,6 +193,27 @@ public final class SidecarProxyServer {
                     .put("expectedPort", OriginalCoreBridge.configuredPort())
                     .put("hint", "Open OmniGate API settings and explicitly start native API"));
                 return;
+            }
+
+            // Never silently dispatch a chat request into an independently
+            // bound overlay runtime when the original MainActivity is alive
+            // but demonstrably does not own the configured 1601 listener.
+            // Unknown or reflection-unsupported versions retain legacy
+            // routing for compatibility; they are NOT reported as verified.
+            if ("POST".equals(request.method)
+                    && request.path.startsWith("/v1/chat/completions")) {
+                JSONObject observed=OriginalCoreBridge.diagnoseVisibleHostSocket();
+                String route=OriginalCoreBridge.observedRouteState(observed);
+                if ("port_not_owned_by_main".equals(route)) {
+                    writeJson(out, 409, new JSONObject()
+                        .put("error", "original_runtime_owner_mismatch")
+                        .put("message", "Port is reachable but the original MainActivity does not own the listener; refusing to send a prompt to a different WebDriver")
+                        .put("observedRuntimeRoute", route)
+                        .put("originalSocketOwner",
+                            observed.optString("socketOwner", "unknown"))
+                        .put("hint", "Inspect the original overlay service and visible browser ownership; do not restart or stop an active chat"));
+                    return;
+                }
             }
 
             proxyToFrozenCore(request, out);
