@@ -122,6 +122,8 @@ public final class SidecarProxyServer {
                     && ("/health".equals(request.path)
                     || "/__sidecar_health".equals(request.path))) {
                 JSONObject observedOwner=OriginalCoreBridge.diagnoseVisibleHostSocket();
+                JSONObject ownerContinuity=
+                    OriginalCoreBridge.inspectOwnerContinuity(observedOwner);
                 writeJson(out, 200, new JSONObject()
                         .put("ok", true)
                         .put("service", "OmniGate Sidecar")
@@ -140,6 +142,8 @@ public final class SidecarProxyServer {
                         .put("originalOverlaySocketOwnerVerified", false)
                         .put("originalOwnerHandoffStatus",
                             OriginalCoreBridge.handoffStatus())
+                        .put("ownerContinuity",ownerContinuity)
+                        .put("originalApiStartStatusHistorical",true)
                         .put("originalSocketBindScope",
                             observedOwner.optString("bindAddressScope", "unknown"))
                         .put("originalWebDriverIdentity",
