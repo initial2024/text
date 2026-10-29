@@ -29,6 +29,23 @@ public final class GatewayApp {
     public static void setLocalApiStatus(String v){localApiStatus=v==null?"":v;}
     public static String tunnelStatus(){return tunnelStatus;}
     public static void setTunnelStatus(String v){tunnelStatus=v==null?"":v;}
+    // Once the user enabled OmniGate locally, re-establish 8787 whenever
+    // this Android application process is created. No Android BOOT receiver
+    // and no attempt to restart the frozen original WebDriver/ApiServer.
+    public static boolean autoStartEnabled(){
+        return prefs().getBoolean("auto_start_local_enabled",true);
+    }
+    public static void setAutoStartEnabled(boolean value){
+        prefs().edit().putBoolean("auto_start_local_enabled",value).apply();
+    }
+    // Opt-in notification foreground service: Android may reject it. This
+    // preference never overrides background-start restrictions.
+    public static boolean backgroundKeepAliveEnabled(){
+        return prefs().getBoolean("background_keepalive_enabled",false);
+    }
+    public static void setBackgroundKeepAliveEnabled(boolean value){
+        prefs().edit().putBoolean("background_keepalive_enabled",value).apply();
+    }
     public static boolean tunnelEnabled(){return prefs().getBoolean("relay_enabled",false);}
     public static void setTunnelEnabled(boolean enabled){prefs().edit().putBoolean("relay_enabled",enabled).apply();}
     public static String relayKey(){return prefs().getString("relay_key","");}
