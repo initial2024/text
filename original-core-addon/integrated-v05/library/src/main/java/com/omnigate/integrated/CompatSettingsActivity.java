@@ -263,6 +263,37 @@ public final class CompatSettingsActivity extends Activity {
             }
             updateState();
         });
+        Button handoffMain=button(connection,
+            "在模型主界面接管 1601（关闭旧悬浮运行时，需确认）",false);
+        handoffMain.setOnClickListener(v->
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("将原版 API 归还模型主界面？")
+                .setMessage("原版悬浮窗和模型主界面各自创建 WebDriver 和 ApiServer。" +
+                    "原版的「返回主界面」会关闭悬浮窗自己的浏览器运行时。" +
+                    "如果悬浮窗正在生成、上传、调用工具或处理图片，"+
+                    "此操作会导致它被中断。请先在悬浮窗确认任务全部结束。" +
+                    "\\n\\n确认后仅调用原版的返回行为；等 1601 真实释放，"+
+                    "再尝试让主界面接管。不能证明归属时不会绕过 409。"+
+                    "如果你不确定悬浮窗是否空闲，点击取消。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("已确认悬浮窗空闲，执行交接",
+                    (dialog,which)->{
+                        String outcome=OriginalCoreBridge
+                            .requestMainOwnerHandoff(this);
+                        upstreamGuide.setText(outcome);
+                        main.postDelayed(()->{
+                            if(!isDestroyed()){
+                                upstreamGuide.setText(
+                                    OriginalCoreBridge.handoffStatus());
+                                updateState();
+                            }
+                        },7200);
+                    }).show()
+        );
+        margin(connection,text("仅用于原悬浮服务争用 1601 的情况。" +
+            "这不是无损热迁移：原版返回动作会结束悬浮 WebDriver。"+
+            "为了保护正在生成的对话，绝不自动运行。",
+            11,0xFF9A6221,false),8);
         // Explicit recovery only: never evict the unknown 1601 listener.
         // A port migration must not run during a model response.
         Button fallbackPort=button(connection,
