@@ -123,6 +123,32 @@ public final class OriginalCoreBridge {
         return (JSONObject)value;
     }
 
+    /** Read-only scoped snapshot for one user-authorized attachment request.
+     * Caller MUST compare the pre-request answer, validate the explicit user
+     * turn in Gecko diagnostics and observe completion before using this.
+     * Never log or persist the returned private assistant text.
+     */
+    public static JSONObject inspectNativeAnswerForUserRequest() throws Exception {
+        Activity owner=originalMain.get();
+        if(owner==null || owner.isFinishing() || owner.isDestroyed())
+            throw new IllegalStateException("original_activity_missing");
+        Field field=owner.getClass().getDeclaredField("driver");
+        field.setAccessible(true);
+        Object driver=field.get(owner);
+        if(driver==null)throw new IllegalStateException("original_driver_null");
+        Method read=driver.getClass().getDeclaredMethod("readPageState");
+        read.setAccessible(true);
+        Object state=read.invoke(driver);
+        if(state==null)throw new IllegalStateException("native_page_state_null");
+        Class<?> cls=state.getClass();
+        Object raw=cls.getMethod("getAnswer").invoke(state);
+        String answer=raw instanceof String?(String)raw:"";
+        return new JSONObject()
+            .put("answer",answer)
+            .put("generating",cls.getMethod("getGenerating").invoke(state))
+            .put("generation",cls.getMethod("getGeneration").invoke(state));
+    }
+
     /** Observe the ORIGINAL native WebDriver's cached PageState, without
      * extracting chat content. The frozen class exposes getAnswer(),
      * getGenerating(), getProviderReady(), getComposerReady() and getGeneration().
