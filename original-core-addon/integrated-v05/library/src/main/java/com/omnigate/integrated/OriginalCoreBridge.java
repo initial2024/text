@@ -26,6 +26,15 @@ public final class OriginalCoreBridge {
     private static volatile String lastStartStatus = "尚未请求启动原 API";
     public static final String REQUEST_NATIVE_OVERLAY =
         "com.omnigate.integrated.REQUEST_ORIGINAL_OVERLAY";
+    private static final String ORIGINAL_RETURN_FROM_OVERLAY =
+        "com.deepseek2.app.action.RETURN_FROM_OVERLAY";
+    private static final java.util.concurrent.atomic.AtomicBoolean handoffPending =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static volatile int handoffOldPort = -1;
+    private static volatile int handoffAttempts = 0;
+    private static volatile String handoffState = "未请求主界面接管";
+    public static String handoffStatus(){return handoffState;}
+
     private static volatile WeakReference<Activity> originalMain =
         new WeakReference<>(null);
     private static final AtomicBoolean pendingNativeStart = new AtomicBoolean(false);
@@ -281,6 +290,143 @@ public final class OriginalCoreBridge {
         if(diagnosis.optString("socketOwner","").startsWith("inspect_failed_"))
             return "unknown_reflection_failed";
         return "port_not_owned_by_main";
+    }
+
+    /** Read-only observation. Running service does NOT by itself prove
+     * socket ownership, so it is a candidate only, not a verified owner.
+     */
+    public static boolean originalOverlayActive(){
+        try {
+            Class<?> cls=Class.forName("com.deepseek2.app.ui.OverlayService");
+            Field field=cls.getDeclaredField("isRunning");
+            field.setAccessible(true);
+            return field.getBoolean(null);
+        }catch(Throwable ignored){return false;}
+    }
+
+    private static boolean listeningAt(int port) {
+        try(Socket s=new Socket()){
+            s.connect(new InetSocketAddress(
+                InetAddress.getByName("127.0.0.1"),port),500);
+            return true;
+        }catch(Exception ignored){return false;}
+    }
+
+    /** Explicit owner handoff only. Original overlay's RETURN action calls
+     * stopRuntime() (closes overlay driver) and then returns to MainActivity.
+     * Cannot prove overlay generation state from this layer; UI MUST obtain
+     * informed user confirmation that overlay generation is fully idle.
+     * Never silently stop a conversation, kill a process or seize a socket.
+     */
+    public static synchronized String requestMainOwnerHandoff(Activity caller) {
+        if(handoffPending.get())return handoffState;
+        if(!originalOverlayActive()){
+            handoffState="拒绝接管：当前未观察到原版悬浮服务运行";
+            return handoffState;
+        }
+        if(OverlayTextClient.isSending() || OverlayUploadClient.isSending()){
+            handoffState="拒绝接管：OmniGate 正有请求运行";
+            return handoffState;
+        }
+        if(nativeOwnerRunning()){
+            handoffState="拒绝接管：当前主界面 API 已运行，不迁移运行中的实例";
+            return handoffState;
+        }
+        JSONObject observed=diagnoseVisibleHostSocket();
+        if(observed.optBoolean("visibleHostOwnsPort",false)){
+            handoffState="拒绝接管：主界面已持有原端口";
+            return handoffState;
+        }
+        if(!listeningAt(FALLBACK_PORT)){
+            handoffState="1601 未被占用，不必关闭悬浮运行时；请正常启动主 API";
+            return handoffState;
+        }
+        // Main page, if available, must not be generating. Overlay's private
+        // WebDriver cannot be safely inspected from Activity alone.
+        if(originalHostAlive()){
+            try {
+                JSONObject current=inspectNativeAnswerForUserRequest();
+                JSONObject page=diagnoseCurrentPage();
+                if(current.optBoolean("generating",true) ||
+                    page.optBoolean("generationRaw",false) ||
+                    page.optBoolean("autoRolloverActive",false)){
+                    handoffState="拒绝接管：当前主网页可能仍在生成";
+                    return handoffState;
+                }
+            }catch(Throwable e){
+                handoffState="拒绝接管：主界面状态无法确认("
+                    +e.getClass().getSimpleName()+")";
+                return handoffState;
+            }
+        }
+        // Do not change the port while the overlay is running. Only after
+        // original OverlayService has returned and port 1601 is free.
+        handoffOldPort=configuredPort();
+        handoffAttempts=0;
+        handoffState="正在请求原版悬浮窗安全返回主界面；等待旧 1601 释放";
+        handoffPending.set(true);
+        try {
+            Intent intent=new Intent();
+            intent.setClassName(caller.getPackageName(),
+                "com.deepseek2.app.ui.OverlayService");
+            intent.setAction(ORIGINAL_RETURN_FROM_OVERLAY);
+            caller.startService(intent);
+            return handoffState;
+        } catch(Throwable failed) {
+            handoffPending.set(false);
+            handoffState="原版返回失败："+failed.getClass().getSimpleName()+
+                "；未更改端口";
+            return handoffState;
+        }
+    }
+
+    /** Runs only after original MainActivity resumes. The old overlay must
+     * really release port 1601. Bounded retries; never bypass ownership check.
+     */
+    private static void completeMainOwnerHandoff(Activity owner) {
+        if(!handoffPending.get() || owner==null || owner.isFinishing() ||
+            owner.isDestroyed())return;
+        if(nativeOwnerRunning()){
+            // A new original server may have started at the old Prefs.port;
+            // never move/restart it while live.
+            handoffPending.set(false);
+            handoffState="主界面已有原版服务运行，未强制切端口。请核对 /health 归属";
+            return;
+        }
+        if(originalOverlayActive() || listeningAt(FALLBACK_PORT)){
+            if(++handoffAttempts>=14){
+                handoffPending.set(false);
+                handoffState="接管未完成：1601 仍有监听者或悬浮服务尚未退出；"+
+                    "未杀进程、未迁移端口";
+                return;
+            }
+            owner.getWindow().getDecorView().postDelayed(
+                ()->completeMainOwnerHandoff(owner),400);
+            return;
+        }
+        try {
+            Object p=preferences();
+            p.getClass().getMethod("setPort",Context.class,int.class)
+                .invoke(p,GatewayApp.applicationContext(),FALLBACK_PORT);
+            if(configuredPort()!=FALLBACK_PORT){
+                handoffPending.set(false);
+                handoffState="接管失败：Prefs.port 写入回读不一致";
+                return;
+            }
+            if(!alignOriginalInstancePort(owner)){
+                handoffPending.set(false);
+                handoffState="接管失败："+lastStartStatus;
+                return;
+            }
+            handoffPending.set(false);
+            handoffState="旧悬浮 API 已释放 1601，主界面正在接管；"+
+                "仍须检查 main_socket_and_driver_match";
+            startNativeOnResumedOwner(owner);
+        } catch(Throwable e){
+            handoffPending.set(false);
+            handoffState="接管失败："+e.getClass().getSimpleName()+
+                "；原端口="+handoffOldPort;
+        }
     }
 
     /** Original frozen MainActivity.server is the actual ownership evidence. */
@@ -550,6 +696,8 @@ public final class OriginalCoreBridge {
     /** MainActivity already calls startServer() from onCreate; do NOT restart it. */
     public static void onOriginalMainResumed(Activity activity) {
         originalMain = new WeakReference<>(activity);
+        if(handoffPending.get())activity.getWindow().getDecorView()
+            .postDelayed(()->completeMainOwnerHandoff(activity),450);
         Intent intent = activity.getIntent();
         if (intent == null) return;
         if (intent.getBooleanExtra(REQUEST_NATIVE_OVERLAY, false)) {
