@@ -702,7 +702,7 @@ public final class SidecarProxyServer {
                 String original=msg.optString("content","");
                 if(original.startsWith("AUTO_ROLLOVER_FAILED:")){
                     String failure=original.substring("AUTO_ROLLOVER_FAILED:".length());
-                    int newline=failure.indexOf('\\n');
+                    int newline=failure.indexOf((char)10);
                     if(newline>=0)failure=failure.substring(0,newline);
                     String code=failure.trim().replaceAll("[^a-zA-Z0-9_-]","");
                     if(code.length()>100)code=code.substring(0,100);
