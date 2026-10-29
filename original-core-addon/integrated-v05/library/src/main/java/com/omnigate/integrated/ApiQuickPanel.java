@@ -91,6 +91,7 @@ public final class ApiQuickPanel {
         int desiredWidthDp;
         int desiredHeightDp;
         TextView status;
+        TextView attachmentReplyInfo;
         TextView textStatus;
         TextView textAnswer;
         TextView pinnedTextResult;
@@ -113,6 +114,8 @@ public final class ApiQuickPanel {
                     if(revision!=lastRevision){
                         lastRevision=revision;
                         status.setText(OverlayAttachmentDraft.status());
+                        if(attachmentReplyInfo!=null)
+                            attachmentReplyInfo.setText(attachmentReplySummary());
                     }
                 }
                 if(textStatus!=null&&selectedTab==0) {
@@ -172,7 +175,7 @@ public final class ApiQuickPanel {
         void detach(){
             attached=false;
             main.removeCallbacks(refresh);
-            status=null;prompt=null;textStatus=null;textAnswer=null;
+            status=null;attachmentReplyInfo=null;prompt=null;textStatus=null;textAnswer=null;
             textPrompt=null;textSend=null;guestDiagText=null;pinnedTextResult=null;
             if(shell!=null&&shell.getParent()==frame)frame.removeView(shell);
             shell=null;body=null;innerScroll=null;
@@ -307,7 +310,7 @@ public final class ApiQuickPanel {
             if(textPrompt!=null && selectedTab==0)
                 OverlayTextClient.setDraft(textPrompt.getText().toString());
             shell.removeAllViews();body=null;innerScroll=null;
-            status=null;prompt=null;
+            status=null;attachmentReplyInfo=null;prompt=null;
             textStatus=null;textAnswer=null;textPrompt=null;textSend=null;
             guestDiagText=null;pinnedTextResult=null;
             shell.setPadding(0,0,0,0);
@@ -523,6 +526,28 @@ public final class ApiQuickPanel {
                 10,0xFF78829C,false);
             add(body,note,7);
         }
+        String attachmentReplySummary(){
+            int current=OverlayAttachmentDraft.replyStoredChars();
+            int source=OverlayAttachmentDraft.replySourceChars();
+            if(source<=0)return "本次附件暂无可复制回复";
+            return "本次附件回复 "+current+" / "+source+" 字符"+
+                (OverlayAttachmentDraft.replyTruncated()?"（内容超过容量，已截断）":"（未截断）");
+        }
+        void copyAttachmentReply(){
+            String answer=OverlayAttachmentDraft.reply();
+            if(answer.isEmpty()){
+                OverlayAttachmentDraft.report("本次附件尚无可复制的回复");
+                return;
+            }
+            ClipboardManager cb=(ClipboardManager)activity
+                .getSystemService(Context.CLIPBOARD_SERVICE);
+            if(cb!=null) {
+                cb.setPrimaryClip(ClipData.newPlainText("OmniGate 附件回复",answer));
+                OverlayAttachmentDraft.report("已复制附件回复 "+
+                    answer.length()+" 字符"+
+                    (OverlayAttachmentDraft.replyTruncated()?"，注意原文已截断":"，无内部复制截断"));
+            }
+        }
         void renderUpload(){
             TextView model=text("网页模型："+OriginalCoreBridge.activeProviderModel(),
                 11,0xFF3C4688,true);
@@ -572,6 +597,27 @@ public final class ApiQuickPanel {
                 : "先去「文本」页确认真实文字回复；当前附件发送按钮禁用。",
                 10,0xFF8E6946,false);
             add(body,note,6);
+            attachmentReplyInfo=text(attachmentReplySummary(),11,0xFF3D4681,true);
+            add(body,attachmentReplyInfo,5);
+            LinearLayout replyActions=horizontal(body,6);
+            Button viewFull=button("查看完整回复",false);
+            Button copyFull=button("复制附件回复",false);
+            addHalf(replyActions,viewFull);
+            addHalf(replyActions,copyFull);
+            copyFull.setOnClickListener(v->copyAttachmentReply());
+            viewFull.setOnClickListener(v->{
+                String answer=OverlayAttachmentDraft.reply();
+                if(answer.isEmpty()){
+                    OverlayAttachmentDraft.report("没有可显示的附件回复");
+                    return;
+                }
+                new android.app.AlertDialog.Builder(activity)
+                    .setTitle("附件回复 · "+attachmentReplySummary())
+                    .setMessage(answer)
+                    .setNegativeButton("关闭",null)
+                    .setPositiveButton("复制", (dialog,which)->copyAttachmentReply())
+                    .show();
+            });
         }
     }
 }
