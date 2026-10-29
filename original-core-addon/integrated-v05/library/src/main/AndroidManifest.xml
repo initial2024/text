@@ -11,6 +11,11 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-started, local-only compatibility service forwarding 8787 to 1601"/>
         </service>
+        <!-- The private full APK's binary Manifest transfers the sole
+             MAIN/LAUNCHER filter from original ProviderActivity to this
+             activity. Do not declare two launchers in the library manifest. -->
+        <activity android:name="com.omnigate.integrated.OmniGateHomeActivity"
+            android:exported="true"/>
         <activity android:name="com.omnigate.integrated.CompatSettingsActivity"
             android:exported="false"/>
         <activity android:name="com.omnigate.integrated.OverlayDocumentPickerActivity"
