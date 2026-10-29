@@ -700,6 +700,25 @@ public final class SidecarProxyServer {
             JSONObject msg=choice==null?null:choice.optJSONObject("message");
             if(msg!=null && msg.opt("content") instanceof String){
                 String original=msg.optString("content","");
+                if(original.startsWith("AUTO_ROLLOVER_FAILED:")){
+                    String failure=original.substring("AUTO_ROLLOVER_FAILED:".length());
+                    int newline=failure.indexOf('\\n');
+                    if(newline>=0)failure=failure.substring(0,newline);
+                    String code=failure.trim().replaceAll("[^a-zA-Z0-9_-]","");
+                    if(code.length()>100)code=code.substring(0,100);
+                    if(code.isEmpty())code="continuation_unconfirmed";
+                    writeJson(clientOut,409,new JSONObject()
+                        .put("error",new JSONObject()
+                            .put("type","omnigate_continuation_error")
+                            .put("code",code)
+                            .put("message","The original provider reached a chat limit, "+
+                                "but continuation was not fully verified; "+
+                                "do not automatically retry this request"))
+                        .put("omnigate",new JSONObject()
+                            .put("auto_rollover","blocked_no_retry")
+                            .put("possible_provider_submission",true)));
+                    return true;
+                }
                 String clean=title?TitleCompat.normalizeTitle(original)
                     :TitleCompat.stripSpeakerPrefix(original);
                 if(!clean.equals(original)){
