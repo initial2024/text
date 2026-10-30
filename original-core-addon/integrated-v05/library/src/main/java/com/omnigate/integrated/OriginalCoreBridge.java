@@ -491,7 +491,7 @@ public final class OriginalCoreBridge {
         }
         JSONObject currentOwner=diagnoseVisibleHostSocket();
         if(nativeOwnerRunning()){
-            if(FALLBACK_PORT==configuredPort() &&
+            if(handoffOldPort==configuredPort() &&
                 "main_socket_and_driver_match".equals(
                     observedRouteState(currentOwner))){
                 handoffState="无需接管：主界面已经持有 1601 且 WebDriver 匹配";
@@ -521,6 +521,10 @@ public final class OriginalCoreBridge {
             }
         }
         handoffOldPort=configuredPort();
+        if(handoffOldPort<1024 || handoffOldPort==SidecarProxyServer.LISTEN_PORT) {
+            handoffState="拒绝交接：原版端口配置异常，未停止悬浮服务";
+            return handoffState;
+        }
         handoffAttempts=0;
         handoffState="已收到用户确认；请求原版悬浮服务返回主界面。"+
             "原悬浮 WebDriver 会被原版 stopRuntime 关闭";
@@ -560,18 +564,18 @@ public final class OriginalCoreBridge {
         if(!handoffPending.get() || owner==null || owner.isFinishing() ||
             owner.isDestroyed())return;
         JSONObject mainAlready=diagnoseVisibleHostSocket();
-        if(!originalOverlayActive() && configuredPort()==FALLBACK_PORT &&
+        if(!originalOverlayActive() && configuredPort()==handoffOldPort &&
             nativeOwnerRunning() &&
             "main_socket_and_driver_match".equals(
                 observedRouteState(mainAlready))){
             handoffPending.set(false);
-            handoffState="PASS：主界面已正常持有 1601，无须再次启动";
+            handoffState="PASS：主界面已正常持有端口 "+handoffOldPort+"；无需重新启动";
             return;
         }
-        if(originalOverlayActive() || listeningAt(FALLBACK_PORT)){
+        if(originalOverlayActive() || listeningAt(handoffOldPort)){
             if(++handoffAttempts>=18){
                 handoffPending.set(false);
-                handoffState="接管未完成：原悬浮服务或 1601 仍被占用。"+
+                handoffState="接管未完成：原悬浮服务或原端口 "+handoffOldPort+" 仍被占用。"+
                     "未杀进程，也未修改原版端口";
                 return;
             }
@@ -586,8 +590,7 @@ public final class OriginalCoreBridge {
         }
         JSONObject ownerRoute=diagnoseVisibleHostSocket();
         String currentRoute=observedRouteState(ownerRoute);
-        if(handoffOldPort>0 && handoffOldPort!=FALLBACK_PORT &&
-            listeningAt(handoffOldPort) &&
+        if(listeningAt(handoffOldPort) &&
             !"main_socket_and_driver_match".equals(currentRoute)){
             handoffPending.set(false);
             handoffState="接管停止：旧端口 "+handoffOldPort+
@@ -639,7 +642,7 @@ public final class OriginalCoreBridge {
     private static void finishMainOwnerHandoff(Activity owner) {
         if(!handoffPending.get() || owner==null || owner.isFinishing() ||
             owner.isDestroyed())return;
-        if(originalOverlayActive() || listeningAt(FALLBACK_PORT)){
+        if(originalOverlayActive() || listeningAt(handoffOldPort)){
             handoffPending.set(false);
             handoffState="接管停止：异步核验期间旧悬浮服务或 1601 再次被占用";
             return;
@@ -651,8 +654,7 @@ public final class OriginalCoreBridge {
         }
         JSONObject checked=diagnoseVisibleHostSocket();
         String route=observedRouteState(checked);
-        if(handoffOldPort!=FALLBACK_PORT && handoffOldPort>0 &&
-            listeningAt(handoffOldPort) &&
+        if(listeningAt(handoffOldPort) &&
             !"main_socket_and_driver_match".equals(route)){
             handoffPending.set(false);
             handoffState="接管停止：旧端口 "+handoffOldPort+" 归属未知";
@@ -667,11 +669,11 @@ public final class OriginalCoreBridge {
         final int previous=configuredPort();
         try {
             Object p=preferences();
-            p.getClass().getMethod("setPort",Context.class,int.class)
-                .invoke(p,GatewayApp.applicationContext(),FALLBACK_PORT);
-            if(configuredPort()!=FALLBACK_PORT){
+            // Keep the exact user-configured original port. Never rotate
+            // 1604 to 1601 as a side effect of returning from overlay.
+            if(configuredPort()!=handoffOldPort){
                 handoffPending.set(false);
-                handoffState="接管失败：1601 写入回读不一致";
+                handoffState="接管失败：原端口配置在交接过程中发生变化";
                 return;
             }
             if(!alignOriginalInstancePort(owner)){
@@ -684,21 +686,20 @@ public final class OriginalCoreBridge {
             // and then creates ApiServer with the existing driver. This is a
             // consented rebind, NOT a seamless migration of in-flight calls.
             if(nativeOwnerRunning()){
-                Method start=owner.getClass().getDeclaredMethod("startServer");
-                start.setAccessible(true);
-                start.invoke(owner);
-            }else{
+                // A live MainActivity must never be restarted by the handoff.
+                handoffState="接管未重启：主界面服务已经在运行；只核对归属";
+            } else {
                 startNativeOnResumedOwner(owner);
             }
-            handoffState="原版正在由当前主界面接管 1601；"+
+            handoffState="原版正在由当前主界面接管端口 "+handoffOldPort+"；"+
                 "还需核对当前 /health 中的 WebDriver 归属";
             owner.getWindow().getDecorView().postDelayed(()->{
                 JSONObject verified=diagnoseVisibleHostSocket();
                 if("main_socket_and_driver_match".equals(
                     observedRouteState(verified)) &&
-                    configuredPort()==FALLBACK_PORT &&
+                    configuredPort()==handoffOldPort &&
                     nativeOwnerRunning()){
-                    handoffState="PASS：MainActivity 和 WebDriver 已共同持有 1601";
+                    handoffState="PASS：MainActivity 与 WebDriver 共同持有原端口 "+handoffOldPort;
                 }else{
                     handoffState="PARTIAL：已尝试恢复 1601，但归属尚未通过；"+
                         observedRouteState(verified)+
