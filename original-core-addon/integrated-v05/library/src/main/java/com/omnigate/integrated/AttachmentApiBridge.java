@@ -113,6 +113,98 @@ public final class AttachmentApiBridge {
         return value!=null && value!=JSONObject.NULL;
     }
 
+
+    private static final String PRIOR_MEDIA_NOTICE =
+        "[Earlier attachment omitted: binary content is unavailable in this request. "
+        + "Do not claim to see or analyze it. Continue any independent text tasks.]";
+
+    /**
+     * Prepare a text-only request which contains historical image/file data.
+     * The currently requested work is still performed, but inaccessible old
+     * media must not be passed as base64, silently treated as real image input,
+     * or used to invent image descriptions.
+     *
+     * Return null when there is no historical media or when the current turn
+     * contains an attachment (which is handled by the strict attachment path).
+     */
+    static byte[] sanitizeHistoricalMediaForText(byte[] input) throws Exception {
+        if(input==null || input.length==0)return null;
+        JSONObject root;
+        try { root=new JSONObject(new String(input,StandardCharsets.UTF_8)); }
+        catch(org.json.JSONException bad){return null;}
+        JSONArray messages=root.optJSONArray("messages");
+        if(messages==null || messages.length()<2)return null;
+        if(hasAttachmentSignal(input))return null;
+        JSONObject current=messages.optJSONObject(messages.length()-1);
+        if(current==null || !"user".equals(current.optString("role","")))
+            return null;
+        boolean modified=false;
+        for(int i=0;i<messages.length()-1;i++){
+            JSONObject msg=messages.optJSONObject(i);
+            if(msg==null)continue;
+            Object content=msg.opt("content");
+            if(content instanceof String) {
+                String raw=(String)content;
+                // Entire envelope is opaque encoded media, not useful text.
+                String trim=raw.trim();
+                if(trim.startsWith(START)&&trim.contains(END)){
+                    msg.put("content",PRIOR_MEDIA_NOTICE);
+                    modified=true;
+                }
+                continue;
+            }
+            if(!(content instanceof JSONArray))continue;
+            JSONArray parts=(JSONArray)content;
+            StringBuilder words=new StringBuilder();
+            int stripped=0;
+            boolean unknown=false;
+            for(int j=0;j<parts.length();j++){
+                JSONObject part=parts.optJSONObject(j);
+                if(part==null){unknown=true;continue;}
+                String type=part.optString("type","").toLowerCase(java.util.Locale.ROOT);
+                boolean media=isExplicitMediaPart(part);
+                if(media){stripped++;continue;}
+                if("text".equals(type)||"input_text".equals(type)){
+                    String value=part.optString("text","");
+                    if(!value.isEmpty()){
+                        if(words.length()>0)words.append('\n');
+                        words.append(value);
+                    }
+                } else {
+                    // Do not erase a tool/unknown structured message, which
+                    // could carry results that cannot be safely flattened.
+                    unknown=true;
+                }
+            }
+            if(stripped>0){
+                if(unknown)
+                    throw new IllegalArgumentException(
+                        "mixed_historical_media_unknown_parts");
+                if(words.length()>0)words.append('\n');
+                words.append(PRIOR_MEDIA_NOTICE);
+                msg.put("content",words.toString());
+                modified=true;
+            }
+        }
+        if(!modified)return null;
+        lastAttachmentShape="historical_media_text_request";
+        lastAttachmentPhase="historical_media_redacted_independent_text_continued";
+        return root.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static boolean isExplicitMediaPart(JSONObject part){
+        String type=part.optString("type","").toLowerCase(java.util.Locale.ROOT);
+        if("image_url".equals(type)||"input_image".equals(type)||
+           "image".equals(type)||"file".equals(type)||
+           "input_file".equals(type)||"attachment".equals(type)||
+           "document".equals(type))return true;
+        if(!type.isEmpty())return false;
+        return present(part,"image_url")||present(part,"image")||
+            present(part,"file")||present(part,"file_data")||
+            present(part,"file_id")||present(part,"data_url")||
+            present(part,"attachments");
+    }
+
     private AttachmentApiBridge(){}
 
     static final class Prepared {
@@ -144,23 +236,10 @@ public final class AttachmentApiBridge {
         String model=root.optString("model","");
         if(model.isEmpty())throw new IllegalArgumentException("model_required");
         final boolean wantedStream=root.optBoolean("stream",false);
-        // The bridge submits only one current-user image/file. A prior user
-        // image in chat history is not serializable to the original editor;
-        // never forward as a misleading text-only conversation.
-        for(int m=0;m<messages.length()-1;m++){
-            JSONObject old=messages.optJSONObject(m);
-            if(old==null)continue;
-            JSONArray history=old.optJSONArray("content");
-            if(history!=null)for(int j=0;j<history.length();j++){
-                JSONObject part=history.optJSONObject(j);
-                if(part!=null){
-                    String type=part.optString("type","").toLowerCase(java.util.Locale.ROOT);
-                    if(type.contains("image")||type.contains("file")||
-                       part.has("image_url")||part.has("file"))
-                        throw new IllegalArgumentException("historical_attachment_not_supported");
-                }
-            }
-        }
+        // Historical attachment parts are not part of this turn's upload.
+        // A text-only request must not be rejected merely because its history
+        // includes media. Historical media will be redacted before forwarding.
+        // Current-turn unsupported media still fails closed in SidecarProxyServer.
 
         if(content instanceof String) {
             String plain=(String)content;
