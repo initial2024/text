@@ -7,6 +7,8 @@ import android.graphics.Typeface;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CompoundButton;
+import android.widget.EditText;
 import android.widget.TextView;
 import java.lang.ref.WeakReference;
 
@@ -68,6 +70,12 @@ public final class LegacyUiSkin {
                     tv.setText("OmniGate"+str.substring("AI Gateway".length()));
                     tv.setTextColor(INK);
                     tv.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+                }else if("端口".equals(str)){
+                    tv.setText("原版内部端口（上游）");
+                    tv.setTextColor(INK);
+                }else if("KEY 密钥".equals(str)){
+                    tv.setText("原版内部 Key（不是 Minis 客户端 Key）");
+                    tv.setTextColor(INK);
                 }else if("公网穿透".equals(str)){
                     // Prevent the old third-party switch from being mistaken
                     // for the personal claua.de Cloudflare Relay switch.
@@ -88,6 +96,14 @@ public final class LegacyUiSkin {
                     }catch(Throwable ignored){}
                 }
             }
+        }
+        if(node instanceof CompoundButton){
+            try{((CompoundButton)node).setButtonTintList(
+                ColorStateList.valueOf(ACCENT));}catch(Throwable ignored){}
+        }
+        if(node instanceof EditText){
+            try{((EditText)node).setBackgroundTintList(
+                ColorStateList.valueOf(ACCENT));}catch(Throwable ignored){}
         }
         if(node instanceof ViewGroup){
             ViewGroup parent=(ViewGroup)node;
