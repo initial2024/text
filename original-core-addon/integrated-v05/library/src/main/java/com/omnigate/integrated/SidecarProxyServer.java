@@ -386,34 +386,32 @@ public final class SidecarProxyServer {
                 responseHeaders.put(e.getKey(), e.getValue().get(0));
             }
 
-            boolean downstreamOpen = true;
-            try {
-                writeChunkedResponseHead(
-                        clientOut,
-                        statusCode,
-                        responseHeaders);
-            } catch (IOException downstreamClosed) {
-                // Critical continuity rule: do NOT abort the upstream request merely
-                // because Minis/DSH disconnected. Keep draining the original response
-                // so the native original-core connection is allowed to finish naturally.
-                downstreamOpen = false;
-                status("客户端已断开 · 原 1601 回答继续后台完成");
-            }
-
             upstreamBody = statusCode >= 400
                     ? upstream.getErrorStream()
                     : upstream.getInputStream();
 
-            if (upstreamBody != null && statusCode==200 &&
+            // The normalized JSON branch owns the complete downstream response,
+            // including exactly one HTTP status/header block. Previously a
+            // chunked 200 head was written here first and the JSON branch wrote
+            // a second head into the body, corrupting non-streaming replies.
+            // Keep the original upstream draining even if the client disconnects.
+            if (upstreamBody != null && statusCode == 200 &&
                 "POST".equals(request.method) &&
                 "/v1/chat/completions".equals(request.path) &&
                 isNonStreamingChatRequest(request) &&
                 isJsonResponse(responseHeaders)) {
-                if(proxyNormalizedJsonReply(upstreamBody,clientOut,statusCode,
-                        responseHeaders,titleRequest))return;
-                // The body was already streamed on oversize or invalid JSON
-                // fallback. Never read it twice or send another response head.
+                proxyNormalizedJsonReply(upstreamBody, clientOut, statusCode,
+                        responseHeaders, titleRequest);
                 return;
+            }
+
+            boolean downstreamOpen = true;
+            try {
+                writeChunkedResponseHead(clientOut, statusCode, responseHeaders);
+            } catch (IOException downstreamClosed) {
+                // A disconnected Minis/DSH client must never cancel provider work.
+                downstreamOpen = false;
+                status("客户端已断开 · 原版网页回答继续后台完成");
             }
 
             if (upstreamBody == null) {
