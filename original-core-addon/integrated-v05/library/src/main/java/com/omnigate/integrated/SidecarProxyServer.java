@@ -34,6 +34,10 @@ public final class SidecarProxyServer {
     }
 
     private final ExecutorService pool = Executors.newCachedThreadPool();
+    // One foreground native chat at a time can be safely correlated to a
+    // verified DeepSeek editor. A competing request keeps the old proxy path.
+    private static final java.util.concurrent.atomic.AtomicBoolean LIVE_DEEPSEEK_BUSY =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
     private static final java.util.concurrent.atomic.AtomicLong NEXT_TRACE =
         new java.util.concurrent.atomic.AtomicLong();
     private static final ThreadLocal<ProxyTrace> CURRENT_TRACE=new ThreadLocal<>();
@@ -522,6 +526,7 @@ public final class SidecarProxyServer {
         try {
             if (OriginalCoreBridge.isPortConflicted())
                 throw new IOException("native_proxy_port_conflict: 8787 -> 8787 prohibited");
+            LiveDeepSeekAnchor live = maybeCaptureLiveDeepSeek(request);
             URL url = new URL(
                     "http://127.0.0.1:"
                             + OriginalCoreBridge.configuredPort()
@@ -559,13 +564,33 @@ public final class SidecarProxyServer {
                         "Bearer " + upstreamKey);
             }
 
-            if (request.body.length > 0) {
+            byte[] nativeBody=request.body;
+            if(live!=null) {
+                try {
+                    // Native ApiServer generally waits for completion and
+                    // returns JSON. DSH still receives stream:true SSE here.
+                    JSONObject nativeRequest=new JSONObject(new String(
+                        request.body,StandardCharsets.UTF_8));
+                    nativeRequest.put("stream",false);
+                    nativeBody=nativeRequest.toString().getBytes(StandardCharsets.UTF_8);
+                }catch(Exception bad){
+                    LIVE_DEEPSEEK_BUSY.set(false);
+                    live=null;
+                    nativeBody=request.body;
+                }
+            }
+            if (nativeBody.length > 0) {
                 upstream.setDoOutput(true);
-                upstream.setFixedLengthStreamingMode(request.body.length);
+                upstream.setFixedLengthStreamingMode(nativeBody.length);
                 try (OutputStream bodyOut = upstream.getOutputStream()) {
-                    bodyOut.write(request.body);
+                    bodyOut.write(nativeBody);
                     bodyOut.flush();
                 }
+            }
+            if(live!=null){
+                try { relayVerifiedDeepSeekLive(upstream,clientOut,live); }
+                finally { LIVE_DEEPSEEK_BUSY.set(false); }
+                return;
             }
 
             traceStage("waiting_native_response_headers");
@@ -1065,6 +1090,279 @@ public final class SidecarProxyServer {
         writeSseData(downstream,finalChunk.toString());
         writeSseData(downstream,"[DONE]");
         writeFinalChunk(downstream);
+    }
+
+
+    private static final class LiveDeepSeekAnchor {
+        final int submittedBefore;
+        final String oldAnswer;
+        final String host;
+        LiveDeepSeekAnchor(int seq,String old,String h){
+            submittedBefore=seq;oldAnswer=old;host=h;
+        }
+    }
+    /** Never use the speculative DOM stream for attachment requests,
+     * tool-calls, other providers, non-stream clients or an active generation.
+     * The original native response route remains the default.
+     */
+    private static LiveDeepSeekAnchor maybeCaptureLiveDeepSeek(Request req){
+        if(!"POST".equals(req.method) ||
+            !"/v1/chat/completions".equals(req.path) ||
+            !isStreamingChatRequest(req) ||
+            req.body.length>256*1024 || req.body.length<5 ||
+            !LIVE_DEEPSEEK_BUSY.compareAndSet(false,true))return null;
+        try {
+            JSONObject root=new JSONObject(new String(req.body,StandardCharsets.UTF_8));
+            if(root.has("tools")||root.has("tool_choice")||root.has("functions")||
+               root.has("attachments")||root.has("files")||root.has("images") ||
+               AttachmentApiBridge.hasAttachmentSignal(req.body) ||
+               !"deepseek-chat".equals(root.optString("model",""))) {
+                LIVE_DEEPSEEK_BUSY.set(false);return null;
+            }
+            JSONArray messages=root.optJSONArray("messages");
+            JSONObject last=messages==null||messages.length()==0?null:
+                messages.optJSONObject(messages.length()-1);
+            if(last==null||!"user".equals(last.optString("role","")) ||
+               !(last.opt("content") instanceof String)){
+                LIVE_DEEPSEEK_BUSY.set(false);return null;
+            }
+            JSONObject route=OriginalCoreBridge.diagnoseActiveNativeOwner();
+            if(!route.optBoolean("verified",false) ||
+               !("main".equals(route.optString("ownerKind","")) ||
+                 "overlay".equals(route.optString("ownerKind","")))){
+                LIVE_DEEPSEEK_BUSY.set(false);return null;
+            }
+            JSONObject page=OriginalCoreBridge.diagnoseVerifiedApiPage();
+            JSONObject state=OriginalCoreBridge.inspectVerifiedApiAnswer();
+            if(!"deepseek".equalsIgnoreCase(page.optString("provider","")) ||
+               state.optBoolean("generating",true) ||
+               page.optBoolean("generationRaw",true) ||
+               page.optBoolean("autoRolloverActive",false) ||
+               page.optInt("lastSubmissionSequence",-1)<0) {
+                LIVE_DEEPSEEK_BUSY.set(false);return null;
+            }
+            return new LiveDeepSeekAnchor(
+                page.optInt("lastSubmissionSequence",0),
+                state.optString("answer",""),
+                route.optString("ownerKind",""));
+        }catch(Throwable unavailable){
+            LIVE_DEEPSEEK_BUSY.set(false);return null;
+        }
+    }
+
+    private static final class LiveOriginalResult {
+        int httpCode=-1;
+        String mime="";
+        byte[] payload=new byte[0];
+        boolean oversized;
+    }
+
+    /**
+     * Native ApiServer may return its JSON only after Gecko finishes a
+     * generation. Poll the original verified WebDriver in the SAME session
+     * while the native request continues in a separate worker. Publish only
+     * newly confirmed, append-only DeepSeek answer characters, never thought
+     * blocks, fabricated tokens or previous-session text.
+     *
+     * If no safe progress is observable, deliver the original completed JSON
+     * through the known-good JSON -> SSE adapter. This path does not change
+     * non-stream requests or the upstream model's lifecycle.
+     */
+    private void relayVerifiedDeepSeekLive(HttpURLConnection upstream,
+            BufferedOutputStream downstream,LiveDeepSeekAnchor anchor)
+            throws IOException,org.json.JSONException {
+        final java.util.concurrent.Future<LiveOriginalResult> nativeReply=pool.submit(()->{
+            LiveOriginalResult result=new LiveOriginalResult();
+            result.httpCode=upstream.getResponseCode();
+            String ct=upstream.getContentType();
+            result.mime=ct==null?"":ct.toLowerCase(Locale.ROOT);
+            try(InputStream input=result.httpCode>=400?
+                    upstream.getErrorStream():upstream.getInputStream()){
+                if(input==null)return result;
+                ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+                byte[] block=new byte[8192];int n;
+                while((n=input.read(block))!=-1){
+                    if(n<=0)continue;
+                    if(bytes.size()+n>2*1024*1024)result.oversized=true;
+                    if(!result.oversized)bytes.write(block,0,n);
+                }
+                result.payload=bytes.toByteArray();
+            }
+            return result;
+        });
+
+        boolean sentHeader=false,clientOpen=true,sessionMismatch=false;
+        String delivered="";
+        int iterations=0;
+        // The native worker always drains to EOF, even after the DSH client
+        // disappears. No request abort, port rotation, or Stop click.
+        while(!nativeReply.isDone()){
+            if(++iterations<3600 && !sessionMismatch){
+                try{
+                    JSONObject route=OriginalCoreBridge.diagnoseActiveNativeOwner();
+                    JSONObject page=OriginalCoreBridge.diagnoseVerifiedApiPage();
+                    if(!route.optBoolean("verified",false) ||
+                       !anchor.host.equals(route.optString("ownerKind","")) ||
+                       !"deepseek".equalsIgnoreCase(page.optString("provider","")) ||
+                       page.optInt("lastSubmissionSequence",-1)!=anchor.submittedBefore+1){
+                        if(page.optInt("lastSubmissionSequence",-1)>
+                            anchor.submittedBefore+1 || !route.optBoolean("verified",false))
+                            sessionMismatch=true;
+                    } else if("submitted_confirmed".equals(
+                                page.optString("deepseekSubmissionStatus","")) &&
+                              page.optBoolean("assistantReplyChangedSinceSend",false)){
+                        String next=OriginalCoreBridge.inspectVerifiedApiAnswer()
+                            .optString("answer","");
+                        if(!next.equals(anchor.oldAnswer)){
+                            next=TitleCompat.stripSpeakerPrefix(next);
+                            // Hold a small mutable tail to avoid streaming
+                            // transient markdown/word reflow as settled text.
+                            int stable=Math.max(0,next.length()-12);
+                            if(stable>0&&stable<next.length() &&
+                                Character.isHighSurrogate(next.charAt(stable-1)))
+                                stable--;
+                            String prefix=next.substring(0,stable);
+                            if(!prefix.startsWith(delivered)){
+                                if(!delivered.isEmpty())sessionMismatch=true;
+                            }else if(prefix.length()>delivered.length()){
+                                if(!sentHeader){
+                                    Map<String,String> headers=new LinkedHashMap<>();
+                                    headers.put("Content-Type","text/event-stream; charset=utf-8");
+                                    headers.put("Cache-Control","no-cache");
+                                    headers.put("X-OmniGate-Stream-Mode",
+                                        "verified-live-deepseek-page");
+                                    writeChunkedResponseHead(downstream,200,headers);
+                                    sentHeader=true;
+                                    traceStage("verified_live_tokens");
+                                }
+                                JSONObject delta=new JSONObject()
+                                    .put("id","chatcmpl-omnigate-live")
+                                    .put("object","chat.completion.chunk")
+                                    .put("created",System.currentTimeMillis()/1000L)
+                                    .put("model","deepseek-chat")
+                                    .put("choices",new JSONArray().put(new JSONObject()
+                                        .put("index",0)
+                                        .put("delta",new JSONObject()
+                                            .put("role","assistant")
+                                            .put("content",prefix.substring(
+                                                delivered.length())))
+                                        .put("finish_reason",JSONObject.NULL)));
+                                if(clientOpen)try{writeSseData(downstream,delta.toString());}
+                                catch(IOException closed){clientOpen=false;}
+                                delivered=prefix;
+                            }
+                        }
+                    }
+                }catch(Throwable ignored){
+                    // A temporarily inaccessible native cached state is NOT
+                    // evidence of completion, cancellation or a new session.
+                }
+            }
+            try{Thread.sleep(180);}
+            catch(InterruptedException interrupted){
+                Thread.currentThread().interrupt();
+                // Do not interrupt/cancel the native worker. Wait for EOF.
+                while(!nativeReply.isDone())
+                    try{Thread.sleep(300);}catch(InterruptedException ignored){}
+            }
+        }
+        LiveOriginalResult result;
+        try { result=nativeReply.get(); }
+        catch(Exception error){
+            if(!sentHeader){
+                writeJson(downstream,502,new JSONObject().put("error",
+                    new JSONObject().put("type","omnigate_native_stream_error")
+                        .put("code","native_stream_transport_failed")));
+            }else if(clientOpen)
+                sendLiveSseError(downstream,"native_stream_transport_failed");
+            return;
+        }
+        ProxyTrace trace=CURRENT_TRACE.get();
+        if(trace!=null){
+            trace.upstreamCode=result.httpCode;
+            trace.upstreamKind=result.mime.contains("json")?"json":
+                result.mime.contains("event-stream")?"sse":"other";
+        }
+        if(result.httpCode!=200 || result.oversized ||
+            !result.mime.contains("json")){
+            if(!sentHeader){
+                if(result.httpCode!=200)writeJson(downstream,
+                    result.httpCode>=400?result.httpCode:502,new JSONObject()
+                        .put("error","native_http_"+result.httpCode));
+                else writeJson(downstream,502,new JSONObject()
+                    .put("error","native_stream_response_not_json"));
+            }else if(clientOpen)
+                sendLiveSseError(downstream,"native_stream_response_incompatible");
+            return;
+        }
+        JSONObject completed;
+        try{completed=new JSONObject(new String(result.payload,
+            StandardCharsets.UTF_8));}
+        catch(Exception malformed){
+            if(!sentHeader)writeJson(downstream,502,new JSONObject()
+                .put("error","native_completed_json_invalid"));
+            else if(clientOpen)sendLiveSseError(downstream,
+                "native_completed_json_invalid");
+            return;
+        }
+        JSONArray choices=completed.optJSONArray("choices");
+        JSONObject choice=choices==null?null:choices.optJSONObject(0);
+        JSONObject message=choice==null?null:choice.optJSONObject("message");
+        String finalText=message==null?"":message.optString("content","");
+        finalText=TitleCompat.stripSpeakerPrefix(finalText);
+        if(sessionMismatch || !finalText.startsWith(delivered) ||
+            finalText.trim().isEmpty()){
+            if(!sentHeader)writeJson(downstream,409,new JSONObject()
+                .put("error","live_stream_correlation_or_final_mismatch"));
+            else if(clientOpen)sendLiveSseError(downstream,
+                "live_stream_correlation_or_final_mismatch");
+            return;
+        }
+        if(!sentHeader){
+            // Not enough confirmed intermediate content, but a complete
+            // native result exists. Preserve the previously working path.
+            proxyCompletedJsonAsSse(
+                new java.io.ByteArrayInputStream(result.payload),downstream);
+            return;
+        }
+        if(!clientOpen)return;
+        try{
+            if(finalText.length()>delivered.length()){
+                JSONObject delta=new JSONObject()
+                    .put("id","chatcmpl-omnigate-live")
+                    .put("object","chat.completion.chunk")
+                    .put("created",System.currentTimeMillis()/1000L)
+                    .put("model","deepseek-chat")
+                    .put("choices",new JSONArray().put(new JSONObject()
+                        .put("index",0)
+                        .put("delta",new JSONObject()
+                            .put("content",finalText.substring(delivered.length())))
+                        .put("finish_reason",JSONObject.NULL)));
+                writeSseData(downstream,delta.toString());
+            }
+            String reason=choice.optString("finish_reason","stop");
+            if(!"length".equals(reason))reason="stop";
+            JSONObject last=new JSONObject()
+                .put("id","chatcmpl-omnigate-live")
+                .put("object","chat.completion.chunk")
+                .put("created",System.currentTimeMillis()/1000L)
+                .put("model","deepseek-chat")
+                .put("choices",new JSONArray().put(new JSONObject()
+                    .put("index",0).put("delta",new JSONObject())
+                    .put("finish_reason",reason)));
+            writeSseData(downstream,last.toString());
+            writeSseData(downstream,"[DONE]");
+            writeFinalChunk(downstream);
+        }catch(IOException disconnected){
+            // Original native result is already complete; no hidden retry.
+        }
+    }
+    private void sendLiveSseError(BufferedOutputStream out,String code)
+        throws IOException,org.json.JSONException{
+        writeSseData(out,new JSONObject().put("error",
+            new JSONObject().put("type","omnigate_stream_error")
+                .put("code",code)).toString());
+        writeFinalChunk(out); // Intentionally NOT [DONE] or finish_reason=stop.
     }
 
     private static boolean isNonStreamingChatRequest(Request request){
