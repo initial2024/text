@@ -1073,7 +1073,7 @@ public final class SidecarProxyServer {
         }catch(Throwable unavailable){return null;}
     }
 
-    private static void sendNativeRecoveredText(BufferedOutputStream output,
+    private void sendNativeRecoveredText(BufferedOutputStream output,
             NativeEmptyAnchor anchor,String increment,boolean first)
             throws IOException,org.json.JSONException {
         JSONObject delta=new JSONObject();
@@ -1091,12 +1091,12 @@ public final class SidecarProxyServer {
     }
     // Identical SSE framing to writeSseData, but callable from the static
     // helper. No content is recorded in logs or /health.
-    private static void writeStaticSseData(BufferedOutputStream output,String data)
+    private void writeStaticSseData(BufferedOutputStream output,String data)
             throws IOException {
         byte[] bytes=("data: "+data+"\n\n").getBytes(StandardCharsets.UTF_8);
         writeChunk(output,bytes,bytes.length);
     }
-    private static void writeNativeRecoveryError(BufferedOutputStream output,
+    private void writeNativeRecoveryError(BufferedOutputStream output,
             String code)throws IOException,org.json.JSONException{
         writeStaticSseData(output,new JSONObject().put("error",
             new JSONObject().put("type","omnigate_native_empty_reply")
