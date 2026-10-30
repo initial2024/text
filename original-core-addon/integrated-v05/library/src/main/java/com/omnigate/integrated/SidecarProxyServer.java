@@ -522,11 +522,12 @@ public final class SidecarProxyServer {
             boolean titleRequest) throws IOException, org.json.JSONException {
         HttpURLConnection upstream = null;
         InputStream upstreamBody = null;
+        LiveDeepSeekAnchor live=null;
 
         try {
             if (OriginalCoreBridge.isPortConflicted())
                 throw new IOException("native_proxy_port_conflict: 8787 -> 8787 prohibited");
-            LiveDeepSeekAnchor live = maybeCaptureLiveDeepSeek(request);
+            live = maybeCaptureLiveDeepSeek(request);
             URL url = new URL(
                     "http://127.0.0.1:"
                             + OriginalCoreBridge.configuredPort()
@@ -588,8 +589,7 @@ public final class SidecarProxyServer {
                 }
             }
             if(live!=null){
-                try { relayVerifiedDeepSeekLive(upstream,clientOut,live); }
-                finally { LIVE_DEEPSEEK_BUSY.set(false); }
+                relayVerifiedDeepSeekLive(upstream,clientOut,live);
                 return;
             }
 
@@ -718,6 +718,7 @@ public final class SidecarProxyServer {
             if (upstream != null) {
                 upstream.disconnect();
             }
+            if(live!=null)LIVE_DEEPSEEK_BUSY.set(false);
         }
     }
 
@@ -1113,7 +1114,7 @@ public final class SidecarProxyServer {
             !LIVE_DEEPSEEK_BUSY.compareAndSet(false,true))return null;
         try {
             JSONObject root=new JSONObject(new String(req.body,StandardCharsets.UTF_8));
-            if(root.has("tools")||root.has("tool_choice")||root.has("functions")||
+            if(root.has("functions")||
                root.has("attachments")||root.has("files")||root.has("images") ||
                AttachmentApiBridge.hasAttachmentSignal(req.body) ||
                !"deepseek-chat".equals(root.optString("model",""))) {
@@ -1309,9 +1310,11 @@ public final class SidecarProxyServer {
         JSONObject choice=choices==null?null:choices.optJSONObject(0);
         JSONObject message=choice==null?null:choice.optJSONObject("message");
         String finalText=message==null?"":message.optString("content","");
+        JSONArray finalTools=message==null?null:message.optJSONArray("tool_calls");
         finalText=TitleCompat.stripSpeakerPrefix(finalText);
         if(sessionMismatch || !finalText.startsWith(delivered) ||
-            finalText.trim().isEmpty()){
+            (finalText.trim().isEmpty() &&
+             (finalTools==null || finalTools.length()==0))){
             if(!sentHeader)writeJson(downstream,409,new JSONObject()
                 .put("error","live_stream_correlation_or_final_mismatch"));
             else if(clientOpen)sendLiveSseError(downstream,
@@ -1327,21 +1330,27 @@ public final class SidecarProxyServer {
         }
         if(!clientOpen)return;
         try{
-            if(finalText.length()>delivered.length()){
+            if(finalText.length()>delivered.length() ||
+               (finalTools!=null && finalTools.length()>0)){
+                JSONObject deltaBody=new JSONObject();
+                if(finalText.length()>delivered.length())
+                    deltaBody.put("content",finalText.substring(delivered.length()));
+                if(finalTools!=null && finalTools.length()>0)
+                    deltaBody.put("tool_calls",finalTools);
                 JSONObject delta=new JSONObject()
                     .put("id","chatcmpl-omnigate-live")
                     .put("object","chat.completion.chunk")
                     .put("created",System.currentTimeMillis()/1000L)
                     .put("model","deepseek-chat")
                     .put("choices",new JSONArray().put(new JSONObject()
-                        .put("index",0)
-                        .put("delta",new JSONObject()
-                            .put("content",finalText.substring(delivered.length())))
+                        .put("index",0).put("delta",deltaBody)
                         .put("finish_reason",JSONObject.NULL)));
                 writeSseData(downstream,delta.toString());
             }
             String reason=choice.optString("finish_reason","stop");
-            if(!"length".equals(reason))reason="stop";
+            if(finalTools!=null && finalTools.length()>0)
+                reason="tool_calls";
+            else if(!"length".equals(reason))reason="stop";
             JSONObject last=new JSONObject()
                 .put("id","chatcmpl-omnigate-live")
                 .put("object","chat.completion.chunk")
