@@ -403,6 +403,20 @@ public final class SidecarProxyServer {
                     ? upstream.getErrorStream()
                     : upstream.getInputStream();
 
+            // Streaming replies can have an artificial "ChatGPT 说：" label
+            // split across SSE delta frames. Remove ONLY that leading label.
+            // Never change reasoning, tool calls, later content or stream timing
+            // after the first speaker prefix has been decided.
+            if (upstreamBody != null && statusCode == 200 &&
+                "POST".equals(request.method) &&
+                "/v1/chat/completions".equals(request.path) &&
+                isStreamingChatRequest(request) &&
+                isPlainSseResponse(responseHeaders)) {
+                proxyNormalizedSseReply(upstreamBody, clientOut, statusCode,
+                    responseHeaders);
+                return;
+            }
+
             // The normalized JSON branch owns the complete downstream response,
             // including exactly one HTTP status/header block. Previously a
             // chunked 200 head was written here first and the JSON branch wrote
@@ -657,6 +671,107 @@ public final class SidecarProxyServer {
         } catch (NumberFormatException e) {
             throw new IOException("invalid content-length", e);
         }
+    }
+
+    private static boolean isStreamingChatRequest(Request request) {
+        if(request.body==null || request.body.length>512*1024)return false;
+        try {
+            return new JSONObject(new String(request.body,
+                StandardCharsets.UTF_8)).optBoolean("stream",false);
+        } catch (Exception ignored) { return false; }
+    }
+    private static boolean isPlainSseResponse(Map<String,String> headers) {
+        boolean sse=false;
+        for(Map.Entry<String,String> entry:headers.entrySet()){
+            if("content-type".equalsIgnoreCase(entry.getKey()))
+                sse=entry.getValue().toLowerCase(Locale.ROOT)
+                    .contains("text/event-stream");
+            if("content-encoding".equalsIgnoreCase(entry.getKey()) &&
+                !"identity".equalsIgnoreCase(entry.getValue()))return false;
+        }
+        return sse;
+    }
+
+    /** Stream SSE in event order. Hold at most the first 32 events/64 KiB
+     * solely while deciding whether the first text delta is an artificial
+     * speaker label. Once decided, all remaining bytes pass unchanged.
+     * Client disappearance is NOT a signal to stop the original model.
+     */
+    private void proxyNormalizedSseReply(InputStream upstream,
+            BufferedOutputStream clientOut,int statusCode,
+            Map<String,String> headers) throws IOException {
+        boolean clientOpen=true;
+        try { writeChunkedResponseHead(clientOut,statusCode,headers); }
+        catch(IOException closed){clientOpen=false;}
+        SseSpeakerPrefixFilter filter=new SseSpeakerPrefixFilter();
+        ByteArrayOutputStream frame=new ByteArrayOutputStream();
+        byte[] buf=new byte[8192];
+        int n;
+        boolean previousNewline=false;
+        boolean passthrough=false;
+        while((n=upstream.read(buf))!=-1){
+            if(n==0)continue;
+            if(!clientOpen)continue; // drain provider to natural EOF
+            if(passthrough){
+                try{writeChunk(clientOut,buf,n);}
+                catch(IOException closed){clientOpen=false;}
+                continue;
+            }
+            for(int i=0;i<n;i++){
+                int ch=buf[i]&0xff;
+                frame.write(ch);
+                if(ch=='\n'){
+                    if(previousNewline){
+                        byte[] event=frame.toByteArray();
+                        frame.reset();
+                        previousNewline=false;
+                        for(byte[] ready:filter.accept(event)){
+                            if(!clientOpen)break;
+                            try{writeChunk(clientOut,ready,ready.length);}
+                            catch(IOException closed){clientOpen=false;}
+                        }
+                        if(filter.resolved()){
+                            passthrough=true;
+                            if(clientOpen && i+1<n)
+                                try{writeChunk(clientOut,
+                                    java.util.Arrays.copyOfRange(buf,i+1,n),n-i-1);}
+                                catch(IOException closed){clientOpen=false;}
+                            break;
+                        }
+                    }else previousNewline=true;
+                }else if(ch!='\r')previousNewline=false;
+                if(frame.size()>64*1024){
+                    for(byte[] ready:filter.finish()){
+                        if(clientOpen)try{writeChunk(clientOut,ready,ready.length);}
+                        catch(IOException closed){clientOpen=false;}
+                    }
+                    if(clientOpen){
+                        byte[] raw=frame.toByteArray();
+                        try{writeChunk(clientOut,raw,raw.length);}
+                        catch(IOException closed){clientOpen=false;}
+                    }
+                    frame.reset();
+                    passthrough=true;
+                    if(clientOpen && i+1<n)
+                        try{writeChunk(clientOut,
+                            java.util.Arrays.copyOfRange(buf,i+1,n),n-i-1);}
+                        catch(IOException closed){clientOpen=false;}
+                    break;
+                }
+            }
+        }
+        if(!passthrough && clientOpen){
+            for(byte[] ready:filter.finish())
+                try{writeChunk(clientOut,ready,ready.length);}
+                catch(IOException closed){clientOpen=false;break;}
+            if(clientOpen && frame.size()>0){
+                byte[] tail=frame.toByteArray();
+                try{writeChunk(clientOut,tail,tail.length);}
+                catch(IOException closed){clientOpen=false;}
+            }
+        }
+        if(clientOpen)try{writeFinalChunk(clientOut);}
+        catch(IOException ignored){}
     }
 
     private static boolean isNonStreamingChatRequest(Request request){
