@@ -75,10 +75,11 @@ public final class OverlayTextClient {
             return status;
         }
         // A working webpage does not automatically mean the original ApiServer is listening.
-        if (!OriginalCoreBridge.nativeOwnerRunning()
+        if (!OriginalCoreBridge.diagnoseActiveNativeOwner()
+                .optBoolean("verified", false)
                 || !OriginalCoreBridge.isListening()) {
             SENDING.set(false);
-            report("原核心 API 尚未运行；请到「API」页手动恢复服务后再试。网页聊天可独立正常工作。",
+            report("原核心 API 的主界面或悬浮窗所有权尚未验证；请检查 /health。不会停止正在生成的网页会话。",
                 "", 0, false);
             return status;
         }
