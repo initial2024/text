@@ -48,7 +48,7 @@ public final class SidecarProxyServer {
             responseMode="not_sent", error="none";
         volatile int upstreamCode=-1, downstreamCode=-1;
         volatile boolean clientStream;
-        JSONObject snapshot(){
+        JSONObject snapshot() throws org.json.JSONException {
             return new JSONObject().put("id",id).put("stage",stage)
                 .put("upstreamKind",upstreamKind)
                 .put("responseMode",responseMode).put("error",error)
@@ -76,7 +76,7 @@ public final class SidecarProxyServer {
         ProxyTrace t=CURRENT_TRACE.get();
         if(t!=null){t.downstreamCode=code;t.responseMode=mode;t.stage="response_started";}
     }
-    private static JSONObject lastProxyTrace(){
+    private static JSONObject lastProxyTrace() throws org.json.JSONException {
         ProxyTrace t=LAST_TRACE;
         return t==null?new JSONObject().put("stage","none"):t.snapshot();
     }
@@ -515,7 +515,7 @@ public final class SidecarProxyServer {
     }
 
     private void proxyToFrozenCore(Request request, BufferedOutputStream clientOut,
-            boolean titleRequest) throws IOException {
+            boolean titleRequest) throws IOException, org.json.JSONException {
         HttpURLConnection upstream = null;
         InputStream upstreamBody = null;
 
@@ -989,7 +989,8 @@ public final class SidecarProxyServer {
      * Limit retained content and drain oversize responses to EOF.
      */
     private void proxyCompletedJsonAsSse(InputStream upstream,
-            BufferedOutputStream downstream) throws IOException {
+            BufferedOutputStream downstream)
+            throws IOException, org.json.JSONException {
         ByteArrayOutputStream captured=new ByteArrayOutputStream();
         byte[] buf=new byte[8192];int n;boolean oversized=false;
         while((n=upstream.read(buf))!=-1){
