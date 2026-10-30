@@ -30,8 +30,9 @@ public final class AttachmentApiBridge {
     static String lastAttachmentShape(){return lastAttachmentShape;}
     static String lastAttachmentPhase(){return lastAttachmentPhase;}
     static void noteFailure(String phase){
-        lastAttachmentPhase=phase==null?"unknown":phase.replaceAll(
-            "[^A-Za-z0-9_-]","").substring(0,Math.min(96,phase.length()));
+        String cleaned=phase==null?"unknown":phase.replaceAll(
+            "[^A-Za-z0-9_-]","");
+        lastAttachmentPhase=cleaned.substring(0,Math.min(96,cleaned.length()));
     }
 
     /**
