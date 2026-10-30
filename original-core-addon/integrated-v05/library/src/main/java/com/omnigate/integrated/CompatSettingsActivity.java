@@ -403,7 +403,29 @@ public final class CompatSettingsActivity extends Activity {
                 toast("地址已复制");
             }
         });
-        margin(api, text("Local Key: 任意非空（如 test），网站仍需原账号登录", 12, 0xFF68718A, false), 8);
+        margin(api, text("客户端唯一推荐入口：本机 8787；公网通过自己的 Cloudflare Relay。"+
+            "两者均可使用同一 OmniGate 客户端 Key；原版内部 1604 和内部 Key 不给 Minis/DSH 填写。",
+            12, 0xFF3A405A, true), 8);
+        margin(api, text("公网 Base URL: " + GatewayApp.effectivePublicUrl() + "/v1",
+            12, 0xFF323B83, false), 8);
+        Button copyPublicAddress=button(api,"复制公网 Base URL",false);
+        copyPublicAddress.setOnClickListener(v->{
+            ClipboardManager cb=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+            if(cb!=null){cb.setPrimaryClip(ClipData.newPlainText("OmniGate 公网 Base URL",
+                GatewayApp.effectivePublicUrl()+"/v1"));toast("公网地址已复制");}
+        });
+        Button copyClientKey=button(api,"复制统一客户端 Key（本地 / 公网通用）",false);
+        copyClientKey.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
+            .setTitle("复制 OmniGate 客户端 Key")
+            .setMessage("仅复制到可信的 Minis / DSH 客户端。剪贴板可能被其他应用访问。"+
+                "这不是原版 1604 的内部密钥，也不是 Cloudflare Relay 配对 Key。"+
+                "原本地兼容模式仍接受任意非空 Key，建议新连接统一使用此 Key。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("复制",(d,w)->{
+                ClipboardManager cb=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+                if(cb!=null){cb.setPrimaryClip(ClipData.newPlainText(
+                    "OmniGate 客户端 Key",GatewayApp.apiKey()));toast("Key 已复制");}
+            }).show());
         margin(api, text("目标模型", 12, 0xFF3A405A, true), 6);
         models = new Spinner(this);
         String[] modelNames = {"deepseek-chat", "chatgpt-web", "grok-web-fast", "glm-web-flash"};
