@@ -482,7 +482,7 @@ public final class OriginalCoreBridge {
     public static synchronized String requestMainOwnerHandoff(Activity caller) {
         if(handoffPending.get())return handoffState;
         if(!originalOverlayActive()){
-            handoffState="拒绝接管：未观察到原版悬浮服务运行；不能假设 1601 的监听者";
+            handoffState="拒绝接管：原悬浮服务未运行，不能确认原端口监听者";
             return handoffState;
         }
         if(OverlayTextClient.isSending() || OverlayUploadClient.isSending()){
@@ -491,8 +491,7 @@ public final class OriginalCoreBridge {
         }
         JSONObject currentOwner=diagnoseVisibleHostSocket();
         if(nativeOwnerRunning()){
-            if(handoffOldPort==configuredPort() &&
-                "main_socket_and_driver_match".equals(
+            if("main_socket_and_driver_match".equals(
                     observedRouteState(currentOwner))){
                 handoffState="无需接管：主界面已经持有 1601 且 WebDriver 匹配";
             }else{
@@ -527,7 +526,7 @@ public final class OriginalCoreBridge {
         }
         handoffAttempts=0;
         handoffState="已收到用户确认；请求原版悬浮服务返回主界面。"+
-            "原悬浮 WebDriver 会被原版 stopRuntime 关闭";
+            "原悬浮 WebDriver 会被原版 stopRuntime 关闭，原端口不变";
         handoffPending.set(true);
         // An already-resumed MainActivity might receive onNewIntent rather
         // than another onResume. Schedule the same bounded completion on its
