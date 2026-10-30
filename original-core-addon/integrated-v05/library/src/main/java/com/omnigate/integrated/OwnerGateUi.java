@@ -17,8 +17,6 @@ public final class OwnerGateUi {
     private OwnerGateUi(){}
     public static void onMainResumed(Activity activity){
         if(activity==null || activity.isFinishing() || activity.isDestroyed())return;
-        if(prompted.containsKey(activity))return;
-        prompted.put(activity,Boolean.TRUE);
         WeakReference<Activity> ref=new WeakReference<>(activity);
         new Thread(()->{
             JSONObject o=OriginalCoreBridge.diagnoseVisibleHostSocket();
@@ -29,6 +27,13 @@ public final class OwnerGateUi {
             activity.runOnUiThread(()->{
                 Activity a=ref.get();
                 if(a==null || a.isDestroyed() || a.isFinishing())return;
+                // Mark prompted only when the 409 conflict was actually
+                // observed. An earlier healthy resume must not permanently
+                // suppress a later real owner-mismatch warning.
+                synchronized(prompted){
+                    if(prompted.containsKey(a))return;
+                    prompted.put(a,Boolean.TRUE);
+                }
                 new AlertDialog.Builder(a)
                     .setTitle("OmniGate · 原版 API 归属冲突")
                     .setMessage("原版悬浮运行时仍在，当前主界面没有持有"+
