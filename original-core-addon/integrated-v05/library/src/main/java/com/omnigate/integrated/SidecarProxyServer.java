@@ -38,6 +38,9 @@ public final class SidecarProxyServer {
     // verified DeepSeek editor. A competing request keeps the old proxy path.
     private static final java.util.concurrent.atomic.AtomicBoolean LIVE_DEEPSEEK_BUSY =
         new java.util.concurrent.atomic.AtomicBoolean(false);
+    // The experimental DOM listener must not override a native streaming
+    // response. Native SSE is now forwarded from the actual InputStream,
+    // without a full-response Future / ByteArrayOutputStream replay.
     private static final java.util.concurrent.atomic.AtomicLong NEXT_TRACE =
         new java.util.concurrent.atomic.AtomicLong();
     private static final ThreadLocal<ProxyTrace> CURRENT_TRACE=new ThreadLocal<>();
@@ -54,6 +57,12 @@ public final class SidecarProxyServer {
         volatile boolean clientStream;
         volatile int earlyLiveDeltaFrames=0;
         volatile long firstEarlyLiveDeltaMs=-1;
+        volatile long nativeSseFirstReadMs=-1;
+        volatile long nativeSseFirstWriteMs=-1;
+        volatile long nativeSseEofMs=-1;
+        volatile int nativeSseReadChunks=0;
+        volatile int nativeSseWrittenChunks=0;
+        volatile long nativeSseBytesRead=0;
         JSONObject snapshot() throws org.json.JSONException {
             return new JSONObject().put("id",id).put("stage",stage)
                 .put("upstreamKind",upstreamKind)
@@ -62,6 +71,12 @@ public final class SidecarProxyServer {
                 .put("clientRequestedStream",clientStream)
                 .put("earlyLiveDeltaFrames",earlyLiveDeltaFrames)
                 .put("firstEarlyLiveDeltaMs",firstEarlyLiveDeltaMs)
+                .put("nativeSseFirstReadMs",nativeSseFirstReadMs)
+                .put("nativeSseFirstWriteMs",nativeSseFirstWriteMs)
+                .put("nativeSseEofMs",nativeSseEofMs)
+                .put("nativeSseReadChunks",nativeSseReadChunks)
+                .put("nativeSseWrittenChunks",nativeSseWrittenChunks)
+                .put("nativeSseBytesRead",nativeSseBytesRead)
                 .put("ageMs",Math.max(0,
                     android.os.SystemClock.elapsedRealtime()-started));
         }
@@ -526,12 +541,12 @@ public final class SidecarProxyServer {
             boolean titleRequest) throws IOException, org.json.JSONException {
         HttpURLConnection upstream = null;
         InputStream upstreamBody = null;
-        LiveDeepSeekAnchor live=null;
-
+        // LiveDeepSeekAnchor used to wait for an entire native SSE before
+        // replaying it. Keep the original native request unchanged and
+        // prefer the authoritative native transport directly.
         try {
             if (OriginalCoreBridge.isPortConflicted())
                 throw new IOException("native_proxy_port_conflict: 8787 -> 8787 prohibited");
-            live = maybeCaptureLiveDeepSeek(request);
             URL url = new URL(
                     "http://127.0.0.1:"
                             + OriginalCoreBridge.configuredPort()
@@ -582,11 +597,6 @@ public final class SidecarProxyServer {
                     bodyOut.flush();
                 }
             }
-            if(live!=null){
-                relayVerifiedDeepSeekLive(upstream,clientOut,live);
-                return;
-            }
-
             traceStage("waiting_native_response_headers");
             int statusCode = upstream.getResponseCode();
             ProxyTrace trace=CURRENT_TRACE.get();
@@ -614,6 +624,20 @@ public final class SidecarProxyServer {
                 trace.upstreamKind=isPlainSseResponse(responseHeaders)?
                     "sse":isJsonResponse(responseHeaders)?"json":"other";
                 trace.stage="upstream_headers_received";
+            }
+
+            // Native DeepSeek SSE must be transferred as bytes become
+            // available. Do not run a prefix filter that buffers multiple
+            // events, and do not replay the final result after EOF.
+            if(upstreamBody!=null && statusCode==200 &&
+                "POST".equals(request.method) &&
+                "/v1/chat/completions".equals(request.path) &&
+                isStreamingChatRequest(request) &&
+                isDeepSeekNativeChatRequest(request) &&
+                isPlainSseResponse(responseHeaders)){
+                responseHeaders.put("X-OmniGate-Stream-Mode","native-sse-direct");
+                proxyDirectNativeSse(upstreamBody,clientOut,responseHeaders);
+                return;
             }
 
             // The original native core may return a completed JSON object
@@ -712,7 +736,6 @@ public final class SidecarProxyServer {
             if (upstream != null) {
                 upstream.disconnect();
             }
-            if(live!=null)LIVE_DEEPSEEK_BUSY.set(false);
         }
     }
 
@@ -907,6 +930,81 @@ public final class SidecarProxyServer {
             return new JSONObject(new String(request.body,
                 StandardCharsets.UTF_8)).optBoolean("stream",false);
         } catch (Exception ignored) { return false; }
+    }
+    /** DeepSeek only. The original response already contains real SSE.
+     * Any buffering or reassembly here destroys its transport timing.
+     * This never changes the original generation lifecycle.
+     */
+    private static boolean isDeepSeekNativeChatRequest(Request request){
+        try{
+            JSONObject body=new JSONObject(new String(request.body,
+                StandardCharsets.UTF_8));
+            String model=body.optString("model","");
+            return "deepseek-chat".equals(model) ||
+                "deepseek-reasoner".equals(model) ||
+                model.startsWith("deepseek-chat-");
+        }catch(Exception ignored){return false;}
+    }
+    private void proxyDirectNativeSse(InputStream upstream,
+            BufferedOutputStream downstream,Map<String,String> headers)
+            throws IOException {
+        ProxyTrace tr=CURRENT_TRACE.get();
+        byte[] buffer=new byte[8192];
+        boolean downstreamOpen=true;
+        // Delay the 200 header until the native side actually gives us data:
+        // an empty "successful" event stream is not a successful chat reply.
+        int first;
+        do {
+            traceStage("native_sse_waiting_first_data");
+            first=upstream.read(buffer);
+        } while(first==0);
+        if(first<0){
+            if(tr!=null)tr.error="native_sse_empty";
+            writeJson(downstream,502,new JSONObject()
+                .put("error",new JSONObject()
+                    .put("type","omnigate_native_stream_error")
+                    .put("code","native_sse_empty")));
+            return;
+        }
+        if(tr!=null){
+            tr.nativeSseFirstReadMs=Math.max(0,
+                android.os.SystemClock.elapsedRealtime()-tr.started);
+            tr.nativeSseReadChunks++;
+            tr.nativeSseBytesRead+=first;
+            tr.stage="native_sse_first_data";
+        }
+        try{
+            writeChunkedResponseHead(downstream,200,headers);
+            writeChunk(downstream,buffer,first);
+            if(tr!=null){
+                tr.nativeSseFirstWriteMs=Math.max(0,
+                    android.os.SystemClock.elapsedRealtime()-tr.started);
+                tr.nativeSseWrittenChunks++;
+            }
+        }catch(IOException closed){downstreamOpen=false;}
+        int n;
+        while((n=upstream.read(buffer))!=-1){
+            if(n<=0)continue;
+            if(tr!=null){
+                tr.nativeSseReadChunks++;
+                tr.nativeSseBytesRead+=n;
+            }
+            if(downstreamOpen){
+                try{
+                    writeChunk(downstream,buffer,n);
+                    if(tr!=null)tr.nativeSseWrittenChunks++;
+                }catch(IOException closed){downstreamOpen=false;}
+            }
+            // Always drain to natural EOF. Never cancel model generation
+            // because the user minimized the UI or the client disconnected.
+        }
+        if(tr!=null){
+            tr.nativeSseEofMs=Math.max(0,
+                android.os.SystemClock.elapsedRealtime()-tr.started);
+            tr.stage="native_sse_eof";
+        }
+        if(downstreamOpen)try{writeFinalChunk(downstream);}
+        catch(IOException ignored){}
     }
     private static boolean isPlainSseResponse(Map<String,String> headers) {
         boolean sse=false;
