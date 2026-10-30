@@ -123,6 +123,8 @@ public final class SidecarProxyServer {
                     && ("/health".equals(request.path)
                     || "/__sidecar_health".equals(request.path))) {
                 JSONObject observedOwner=OriginalCoreBridge.diagnoseVisibleHostSocket();
+                JSONObject verifiedOwner=OriginalCoreBridge.diagnoseActiveNativeOwner();
+                JSONObject overlayOwner=verifiedOwner.optJSONObject("overlayOwner");
                 JSONObject ownerContinuity=
                     OriginalCoreBridge.inspectOwnerContinuity(observedOwner);
                 writeJson(out, 200, new JSONObject()
@@ -135,12 +137,20 @@ public final class SidecarProxyServer {
                         .put("originalServerRunning", OriginalCoreBridge.nativeOwnerRunning())
                         .put("originalLifecycle", OriginalCoreBridge.nativeLifecycleState())
                         .put("observedRuntimeRoute",
-                            OriginalCoreBridge.observedRouteState(observedOwner))
+                            verifiedOwner.optString("route", "unknown"))
+                        .put("verifiedNativeOwner",
+                            verifiedOwner.optString("ownerKind", "unknown"))
                         .put("originalSocketOwner",
                             observedOwner.optString("socketOwner", "unknown"))
                         .put("originalOverlayActive",
                             observedOwner.opt("originalOverlayServiceActive"))
-                        .put("originalOverlaySocketOwnerVerified", false)
+                        .put("originalOverlaySocketOwnerVerified",
+                            overlayOwner != null && overlayOwner.optBoolean("verified", false))
+                        .put("originalOverlaySocketOwnerReason",
+                            overlayOwner == null ? "not_inspected" :
+                            overlayOwner.optString("reason", "unknown"))
+                        .put("originalOverlayCapturedInstance",
+                            overlayOwner != null && overlayOwner.optBoolean("capturedInstance",false))
                         .put("originalOwnerHandoffStatus",
                             OriginalCoreBridge.handoffStatus())
                         .put("ownerContinuity",ownerContinuity)
@@ -216,44 +226,47 @@ public final class SidecarProxyServer {
                 return;
             }
 
-            // Never silently dispatch a chat request into an independently
-            // bound overlay runtime when the original MainActivity is alive
-            // but demonstrably does not own the configured 1601 listener.
-            // Unknown or reflection-unsupported versions retain legacy
-            // routing for compatibility; they are NOT reported as verified.
+            // Both the visible MainActivity and the original overlay can
+            // legitimately own their own API and WebDriver. The overlay is
+            // accepted ONLY if Android's captured exact Service instance
+            // holds the live loopback socket and the same driver as ApiServer.
+            // Static isRunning or TCP connectivity is NEVER enough.
             if ("POST".equals(request.method)
                     && request.path.startsWith("/v1/chat/completions")) {
-                JSONObject observed=OriginalCoreBridge.diagnoseVisibleHostSocket();
-                String route=OriginalCoreBridge.observedRouteState(observed);
-                // Narrow safe recovery only: a previously verified live
-                // ApiServer reference of THIS SAME MainActivity + WebDriver
-                // may have been cleared. Reattach exactly that reference;
-                // never start a server, stop an overlay, switch sessions,
-                // rotate the port or route to an unverified listener.
-                if ("port_not_owned_by_main".equals(route)
+                JSONObject currentOwner=OriginalCoreBridge.diagnoseActiveNativeOwner();
+                if (!currentOwner.optBoolean("verified", false)
                         && !OriginalCoreBridge.originalOverlayActive()) {
+                    // Preserve the previous narrow, verified same-MainActivity
+                    // reference recovery; never recover an overlay by guessing.
                     String recovered=OriginalCoreBridge
                         .recoverTrackedMainServerReference();
-                    if(recovered.startsWith("PASS")){
-                        observed=OriginalCoreBridge.diagnoseVisibleHostSocket();
-                        route=OriginalCoreBridge.observedRouteState(observed);
-                    }
+                    if(recovered.startsWith("PASS"))
+                        currentOwner=OriginalCoreBridge.diagnoseActiveNativeOwner();
                 }
-                if ("port_not_owned_by_main".equals(route)
-                        || "main_socket_driver_mismatch".equals(route)) {
-                    writeJson(out, 409, new JSONObject()
-                        .put("error", "original_runtime_owner_mismatch")
-                        .put("message", "The native API listener does not map to the visible MainActivity WebDriver; request not sent")
-                        .put("observedRuntimeRoute", route)
+                if(!currentOwner.optBoolean("verified", false)){
+                    JSONObject overlay=currentOwner.optJSONObject("overlayOwner");
+                    JSONObject main=OriginalCoreBridge.diagnoseVisibleHostSocket();
+                    writeJson(out,409,new JSONObject()
+                        .put("error","original_runtime_owner_mismatch")
+                        .put("message","Neither the original main nor overlay runtime "+
+                            "has a verified live API socket with the same WebDriver; "+
+                            "request not sent")
+                        .put("observedRuntimeRoute",
+                            currentOwner.optString("route", "unknown"))
                         .put("originalSocketOwner",
-                            observed.optString("socketOwner", "unknown"))
+                            main.optString("socketOwner","unknown"))
                         .put("originalWebDriverIdentity",
-                            observed.optString("webDriverIdentity", "unknown"))
+                            main.optString("webDriverIdentity","unknown"))
                         .put("originalOverlayServiceActive",
-                            observed.opt("originalOverlayServiceActive"))
-                        .put("hint","Port has another or unknown original owner. "+
-                            "Check /health ownerContinuity and originalOverlayActive. "+
-                            "Do not auto-restart/stop a generating model or rotate ports."));
+                            OriginalCoreBridge.originalOverlayActive())
+                        .put("originalOverlaySocketOwnerVerified",
+                            overlay != null && overlay.optBoolean("verified", false))
+                        .put("originalOverlayOwnerReason",
+                            overlay == null ? "not_inspected" :
+                            overlay.optString("reason","unknown"))
+                        .put("hint","Keep the generating browser alive. "+
+                            "Inspect /health; never force handoff or blindly "+
+                            "route to an unknown listener."));
                     return;
                 }
             }
