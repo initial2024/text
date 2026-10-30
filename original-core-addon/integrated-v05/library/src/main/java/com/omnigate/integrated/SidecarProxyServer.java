@@ -71,6 +71,9 @@ public final class SidecarProxyServer {
         volatile long nativeSseDoneMs=-1;
         volatile int nativeSseControlEvents=0;
         volatile int nativeSseUnparsedEvents=0;
+        volatile String nativeEmptyRecovery="not_applicable";
+        volatile int nativeRecoveredContentFrames=0;
+        volatile long nativeFirstRecoveredContentMs=-1;
         JSONObject snapshot() throws org.json.JSONException {
             return new JSONObject().put("id",id).put("stage",stage)
                 .put("upstreamKind",upstreamKind)
@@ -92,6 +95,9 @@ public final class SidecarProxyServer {
                 .put("nativeSseDoneMs",nativeSseDoneMs)
                 .put("nativeSseControlEvents",nativeSseControlEvents)
                 .put("nativeSseUnparsedEvents",nativeSseUnparsedEvents)
+                .put("nativeEmptyRecovery",nativeEmptyRecovery)
+                .put("nativeRecoveredContentFrames",nativeRecoveredContentFrames)
+                .put("nativeFirstRecoveredContentMs",nativeFirstRecoveredContentMs)
                 .put("ageMs",Math.max(0,
                     android.os.SystemClock.elapsedRealtime()-started));
         }
@@ -556,9 +562,8 @@ public final class SidecarProxyServer {
             boolean titleRequest) throws IOException, org.json.JSONException {
         HttpURLConnection upstream = null;
         InputStream upstreamBody = null;
-        // LiveDeepSeekAnchor used to wait for an entire native SSE before
-        // replaying it. Keep the original native request unchanged and
-        // prefer the authoritative native transport directly.
+        // Read-only snapshot BEFORE posting to 1604. Never post twice.
+        NativeEmptyAnchor currentAnswerAnchor=captureNativeEmptyAnchor(request);
         try {
             if (OriginalCoreBridge.isPortConflicted())
                 throw new IOException("native_proxy_port_conflict: 8787 -> 8787 prohibited");
@@ -651,7 +656,8 @@ public final class SidecarProxyServer {
                 isDeepSeekNativeChatRequest(request) &&
                 isPlainSseResponse(responseHeaders)){
                 responseHeaders.put("X-OmniGate-Stream-Mode","native-sse-direct");
-                proxyDirectNativeSse(upstreamBody,clientOut,responseHeaders);
+                proxyDirectNativeSse(upstreamBody,clientOut,responseHeaders,
+                    currentAnswerAnchor);
                 return;
             }
 
@@ -1021,6 +1027,206 @@ public final class SidecarProxyServer {
                 tr.nativeSseUnparsedEvents++;
             }
         }
+    }
+
+    /** Only the currently verified native listener and the existing web page
+     * may supply a late answer. This is an observation, never a second POST.
+     */
+    private static final class NativeEmptyAnchor {
+        final int sequence;
+        final String ownerKind, baselineAnswer, model;
+        NativeEmptyAnchor(int seq,String owner,String baseline,String modelName){
+            sequence=seq;ownerKind=owner;baselineAnswer=baseline;model=modelName;
+        }
+    }
+    private static NativeEmptyAnchor captureNativeEmptyAnchor(Request request){
+        if(!"POST".equals(request.method) ||
+           !"/v1/chat/completions".equals(request.path) ||
+           !isStreamingChatRequest(request) ||
+           !isDeepSeekNativeChatRequest(request) ||
+           AttachmentApiBridge.hasAttachmentSignal(request.body))return null;
+        try{
+            JSONObject data=new JSONObject(new String(request.body,
+                StandardCharsets.UTF_8));
+            if(data.has("tools")||data.has("tool_choice")||
+               data.has("functions"))return null;
+            JSONArray messages=data.optJSONArray("messages");
+            JSONObject last=messages==null||messages.length()==0?
+                null:messages.optJSONObject(messages.length()-1);
+            if(last==null||!"user".equals(last.optString("role","")) ||
+               !(last.opt("content") instanceof String))return null;
+            JSONObject owner=OriginalCoreBridge.diagnoseActiveNativeOwner();
+            if(!owner.optBoolean("verified",false))return null;
+            String ownerKind=owner.optString("ownerKind","");
+            if(!"main".equals(ownerKind)&&!"overlay".equals(ownerKind))
+                return null;
+            JSONObject page=OriginalCoreBridge.diagnoseVerifiedApiPage();
+            JSONObject state=OriginalCoreBridge.inspectVerifiedApiAnswer();
+            if(!"deepseek".equalsIgnoreCase(page.optString("provider","")) ||
+               page.optBoolean("generationRaw",true) ||
+               state.optBoolean("generating",true) ||
+               page.optBoolean("autoRolloverActive",false))return null;
+            int previousSeq=page.optInt("lastSubmissionSequence",-1);
+            if(previousSeq<0)return null;
+            return new NativeEmptyAnchor(previousSeq,ownerKind,
+                state.optString("answer",""),data.optString("model","deepseek-chat"));
+        }catch(Throwable unavailable){return null;}
+    }
+
+    private static void sendNativeRecoveredText(BufferedOutputStream output,
+            NativeEmptyAnchor anchor,String increment,boolean first)
+            throws IOException,org.json.JSONException {
+        JSONObject delta=new JSONObject();
+        if(first)delta.put("role","assistant");
+        delta.put("content",increment);
+        JSONObject chunk=new JSONObject()
+            .put("id","chatcmpl-omnigate-verified-native-recovery")
+            .put("object","chat.completion.chunk")
+            .put("created",System.currentTimeMillis()/1000)
+            .put("model",anchor.model)
+            .put("choices",new JSONArray().put(new JSONObject()
+                .put("index",0).put("delta",delta)
+                .put("finish_reason",JSONObject.NULL)));
+        writeStaticSseData(output,chunk.toString());
+    }
+    // Identical SSE framing to writeSseData, but callable from the static
+    // helper. No content is recorded in logs or /health.
+    private static void writeStaticSseData(BufferedOutputStream output,String data)
+            throws IOException {
+        byte[] bytes=("data: "+data+"\n\n").getBytes(StandardCharsets.UTF_8);
+        writeChunk(output,bytes,bytes.length);
+    }
+    private static void writeNativeRecoveryError(BufferedOutputStream output,
+            String code)throws IOException,org.json.JSONException{
+        writeStaticSseData(output,new JSONObject().put("error",
+            new JSONObject().put("type","omnigate_native_empty_reply")
+                .put("code",code)).toString());
+    }
+
+    /**
+     * The frozen ApiServer sometimes emits only role/stop/[DONE] at ~10 s
+     * despite the verified DeepSeek page continuing to generate. Preserve
+     * the DSH SSE connection and recover ONLY the exact next confirmed turn.
+     * Bound recovery at five minutes, never click send/Stop, never rotate ports.
+     * No fabricated answer and no successful [DONE] if correlation fails.
+     */
+    private void recoverNativeEmptyAnswer(BufferedOutputStream output,
+            NativeEmptyAnchor anchor,ProxyTrace tr)
+            throws IOException,org.json.JSONException {
+        if(anchor==null){
+            if(tr!=null)tr.nativeEmptyRecovery="no_verified_pre_submit_anchor";
+            writeNativeRecoveryError(output,"cannot_correlate_current_turn");
+            return;
+        }
+        long deadline=android.os.SystemClock.elapsedRealtime()+300000;
+        long lastHeartbeat=android.os.SystemClock.elapsedRealtime();
+        String delivered="",previous="";
+        long stableSince=0;
+        int stablePolls=0;
+        boolean emitted=false;
+        if(tr!=null)tr.nativeEmptyRecovery="waiting_for_verified_web_answer";
+        while(android.os.SystemClock.elapsedRealtime()<deadline){
+            try{
+                JSONObject owner=OriginalCoreBridge.diagnoseActiveNativeOwner();
+                if(!owner.optBoolean("verified",false) ||
+                   !anchor.ownerKind.equals(owner.optString("ownerKind",""))){
+                    if(tr!=null)tr.nativeEmptyRecovery="owner_changed";
+                    writeNativeRecoveryError(output,"verified_owner_changed");
+                    return;
+                }
+                JSONObject page=OriginalCoreBridge.diagnoseVerifiedApiPage();
+                if(!"deepseek".equalsIgnoreCase(page.optString("provider","")) ||
+                   page.optBoolean("autoRolloverActive",false) ||
+                   page.optInt("lastSubmissionSequence",-1)>anchor.sequence+1){
+                    if(tr!=null)tr.nativeEmptyRecovery="session_changed";
+                    writeNativeRecoveryError(output,"conversation_changed");
+                    return;
+                }
+                boolean matched=page.optInt("lastSubmissionSequence",-1)==anchor.sequence+1
+                    && "submitted_confirmed".equals(
+                        page.optString("deepseekSubmissionStatus",""))
+                    && page.optBoolean("assistantReplyChangedSinceSend",false);
+                if(matched){
+                    JSONObject state=OriginalCoreBridge.inspectVerifiedApiAnswer();
+                    String text=TitleCompat.stripSpeakerPrefix(
+                        state.optString("answer",""));
+                    int reportedLen=page.optInt("assistantReplyChars",-1);
+                    if(!text.trim().isEmpty() &&
+                       !text.equals(TitleCompat.stripSpeakerPrefix(anchor.baselineAnswer)) &&
+                       reportedLen==state.optString("answer","").length()){
+                        if(!text.equals(previous)){
+                            previous=text;stableSince=android.os.SystemClock.elapsedRealtime();
+                            stablePolls=1;
+                        }else stablePolls++;
+                        boolean stillGenerating=page.optBoolean("generationRaw",true) ||
+                            state.optBoolean("generating",true) ||
+                            page.optLong("generationLeaseRemainingMs",0)>0;
+                        int stableChars=stillGenerating?
+                            Math.max(0,text.length()-12):text.length();
+                        if(stableChars>0 && stableChars<text.length() &&
+                           Character.isHighSurrogate(text.charAt(stableChars-1)))
+                            stableChars--;
+                        String ready=text.substring(0,stableChars);
+                        if(!ready.startsWith(delivered)){
+                            if(tr!=null)tr.nativeEmptyRecovery="answer_prefix_mutated";
+                            writeNativeRecoveryError(output,"answer_changed_after_delivery");
+                            return;
+                        }
+                        // A stable prefix may be sent while still generating;
+                        // the entire tail requires observed natural completion.
+                        if(ready.length()>delivered.length() &&
+                           (stablePolls>=2 || !stillGenerating)){
+                            sendNativeRecoveredText(output,anchor,
+                                ready.substring(delivered.length()),!emitted);
+                            emitted=true;delivered=ready;
+                            if(tr!=null){
+                                tr.nativeRecoveredContentFrames++;
+                                if(tr.nativeFirstRecoveredContentMs<0)
+                                    tr.nativeFirstRecoveredContentMs=Math.max(0,
+                                      android.os.SystemClock.elapsedRealtime()-tr.started);
+                                tr.nativeEmptyRecovery="verified_content_streaming";
+                            }
+                        }
+                        if(!stillGenerating && stablePolls>=3 &&
+                           android.os.SystemClock.elapsedRealtime()-stableSince>=900 &&
+                           delivered.equals(text)){
+                            JSONObject finish=new JSONObject()
+                                .put("id","chatcmpl-omnigate-verified-native-recovery")
+                                .put("object","chat.completion.chunk")
+                                .put("created",System.currentTimeMillis()/1000)
+                                .put("model",anchor.model)
+                                .put("choices",new JSONArray().put(new JSONObject()
+                                    .put("index",0).put("delta",new JSONObject())
+                                    .put("finish_reason","stop")));
+                            writeStaticSseData(output,finish.toString());
+                            writeStaticSseData(output,"[DONE]");
+                            if(tr!=null)tr.nativeEmptyRecovery="verified_completed";
+                            return;
+                        }
+                    }
+                }
+            }catch(IOException closed){
+                if(tr!=null)tr.nativeEmptyRecovery="client_disconnected_original_untouched";
+                return;
+            }catch(Throwable transientFailure){
+                if(tr!=null)tr.nativeEmptyRecovery="waiting_for_web_state";
+            }
+            long now=android.os.SystemClock.elapsedRealtime();
+            if(now-lastHeartbeat>=4000){
+                try{
+                    byte[] heartbeat=": omnigate-awaiting-verified-answer\n\n"
+                        .getBytes(StandardCharsets.UTF_8);
+                    writeChunk(output,heartbeat,heartbeat.length);
+                }catch(IOException closed){
+                    if(tr!=null)tr.nativeEmptyRecovery="client_disconnected_original_untouched";
+                    return;
+                }
+                lastHeartbeat=now;
+            }
+            android.os.SystemClock.sleep(500);
+        }
+        if(tr!=null)tr.nativeEmptyRecovery="verified_reply_deadline_exceeded";
+        writeNativeRecoveryError(output,"verified_reply_not_observed_before_deadline");
     }
 
     private void proxyDirectNativeSse(InputStream upstream,
