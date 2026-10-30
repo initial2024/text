@@ -605,9 +605,36 @@ public final class ApiQuickPanel {
             });
             copy.setOnClickListener(v->{
                 ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
-                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("OmniGate","http://127.0.0.1:8787/v1"));
+                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("OmniGate 客户端本地地址",
+                    "http://127.0.0.1:8787/v1"));
             });
-            TextView note=text("本地服务在线不代表模型已回复。附件请切换到「文件注入」。",
+            TextView clientInfo=text("Minis/DSH 统一推荐：本机 127.0.0.1:8787/v1，"+
+                "公网 "+GatewayApp.effectivePublicUrl()+"/v1。"+
+                "两者均使用 OmniGate 客户端 Key；原版 "+nativePort+
+                " 和内部 Key 仅用于上游，不要填写到客户端。",
+                10,0xFF596387,false);
+            add(body,clientInfo,6);
+            LinearLayout credentials=horizontal(body,6);
+            Button copyPublic=button("复制公网地址",false);
+            Button copyClientKey=button("复制客户端 Key",false);
+            addHalf(credentials,copyPublic);addHalf(credentials,copyClientKey);
+            copyPublic.setOnClickListener(v->{
+                ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("OmniGate 公网地址",
+                    GatewayApp.effectivePublicUrl()+"/v1"));
+            });
+            copyClientKey.setOnClickListener(v->new android.app.AlertDialog.Builder(activity)
+                .setTitle("复制 OmniGate 客户端 Key")
+                .setMessage("仅复制给你信任的 Minis/DSH。剪贴板可能被其他应用读取。"+
+                    "它不是原版内部 API Key，也不是 Relay 配对 Key。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("复制",(d,w)->{
+                    ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                    if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("OmniGate 客户端 Key",
+                        GatewayApp.apiKey()));
+                }).show());
+            TextView note=text("端口连通和 Relay 已连接不能证明模型已回复。"+
+                "收到原版完整回执前不要重复提交；附件单独验收。",
                 10,0xFF78829C,false);
             add(body,note,7);
         }
