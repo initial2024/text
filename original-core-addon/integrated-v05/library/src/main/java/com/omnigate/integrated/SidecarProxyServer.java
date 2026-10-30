@@ -37,6 +37,7 @@ public final class SidecarProxyServer {
     private static final java.util.concurrent.atomic.AtomicLong NEXT_TRACE =
         new java.util.concurrent.atomic.AtomicLong();
     private static final ThreadLocal<ProxyTrace> CURRENT_TRACE=new ThreadLocal<>();
+    private static final ThreadLocal<TrackedOutput> CURRENT_OUTPUT=new ThreadLocal<>();
     private static volatile ProxyTrace LAST_TRACE;
 
     /** Debug metadata only: no prompts, file names, tokens or response text. */
@@ -162,6 +163,7 @@ public final class SidecarProxyServer {
              BufferedInputStream in = new BufferedInputStream(client.getInputStream());
              TrackedOutput out = new TrackedOutput(client.getOutputStream())) {
 
+            CURRENT_OUTPUT.set(out);
             Request request = readRequest(in);
             if (request == null) return;
             if("POST".equals(request.method) &&
@@ -495,8 +497,9 @@ public final class SidecarProxyServer {
             // silently close the socket, producing DSH [0] no reply.
             // Never write a second response if bytes have already started.
             try{
-                if(!out.started()){
-                    writeJson(out,502,new JSONObject().put("error",
+                TrackedOutput active=CURRENT_OUTPUT.get();
+                if(active!=null && !active.started()){
+                    writeJson(active,502,new JSONObject().put("error",
                         new JSONObject().put("type","omnigate_transport_error")
                             .put("code","native_response_transport_failed")
                             .put("cause",e.getClass().getSimpleName())));
@@ -507,6 +510,7 @@ public final class SidecarProxyServer {
             if(trace!=null && "response_started".equals(trace.stage))
                 trace.stage="response_returned";
             CURRENT_TRACE.remove();
+            CURRENT_OUTPUT.remove();
         }
     }
 
