@@ -75,6 +75,13 @@ final class SseSpeakerPrefixFilter {
     List<byte[]> accept(byte[] raw){
         if(resolved)return single(raw);
         Event event=new Event(raw);
+        // Role, status and thinking frames precede actual text for many
+        // providers. Forward them immediately rather than buffering dozens
+        // of reasoning events and prematurely disabling prefix detection.
+        if(event.content==null && pending.isEmpty()){
+            if(event.original.contains("[DONE]"))resolved=true;
+            return single(raw);
+        }
         pending.add(event);
         bytes+=raw.length;
         if(event.content!=null)prefix.append(event.content);
