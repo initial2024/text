@@ -124,17 +124,18 @@ public final class AttachmentApiBridge {
      * media must not be passed as base64, silently treated as real image input,
      * or used to invent image descriptions.
      *
-     * Return null when there is no historical media or when the current turn
-     * contains an attachment (which is handled by the strict attachment path).
+     * Return null when there is no historical media. The current turn is
+     * unchanged; its attachment validation remains independent.
      */
-    static byte[] sanitizeHistoricalMediaForText(byte[] input) throws Exception {
+    static byte[] sanitizeHistoricalMedia(byte[] input) throws Exception {
         if(input==null || input.length==0)return null;
         JSONObject root;
         try { root=new JSONObject(new String(input,StandardCharsets.UTF_8)); }
         catch(org.json.JSONException bad){return null;}
         JSONArray messages=root.optJSONArray("messages");
         if(messages==null || messages.length()<2)return null;
-        if(hasAttachmentSignal(input))return null;
+        // Current media, when present, is left untouched and stays subject to
+        // the strict current-attachment validation path.
         JSONObject current=messages.optJSONObject(messages.length()-1);
         if(current==null || !"user".equals(current.optString("role","")))
             return null;
