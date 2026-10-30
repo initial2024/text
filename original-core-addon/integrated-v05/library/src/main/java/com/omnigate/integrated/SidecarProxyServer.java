@@ -569,21 +569,11 @@ public final class SidecarProxyServer {
                         "Bearer " + upstreamKey);
             }
 
+            // Do not silently mutate stream:true to stream:false. The v0.10.7
+            // experimental path did so, changing how the frozen native API
+            // handles requests and causing an avoidable compatibility risk.
+            // Keep the exact original request for the frozen 1604 owner.
             byte[] nativeBody=request.body;
-            if(live!=null) {
-                try {
-                    // Native ApiServer generally waits for completion and
-                    // returns JSON. DSH still receives stream:true SSE here.
-                    JSONObject nativeRequest=new JSONObject(new String(
-                        request.body,StandardCharsets.UTF_8));
-                    nativeRequest.put("stream",false);
-                    nativeBody=nativeRequest.toString().getBytes(StandardCharsets.UTF_8);
-                }catch(Exception bad){
-                    LIVE_DEEPSEEK_BUSY.set(false);
-                    live=null;
-                    nativeBody=request.body;
-                }
-            }
             if (nativeBody.length > 0) {
                 upstream.setDoOutput(true);
                 upstream.setFixedLengthStreamingMode(nativeBody.length);
@@ -1297,14 +1287,33 @@ public final class SidecarProxyServer {
             trace.upstreamKind=result.mime.contains("json")?"json":
                 result.mime.contains("event-stream")?"sse":"other";
         }
+        if(result.httpCode==200 && !result.oversized &&
+            result.mime.contains("text/event-stream") && !sentHeader){
+            // A native owner that can stream is more authoritative than our
+            // speculative DOM observations. Preserve the complete original
+            // event sequence instead of claiming its response is invalid.
+            Map<String,String> sseHeaders=new LinkedHashMap<>();
+            sseHeaders.put("Content-Type","text/event-stream; charset=utf-8");
+            sseHeaders.put("Cache-Control","no-cache");
+            traceStage("native_sse_replay_fallback");
+            proxyNormalizedSseReply(new java.io.ByteArrayInputStream(
+                result.payload),downstream,200,sseHeaders);
+            return;
+        }
         if(result.httpCode!=200 || result.oversized ||
             !result.mime.contains("json")){
             if(!sentHeader){
                 if(result.httpCode!=200)writeJson(downstream,
                     result.httpCode>=400?result.httpCode:502,new JSONObject()
-                        .put("error","native_http_"+result.httpCode));
+                        .put("error",new JSONObject()
+                            .put("type","omnigate_native_upstream_error")
+                            .put("code","native_http_"+result.httpCode)));
                 else writeJson(downstream,502,new JSONObject()
-                    .put("error","native_stream_response_not_json"));
+                    .put("error",new JSONObject()
+                        .put("type","omnigate_native_upstream_error")
+                        .put("code",result.oversized?
+                            "native_stream_response_too_large":
+                            "native_stream_response_incompatible")));
             }else if(clientOpen)
                 sendLiveSseError(downstream,"native_stream_response_incompatible");
             return;
