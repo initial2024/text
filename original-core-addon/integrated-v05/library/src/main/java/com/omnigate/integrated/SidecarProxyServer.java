@@ -1325,18 +1325,29 @@ public final class SidecarProxyServer {
         String finalText=message==null?"":message.optString("content","");
         JSONArray finalTools=message==null?null:message.optJSONArray("tool_calls");
         finalText=TitleCompat.stripSpeakerPrefix(finalText);
+        // The native request is authoritative. A WebDriver correlation miss
+        // alone must NEVER turn a valid, completed original answer into a
+        // synthetic HTTP 409 before any downstream bytes were sent. That
+        // regressed already-working Minis/DSH replies in the first live build.
         if(sessionMismatch || !finalText.startsWith(delivered) ||
             (finalText.trim().isEmpty() &&
              (finalTools==null || finalTools.length()==0))){
-            if(!sentHeader)writeJson(downstream,409,new JSONObject()
-                .put("error","live_stream_correlation_or_final_mismatch"));
-            else if(clientOpen)sendLiveSseError(downstream,
-                "live_stream_correlation_or_final_mismatch");
+            if(!sentHeader){
+                traceStage("live_correlation_unverified_using_native_result");
+                // The existing parser itself refuses an empty completed
+                // assistant message; it will not hallucinate a response.
+                proxyCompletedJsonAsSse(
+                    new java.io.ByteArrayInputStream(result.payload),downstream);
+            }else if(clientOpen){
+                sendLiveSseError(downstream,
+                    "live_stream_correlation_or_final_mismatch");
+            }
             return;
         }
         if(!sentHeader){
-            // Not enough confirmed intermediate content, but a complete
-            // native result exists. Preserve the previously working path.
+            // No verified early chunks: preserve the working completion
+            // decoder and do not invent a first-token latency.
+            traceStage("native_completed_json_fallback_not_live");
             proxyCompletedJsonAsSse(
                 new java.io.ByteArrayInputStream(result.payload),downstream);
             return;
