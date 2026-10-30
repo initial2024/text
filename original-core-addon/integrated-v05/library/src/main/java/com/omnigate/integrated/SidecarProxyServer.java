@@ -322,6 +322,27 @@ public final class SidecarProxyServer {
                     return;
                 }
                 if(prepared!=null) {
+                    // Older media must not block a newly supported attachment
+                    // upload. Redact only historical binaries; preserve the
+                    // actual current-turn attachment and explicit provenance.
+                    try {
+                        byte[] filtered=AttachmentApiBridge.sanitizeHistoricalMedia(
+                            prepared.requestBody);
+                        if(filtered!=null)
+                            prepared=new AttachmentApiBridge.Prepared(filtered,
+                                prepared.requestId,prepared.model,
+                                prepared.clientRequestedStream);
+                    }catch(IllegalArgumentException unsafeHistory){
+                        AttachmentApiBridge.noteFailure("historical_media_ambiguous");
+                        writeJson(out,422,new JSONObject()
+                            .put("error",new JSONObject()
+                                .put("type","invalid_request_error")
+                                .put("code","historical_media_ambiguous")
+                                .put("message","Prior attachment data contains mixed "+
+                                    "unrecognized content. No current media or text was "+
+                                    "sent; retry with a fresh text-only context.")));
+                        return;
+                    }
                     AttachmentApiBridge.Result result=
                         AttachmentApiBridge.execute(prepared);
                     if(result.http==200 && prepared.clientRequestedStream) {
@@ -353,6 +374,38 @@ public final class SidecarProxyServer {
                         .put("message","Multimodal Responses API payloads require a "+
                             "separate adapter. No text-only fallback was sent.")));
                 return;
+            }
+
+            // Old attachments are not fresh upload attempts. A client may
+            // send old media again as history while asking a completely
+            // independent text question. Remove only opaque historical media,
+            // mark it unavailable, and continue the current text task.
+            // Current unsupported media has already been rejected above.
+            if("POST".equals(request.method) &&
+                    "/v1/chat/completions".equals(request.path)){
+                try {
+                    byte[] textSafe=AttachmentApiBridge.sanitizeHistoricalMedia(
+                        request.body);
+                    if(textSafe!=null)
+                        request=new Request(request.method,request.path,
+                            request.version,request.headers,textSafe);
+                }catch(IllegalArgumentException unsafeHistory){
+                    AttachmentApiBridge.noteFailure("historical_media_ambiguous");
+                    writeJson(out,422,new JSONObject()
+                        .put("error",new JSONObject()
+                            .put("type","invalid_request_error")
+                            .put("code","historical_media_ambiguous")
+                            .put("message","Unsupported mixed prior attachment "+
+                                "content; this text request was not dispatched.")));
+                    return;
+                }catch(Exception malformedHistory){
+                    AttachmentApiBridge.noteFailure("historical_media_parse_failed");
+                    writeJson(out,422,new JSONObject()
+                        .put("error",new JSONObject()
+                            .put("type","invalid_request_error")
+                            .put("code","historical_media_parse_failed")));
+                    return;
+                }
             }
 
             // Keep ordinary requests unchanged. Minis' known non-streaming
