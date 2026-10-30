@@ -947,7 +947,7 @@ public final class SidecarProxyServer {
     }
     private void proxyDirectNativeSse(InputStream upstream,
             BufferedOutputStream downstream,Map<String,String> headers)
-            throws IOException {
+            throws IOException,org.json.JSONException {
         ProxyTrace tr=CURRENT_TRACE.get();
         byte[] buffer=new byte[8192];
         boolean downstreamOpen=true;
