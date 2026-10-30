@@ -271,9 +271,8 @@ public final class SidecarProxyServer {
                 }
             }
 
-            // Only the explicit single-image, non-streaming chat route
-            // uses the correlated sidecar recovery. All text, models and
-            // other original API paths remain on the frozen proxy.
+            // Only validated in-band image/document content enters the
+            // attachment bridge. Other requests remain on the frozen core.
             if ("POST".equals(request.method)
                     && "/v1/chat/completions".equals(request.path)) {
                 AttachmentApiBridge.Prepared prepared;
@@ -284,7 +283,7 @@ public final class SidecarProxyServer {
                         .put("error",new JSONObject()
                             .put("type","invalid_request_error")
                             .put("code",invalid.getMessage())
-                            .put("message","Unsupported or oversized image request")));
+                            .put("message","Unsupported or oversized inline attachment request")));
                     return;
                 } catch(Exception malformed) {
                     writeJson(out,422,new JSONObject()
@@ -296,7 +295,11 @@ public final class SidecarProxyServer {
                 if(prepared!=null) {
                     AttachmentApiBridge.Result result=
                         AttachmentApiBridge.execute(prepared);
-                    writeJson(out,result.http,result.body);
+                    if(result.http==200 && prepared.clientRequestedStream) {
+                        writeVerifiedAttachmentSse(out,result.body);
+                    } else {
+                        writeJson(out,result.http,result.body);
+                    }
                     return;
                 }
             }
@@ -888,6 +891,60 @@ public final class SidecarProxyServer {
         out.write(head.getBytes(StandardCharsets.ISO_8859_1));
         out.write(bytes);
         out.flush();
+    }
+
+    /** This is a protocol adapter, NOT live token generation. The original
+     * web provider must return a verified completed answer before ANY SSE
+     * chunk or [DONE] is sent. No fake progress or premature stop markers.
+     */
+    private void writeVerifiedAttachmentSse(BufferedOutputStream out,
+            JSONObject verified) throws IOException {
+        try {
+            JSONArray choices=verified.optJSONArray("choices");
+            JSONObject choice=choices==null?null:choices.optJSONObject(0);
+            JSONObject message=choice==null?null:choice.optJSONObject("message");
+            String content=message==null?"":message.optString("content","");
+            if(content.isEmpty()){
+                writeJson(out,502,new JSONObject()
+                    .put("error","verified_attachment_reply_missing"));
+                return;
+            }
+            String id=verified.optString("id","chatcmpl-omnigate-attachment");
+            String model=verified.optString("model","chatgpt-web");
+            long created=verified.optLong("created",System.currentTimeMillis()/1000L);
+            Map<String,String> headers=new LinkedHashMap<>();
+            headers.put("Content-Type","text/event-stream; charset=utf-8");
+            headers.put("Cache-Control","no-cache");
+            headers.put("X-OmniGate-Stream-Mode","complete-response-after-verification");
+            writeChunkedResponseHead(out,200,headers);
+            JSONObject first=new JSONObject()
+                .put("id",id).put("object","chat.completion.chunk")
+                .put("created",created).put("model",model)
+                .put("choices",new JSONArray().put(new JSONObject()
+                    .put("index",0)
+                    .put("delta",new JSONObject().put("role","assistant")
+                        .put("content",content))
+                    .put("finish_reason",JSONObject.NULL)));
+            writeSseData(out,first.toString());
+            JSONObject last=new JSONObject()
+                .put("id",id).put("object","chat.completion.chunk")
+                .put("created",created).put("model",model)
+                .put("choices",new JSONArray().put(new JSONObject()
+                    .put("index",0).put("delta",new JSONObject())
+                    .put("finish_reason","stop")));
+            writeSseData(out,last.toString());
+            writeSseData(out,"[DONE]");
+            writeFinalChunk(out);
+        }catch(org.json.JSONException ex){
+            // No HTTP status may have been sent before validation above.
+            throw new IOException("attachment_sse_encoding_failed",ex);
+        }
+    }
+
+    private void writeSseData(BufferedOutputStream out,String data)
+            throws IOException {
+        byte[] raw=("data: "+data+"\n\n").getBytes(StandardCharsets.UTF_8);
+        writeChunk(out,raw,raw.length);
     }
 
     private void writeChunkedResponseHead(
