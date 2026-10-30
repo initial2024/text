@@ -134,6 +134,8 @@ public final class SidecarProxyServer {
                         .put("upstream", "127.0.0.1:" + OriginalCoreBridge.configuredPort())
                         .put("upstreamReachable", isUpstreamReachable())
                         .put("originalOwnerAlive", OriginalCoreBridge.originalHostAlive())
+                        .put("lastAttachmentClientShape", AttachmentApiBridge.lastAttachmentShape())
+                        .put("lastAttachmentClientPhase", AttachmentApiBridge.lastAttachmentPhase())
                         .put("originalServerRunning", OriginalCoreBridge.nativeOwnerRunning())
                         .put("originalLifecycle", OriginalCoreBridge.nativeLifecycleState())
                         .put("observedRuntimeRoute",
@@ -284,8 +286,11 @@ public final class SidecarProxyServer {
                             .put("type","invalid_request_error")
                             .put("code",invalid.getMessage())
                             .put("message","Unsupported or oversized inline attachment request")));
+                    AttachmentApiBridge.noteFailure("parse_rejected");
+                    status("附件解析拒绝 · 未发送文本回退");
                     return;
                 } catch(Exception malformed) {
+                    AttachmentApiBridge.noteFailure("malformed_attachment_envelope");
                     writeJson(out,422,new JSONObject()
                         .put("error",new JSONObject()
                             .put("type","invalid_request_error")
@@ -302,6 +307,28 @@ public final class SidecarProxyServer {
                     }
                     return;
                 }
+                if(AttachmentApiBridge.hasAttachmentSignal(request.body)){
+                    AttachmentApiBridge.noteFailure("unsupported_client_attachment_schema");
+                    writeJson(out,422,new JSONObject()
+                        .put("error",new JSONObject()
+                            .put("type","invalid_request_error")
+                            .put("code","unsupported_client_attachment_schema")
+                            .put("message","Image/file is present in request but does not match a "+
+                                "supported inline format. Nothing was sent to the website.")));
+                    return;
+                }
+            }
+            if("POST".equals(request.method) &&
+                "/v1/responses".equals(request.path) &&
+                AttachmentApiBridge.hasAttachmentSignal(request.body)){
+                AttachmentApiBridge.noteFailure("responses_attachment_not_supported");
+                writeJson(out,422,new JSONObject()
+                    .put("error",new JSONObject()
+                        .put("type","invalid_request_error")
+                        .put("code","responses_attachment_not_supported")
+                        .put("message","Multimodal Responses API payloads require a "+
+                            "separate adapter. No text-only fallback was sent.")));
+                return;
             }
 
             // Keep ordinary requests unchanged. Minis' known non-streaming
