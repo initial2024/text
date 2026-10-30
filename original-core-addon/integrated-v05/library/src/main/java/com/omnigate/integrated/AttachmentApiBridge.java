@@ -30,8 +30,10 @@ public final class AttachmentApiBridge {
         final byte[] requestBody;
         final String requestId;
         final String model;
-        Prepared(byte[] body,String id,String model){
+        final boolean clientRequestedStream;
+        Prepared(byte[] body,String id,String model,boolean stream){
             this.requestBody=body;this.requestId=id;this.model=model;
+            this.clientRequestedStream=stream;
         }
     }
     static final class Result {
@@ -52,13 +54,16 @@ public final class AttachmentApiBridge {
         Object content=last.opt("content");
         String model=root.optString("model","");
         if(model.isEmpty())throw new IllegalArgumentException("model_required");
+        final boolean wantedStream=root.optBoolean("stream",false);
 
         if(content instanceof String) {
             String plain=(String)content;
             int begin=plain.indexOf(START),end=plain.indexOf(END);
             if(begin<0 || end<=begin)return null;
-            if(root.optBoolean("stream",false))
-                throw new IllegalArgumentException("attachment_streaming_not_supported");
+            // The native bridge requires non-streaming input. When a client
+            // requests streaming, emit verified SSE only AFTER the original
+            // full reply has been received; never synthesize completion early.
+            root.put("stream",false);
             String encoded=plain.substring(begin+START.length(),end);
             if(encoded.length()>20*1024*1024)
                 throw new IllegalArgumentException("attachment_envelope_too_large");
@@ -77,13 +82,15 @@ public final class AttachmentApiBridge {
                 throw new IllegalArgumentException("attachment_bytes_too_large");
             if(Base64.decode(data,Base64.DEFAULT).length>MAX_IMAGE_BYTES)
                 throw new IllegalArgumentException("attachment_bytes_too_large");
-            return new Prepared(input,id,model);
+            return new Prepared(root.toString().getBytes(StandardCharsets.UTF_8),
+                id,model,wantedStream);
         }
         if(!(content instanceof JSONArray))return null;
         JSONArray segments=(JSONArray)content;
         StringBuilder prompt=new StringBuilder();
         String encodedImage=null;
         String mime=null;
+        String filename=null;
         boolean seenImage=false;
         for(int i=0;i<segments.length();i++){
             JSONObject part=segments.optJSONObject(i);
@@ -97,8 +104,9 @@ public final class AttachmentApiBridge {
             } else if("image_url".equals(type)){
                 if(seenImage)throw new IllegalArgumentException("only_one_image_supported");
                 seenImage=true;
-                JSONObject u=part.optJSONObject("image_url");
-                String raw=u==null?"":u.optString("url","");
+                Object u=part.opt("image_url");
+                String raw=u instanceof String?(String)u:
+                    u instanceof JSONObject?((JSONObject)u).optString("url",""):"";
                 int comma=raw.indexOf(',');
                 if(!raw.startsWith("data:image/") || comma<0 ||
                         !raw.substring(0,comma).endsWith(";base64"))
@@ -108,19 +116,61 @@ public final class AttachmentApiBridge {
                         "image/webp".equals(mime)))
                     throw new IllegalArgumentException("unsupported_image_mime");
                 encodedImage=raw.substring(comma+1);
+                filename="attachment."+
+                    ("image/jpeg".equals(mime)?"jpg":"image/webp".equals(mime)?"webp":"png");
                 if(encodedImage.length()>12*1024*1024)
                     throw new IllegalArgumentException("image_too_large");
+            } else if("file".equals(type)){
+                if(seenImage)throw new IllegalArgumentException("only_one_attachment_supported");
+                seenImage=true;
+                JSONObject file=part.optJSONObject("file");
+                if(file==null)throw new IllegalArgumentException("file_object_required");
+                if(file.has("file_id"))
+                    throw new IllegalArgumentException("external_file_id_not_available");
+                filename=file.optString("filename","").trim();
+                if(filename.isEmpty() || filename.length()>160 ||
+                    filename.contains("/") || filename.contains("\\") ||
+                    filename.indexOf((char)0)>=0)
+                    throw new IllegalArgumentException("invalid_attachment_filename");
+                String data=file.optString("file_data","");
+                if(data.length()>12*1024*1024)
+                    throw new IllegalArgumentException("file_too_large");
+                int comma=data.indexOf(',');
+                if(data.startsWith("data:") && comma>5 &&
+                    data.substring(5,comma).endsWith(";base64")){
+                    mime=data.substring(5,comma-7);
+                    encodedImage=data.substring(comma+1);
+                }else{
+                    throw new IllegalArgumentException("file_must_be_base64_data_url");
+                }
+                if(!("application/pdf".equals(mime) ||
+                    "text/plain".equals(mime) ||
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(mime)))
+                    throw new IllegalArgumentException("unsupported_file_mime");
             } else throw new IllegalArgumentException("unsupported_content_part");
         }
         if(!seenImage)return null;
-        if(root.optBoolean("stream",false))
-            throw new IllegalArgumentException("attachment_streaming_not_supported");
-        byte[] image=Base64.decode(encodedImage,Base64.DEFAULT);
+        byte[] image;
+        try{image=Base64.decode(encodedImage,Base64.DEFAULT);}
+        catch(IllegalArgumentException bad){throw new IllegalArgumentException("attachment_base64_invalid");}
         if(image.length==0 || image.length>MAX_IMAGE_BYTES)
-            throw new IllegalArgumentException("image_size_out_of_range");
+            throw new IllegalArgumentException("attachment_size_out_of_range");
+        if("application/pdf".equals(mime) &&
+            (image.length<5 || image[0]!='%' || image[1]!='P' ||
+             image[2]!='D' || image[3]!='F' || image[4]!='-'))
+            throw new IllegalArgumentException("pdf_header_invalid");
+        if("image/png".equals(mime) &&
+            (image.length<8 || (image[0]&0xff)!=137 || image[1]!=80 ||
+             image[2]!=78 || image[3]!=71))
+            throw new IllegalArgumentException("png_header_invalid");
+        if("image/jpeg".equals(mime) &&
+            (image.length<3 || (image[0]&0xff)!=255 || (image[1]&0xff)!=216))
+            throw new IllegalArgumentException("jpeg_header_invalid");
+        if("image/webp".equals(mime) &&
+            (image.length<12 || image[0]!='R' || image[1]!='I' ||
+             image[2]!='F' || image[3]!='F'))
+            throw new IllegalArgumentException("webp_header_invalid");
         String id=UUID.randomUUID().toString();
-        String filename="attachment."+
-            ("image/jpeg".equals(mime)?"jpg":"image/webp".equals(mime)?"webp":"png");
         JSONObject attachment=new JSONObject()
             .put("id",id).put("name",filename).put("mime",mime)
             .put("current",true)
@@ -132,8 +182,9 @@ public final class AttachmentApiBridge {
         String wrap=START+Base64.encodeToString(
             inner.toString().getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP)+END;
         last.put("content",wrap);
+        root.put("stream",false);
         byte[] body=root.toString().getBytes(StandardCharsets.UTF_8);
-        return new Prepared(body,id,model);
+        return new Prepared(body,id,model,wantedStream);
     }
 
     private static boolean validId(String id){
