@@ -210,6 +210,30 @@ public final class SidecarProxyServer {
                 return;
             }
 
+            // Independently routed official Claude API. It does NOT impersonate
+            // claude.ai or share the original Gecko driver. Never expose the
+            // caller's Anthropic credential through the public relay path.
+            if("POST".equals(request.method) &&
+               "/v1/chat/completions".equals(request.path) &&
+               ClaudeDirectAdapter.isClaude(request.body)) {
+                if(publicRequest){
+                    writeJson(out,403,new JSONObject()
+                        .put("error","claude_public_relay_disabled")
+                        .put("message","Claude API calls are local-only"));
+                    return;
+                }
+                ClaudeDirectAdapter.Result answer=ClaudeDirectAdapter.invoke(
+                    request.body,cleanHeader(request.headers.get("authorization")));
+                boolean stream=false;
+                try{stream=new JSONObject(new String(request.body,
+                    StandardCharsets.UTF_8)).optBoolean("stream",false);}
+                catch(Exception ignored){}
+                if(stream && answer.status==200)
+                    writeVerifiedAttachmentSse(out,answer.json);
+                else writeJson(out,answer.status,answer.json);
+                return;
+            }
+
             if (OriginalCoreBridge.isPortConflicted()) {
                 writeJson(out, 409, new JSONObject()
                     .put("error", "native_proxy_port_conflict")
