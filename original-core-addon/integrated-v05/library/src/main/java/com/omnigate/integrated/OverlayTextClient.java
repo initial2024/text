@@ -135,20 +135,25 @@ public final class OverlayTextClient {
                 InputStream upstreamBody = code >= 400
                     ? connection.getErrorStream() : connection.getInputStream();
                 ByteArrayOutputStream raw = new ByteArrayOutputStream();
+                boolean oversized = false;
                 if (upstreamBody != null) {
                     try (InputStream in = upstreamBody) {
                         byte[] buf = new byte[4096];
                         int n;
                         while ((n=in.read(buf))!=-1) {
-                            if (raw.size() < 65536)
-                                raw.write(buf, 0, Math.min(n, 65536 - raw.size()));
-                            // Continue draining the upstream even beyond displayed length.
-                            // This process never clicks provider Stop on disconnect.
+                            if (raw.size() + n <= 2 * 1024 * 1024)
+                                raw.write(buf, 0, n);
+                            else oversized = true;
+                            // Always drain the original reply, even if too large
+                            // to retain. Never report a silently clipped answer.
                         }
                     }
                 }
                 String rawText = new String(raw.toByteArray(), StandardCharsets.UTF_8);
-                if (code != 200) {
+                if (oversized) {
+                    report("上游响应超过 2 MiB，已完整读取但未缓存；"+
+                        "不能把截断片段冒充完整模型回复", "", code, false);
+                } else if (code != 200) {
                     String detail = rawText.length() > 350
                         ? rawText.substring(0,350) : rawText;
                     report("HTTP " + code + "：未收到有效模型回复。" +
@@ -167,8 +172,9 @@ public final class OverlayTextClient {
                         report("HTTP 200，但没有可用的文本内容；不计为通过",
                             rawText.substring(0,Math.min(350,rawText.length())),code,false);
                     } else {
-                        report("HTTP 200 · 已收到模型文本（" + model + "）",
-                            answer.substring(0,Math.min(answer.length(),8000)), code, true);
+                        report("HTTP 200 · 已读取完整上游 JSON 文本（" + model +
+                            "，"+answer.length()+" 字符；最终生成完成度仍以原版回执为准）",
+                            answer, code, true);
                     }
                 }
             } catch (Exception ex) {
