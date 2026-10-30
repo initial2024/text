@@ -510,6 +510,20 @@ public final class SidecarProxyServer {
                     ? upstream.getErrorStream()
                     : upstream.getInputStream();
 
+            // The original native core may return a completed JSON object
+            // even when the OpenAI-compatible client asked for stream:true.
+            // Passing that JSON to an SSE parser yields a UI-level "no reply".
+            // Convert only a VERIFIED completed JSON message, including any
+            // tool calls, into well-formed Chat Completions SSE events.
+            if (upstreamBody != null && statusCode == 200 &&
+                "POST".equals(request.method) &&
+                "/v1/chat/completions".equals(request.path) &&
+                isStreamingChatRequest(request) &&
+                isJsonResponse(responseHeaders)) {
+                proxyCompletedJsonAsSse(upstreamBody, clientOut);
+                return;
+            }
+
             // Streaming replies can have an artificial "ChatGPT 说：" label
             // split across SSE delta frames. Remove ONLY that leading label.
             // Never change reasoning, tool calls, later content or stream timing
@@ -879,6 +893,90 @@ public final class SidecarProxyServer {
         }
         if(clientOpen)try{writeFinalChunk(clientOut);}
         catch(IOException ignored){}
+    }
+
+    /**
+     * A non-streaming original response must not be sent as raw JSON to
+     * a stream:true Minis/DSH client. Read the real upstream response first;
+     * never invent text, a tool call, or a premature [DONE].
+     * Limit retained content and drain oversize responses to EOF.
+     */
+    private void proxyCompletedJsonAsSse(InputStream upstream,
+            BufferedOutputStream downstream) throws IOException {
+        ByteArrayOutputStream captured=new ByteArrayOutputStream();
+        byte[] buf=new byte[8192];int n;boolean oversized=false;
+        while((n=upstream.read(buf))!=-1){
+            if(n<=0)continue;
+            if(captured.size()+n>2*1024*1024)oversized=true;
+            if(!oversized)captured.write(buf,0,n);
+        }
+        if(oversized){
+            writeJson(downstream,502,new JSONObject()
+                .put("error",new JSONObject().put("type","omnigate_upstream_error")
+                    .put("code","original_json_reply_exceeds_safe_limit")));
+            return;
+        }
+        JSONObject completed;
+        try {
+            completed=new JSONObject(new String(captured.toByteArray(),
+                StandardCharsets.UTF_8));
+        }catch(Exception malformed){
+            writeJson(downstream,502,new JSONObject()
+                .put("error",new JSONObject().put("type","omnigate_upstream_error")
+                    .put("code","original_json_reply_invalid")));
+            return;
+        }
+        JSONArray choices=completed.optJSONArray("choices");
+        JSONObject choice=choices==null?null:choices.optJSONObject(0);
+        JSONObject message=choice==null?null:choice.optJSONObject("message");
+        Object content=message==null?null:message.opt("content");
+        JSONArray calls=message==null?null:message.optJSONArray("tool_calls");
+        if((!(content instanceof String) ||
+            ((String)content).trim().isEmpty()) &&
+            (calls==null||calls.length()==0)){
+            writeJson(downstream,502,new JSONObject()
+                .put("error",new JSONObject().put("type","omnigate_upstream_error")
+                    .put("code","original_json_no_assistant_content")
+                    .put("message","The original API returned no assistant text or tool calls.")));
+            return;
+        }
+        String id=completed.optString("id","chatcmpl-omnigate-completed");
+        String model=completed.optString("model","chatgpt-web");
+        long created=completed.optLong("created",System.currentTimeMillis()/1000L);
+        String reason=choice.optString("finish_reason","stop");
+        if(!("stop".equals(reason)||"length".equals(reason)||
+            "tool_calls".equals(reason)))reason="stop";
+        Map<String,String> headers=new LinkedHashMap<>();
+        headers.put("Content-Type","text/event-stream; charset=utf-8");
+        headers.put("Cache-Control","no-cache");
+        headers.put("X-OmniGate-Stream-Mode","completed-original-json-adapted");
+        writeChunkedResponseHead(downstream,200,headers);
+
+        JSONObject firstDelta=new JSONObject().put("role","assistant");
+        if(content instanceof String && !((String)content).isEmpty()){
+            firstDelta.put("content",TitleCompat.stripSpeakerPrefix((String)content));
+        }
+        if(calls!=null && calls.length()>0) {
+            // OpenAI permits tool_calls deltas with function names/arguments.
+            // They are copied verbatim; never synthesize a tool invocation.
+            firstDelta.put("tool_calls",calls);
+        }
+        JSONObject first=new JSONObject()
+            .put("id",id).put("object","chat.completion.chunk")
+            .put("created",created).put("model",model)
+            .put("choices",new JSONArray().put(new JSONObject()
+                .put("index",0).put("delta",firstDelta)
+                .put("finish_reason",JSONObject.NULL)));
+        writeSseData(downstream,first.toString());
+        JSONObject finalChunk=new JSONObject()
+            .put("id",id).put("object","chat.completion.chunk")
+            .put("created",created).put("model",model)
+            .put("choices",new JSONArray().put(new JSONObject()
+                .put("index",0).put("delta",new JSONObject())
+                .put("finish_reason",reason)));
+        writeSseData(downstream,finalChunk.toString());
+        writeSseData(downstream,"[DONE]");
+        writeFinalChunk(downstream);
     }
 
     private static boolean isNonStreamingChatRequest(Request request){
