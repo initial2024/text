@@ -39,6 +39,7 @@ public final class CompatBootstrapProvider extends ContentProvider {
                     }
                     if(!isOriginalUi(a))return;
                     a.runOnUiThread(()->{
+                        LegacyUiSkin.apply(a);
                         ApiQuickPanel.show(a);
                         if("com.deepseek2.app.ui.MainActivity".equals(a.getClass().getName())) {
                             OriginalCoreBridge.onOriginalMainResumed(a);
