@@ -63,6 +63,14 @@ public final class SidecarProxyServer {
         volatile int nativeSseReadChunks=0;
         volatile int nativeSseWrittenChunks=0;
         volatile long nativeSseBytesRead=0;
+        // Only aggregate counts/times. Never expose SSE data, prompts or text.
+        volatile int nativeSseDataEvents=0;
+        volatile int nativeSseContentEvents=0;
+        volatile long nativeSseFirstContentMs=-1;
+        volatile long nativeSseLastContentMs=-1;
+        volatile long nativeSseDoneMs=-1;
+        volatile int nativeSseControlEvents=0;
+        volatile int nativeSseUnparsedEvents=0;
         JSONObject snapshot() throws org.json.JSONException {
             return new JSONObject().put("id",id).put("stage",stage)
                 .put("upstreamKind",upstreamKind)
@@ -77,6 +85,13 @@ public final class SidecarProxyServer {
                 .put("nativeSseReadChunks",nativeSseReadChunks)
                 .put("nativeSseWrittenChunks",nativeSseWrittenChunks)
                 .put("nativeSseBytesRead",nativeSseBytesRead)
+                .put("nativeSseDataEvents",nativeSseDataEvents)
+                .put("nativeSseContentEvents",nativeSseContentEvents)
+                .put("nativeSseFirstContentMs",nativeSseFirstContentMs)
+                .put("nativeSseLastContentMs",nativeSseLastContentMs)
+                .put("nativeSseDoneMs",nativeSseDoneMs)
+                .put("nativeSseControlEvents",nativeSseControlEvents)
+                .put("nativeSseUnparsedEvents",nativeSseUnparsedEvents)
                 .put("ageMs",Math.max(0,
                     android.os.SystemClock.elapsedRealtime()-started));
         }
@@ -945,10 +960,74 @@ public final class SidecarProxyServer {
                 model.startsWith("deepseek-chat-");
         }catch(Exception ignored){return false;}
     }
+    /** Passive, bounded SSE delta timing probe. Observes the bytes BEFORE they
+     * are forwarded but never mutates, buffers transport, or logs content.
+     * A line can span native socket reads; no unbounded accumulation.
+     */
+    private static final class NativeSseContentProbe {
+        private final ByteArrayOutputStream line=new ByteArrayOutputStream();
+        private boolean oversizeLine=false;
+        private final ProxyTrace tr;
+        NativeSseContentProbe(ProxyTrace trace){this.tr=trace;}
+        void observe(byte[] bytes,int count){
+            if(tr==null||bytes==null)return;
+            for(int i=0;i<count;i++){
+                int ch=bytes[i]&255;
+                if(ch==10){
+                    if(!oversizeLine)consume(line.toByteArray());
+                    else tr.nativeSseUnparsedEvents++;
+                    line.reset();oversizeLine=false;
+                }else if(!oversizeLine){
+                    if(line.size()<32*1024)line.write(ch);
+                    else{oversizeLine=true;line.reset();}
+                }
+            }
+        }
+        private void consume(byte[] raw){
+            if(raw.length<5)return;
+            String data=new String(raw,StandardCharsets.UTF_8).trim();
+            if(!data.startsWith("data:"))return;
+            tr.nativeSseDataEvents++;
+            data=data.substring(5).trim();
+            long at=Math.max(0,
+                android.os.SystemClock.elapsedRealtime()-tr.started);
+            if("[DONE]".equals(data)){
+                tr.nativeSseDoneMs=at;
+                return;
+            }
+            if(data.isEmpty()){tr.nativeSseControlEvents++;return;}
+            try{
+                JSONObject event=new JSONObject(data);
+                JSONArray choices=event.optJSONArray("choices");
+                JSONObject choice=choices==null?null:choices.optJSONObject(0);
+                JSONObject delta=choice==null?null:choice.optJSONObject("delta");
+                // A role, heartbeat, reasoning delta, usage or metadata is
+                // not visible answer content.
+                Object content=delta==null?null:delta.opt("content");
+                boolean hasText=(content instanceof String &&
+                    !((String)content).isEmpty()) ||
+                    (content instanceof JSONArray &&
+                    ((JSONArray)content).length()>0);
+                if(hasText){
+                    tr.nativeSseContentEvents++;
+                    if(tr.nativeSseFirstContentMs<0)
+                        tr.nativeSseFirstContentMs=at;
+                    tr.nativeSseLastContentMs=at;
+                }else{
+                    tr.nativeSseControlEvents++;
+                }
+            }catch(Exception unparsable){
+                // No payload or schema is included in diagnostics.
+                tr.nativeSseUnparsedEvents++;
+            }
+        }
+    }
+
     private void proxyDirectNativeSse(InputStream upstream,
             BufferedOutputStream downstream,Map<String,String> headers)
             throws IOException,org.json.JSONException {
         ProxyTrace tr=CURRENT_TRACE.get();
+        NativeSseContentProbe probe=new NativeSseContentProbe(tr);
         byte[] buffer=new byte[8192];
         boolean downstreamOpen=true;
         // Delay the 200 header until the native side actually gives us data:
@@ -973,6 +1052,7 @@ public final class SidecarProxyServer {
             tr.nativeSseBytesRead+=first;
             tr.stage="native_sse_first_data";
         }
+        probe.observe(buffer,first);
         try{
             writeChunkedResponseHead(downstream,200,headers);
             writeChunk(downstream,buffer,first);
@@ -989,6 +1069,7 @@ public final class SidecarProxyServer {
                 tr.nativeSseReadChunks++;
                 tr.nativeSseBytesRead+=n;
             }
+            probe.observe(buffer,n);
             if(downstreamOpen){
                 try{
                     writeChunk(downstream,buffer,n);
