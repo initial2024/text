@@ -5,4 +5,9 @@ android {
     defaultConfig { minSdk 26 }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
-dependencies { implementation 'com.squareup.okhttp3:okhttp:4.12.0' }
+dependencies {
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // Factory supertype already exists in the original APK DEX. Never bundle
+    // a duplicate AndroidX core class into the compatibility classes4.dex.
+    compileOnly 'androidx.core:core:1.13.1'
+}
