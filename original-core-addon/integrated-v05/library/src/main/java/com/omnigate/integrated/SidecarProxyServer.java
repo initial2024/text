@@ -34,6 +34,52 @@ public final class SidecarProxyServer {
     }
 
     private final ExecutorService pool = Executors.newCachedThreadPool();
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_TRACE =
+        new java.util.concurrent.atomic.AtomicLong();
+    private static final ThreadLocal<ProxyTrace> CURRENT_TRACE=new ThreadLocal<>();
+    private static volatile ProxyTrace LAST_TRACE;
+
+    /** Debug metadata only: no prompts, file names, tokens or response text. */
+    private static final class ProxyTrace {
+        final long id=NEXT_TRACE.incrementAndGet();
+        final long started=android.os.SystemClock.elapsedRealtime();
+        volatile String stage="request_received", upstreamKind="unknown",
+            responseMode="not_sent", error="none";
+        volatile int upstreamCode=-1, downstreamCode=-1;
+        volatile boolean clientStream;
+        JSONObject snapshot(){
+            return new JSONObject().put("id",id).put("stage",stage)
+                .put("upstreamKind",upstreamKind)
+                .put("responseMode",responseMode).put("error",error)
+                .put("upstreamHttp",upstreamCode).put("downstreamHttp",downstreamCode)
+                .put("clientRequestedStream",clientStream)
+                .put("ageMs",Math.max(0,
+                    android.os.SystemClock.elapsedRealtime()-started));
+        }
+    }
+    private static final class TrackedOutput extends BufferedOutputStream {
+        private long logicalBytes;
+        TrackedOutput(OutputStream raw){super(raw);}
+        @Override public synchronized void write(int b)throws IOException{
+            super.write(b);logicalBytes++;
+        }
+        @Override public synchronized void write(byte[] b,int off,int len)throws IOException{
+            super.write(b,off,len);logicalBytes+=len;
+        }
+        boolean started(){return logicalBytes>0;}
+    }
+    private static void traceStage(String stage){
+        ProxyTrace t=CURRENT_TRACE.get();if(t!=null)t.stage=stage;
+    }
+    private static void traceDownstream(int code,String mode){
+        ProxyTrace t=CURRENT_TRACE.get();
+        if(t!=null){t.downstreamCode=code;t.responseMode=mode;t.stage="response_started";}
+    }
+    private static JSONObject lastProxyTrace(){
+        ProxyTrace t=LAST_TRACE;
+        return t==null?new JSONObject().put("stage","none"):t.snapshot();
+    }
+
     private final StatusListener listener;
     private volatile boolean running;
     private volatile ServerSocket serverSocket;
@@ -114,10 +160,17 @@ public final class SidecarProxyServer {
     private void handle(Socket socket) {
         try (Socket client = socket;
              BufferedInputStream in = new BufferedInputStream(client.getInputStream());
-             BufferedOutputStream out = new BufferedOutputStream(client.getOutputStream())) {
+             TrackedOutput out = new TrackedOutput(client.getOutputStream())) {
 
             Request request = readRequest(in);
             if (request == null) return;
+            if("POST".equals(request.method) &&
+                "/v1/chat/completions".equals(request.path)){
+                ProxyTrace trace=new ProxyTrace();
+                trace.clientStream=isStreamingChatRequest(request);
+                LAST_TRACE=trace;
+                CURRENT_TRACE.set(trace);
+            }
 
             if ("GET".equals(request.method)
                     && ("/health".equals(request.path)
@@ -136,6 +189,7 @@ public final class SidecarProxyServer {
                         .put("originalOwnerAlive", OriginalCoreBridge.originalHostAlive())
                         .put("lastAttachmentClientShape", AttachmentApiBridge.lastAttachmentShape())
                         .put("lastAttachmentClientPhase", AttachmentApiBridge.lastAttachmentPhase())
+                        .put("lastProxyRequest",lastProxyTrace())
                         .put("originalServerRunning", OriginalCoreBridge.nativeOwnerRunning())
                         .put("originalLifecycle", OriginalCoreBridge.nativeLifecycleState())
                         .put("observedRuntimeRoute",
@@ -431,7 +485,28 @@ public final class SidecarProxyServer {
             }
             proxyToFrozenCore(request, out, titleRequest);
         } catch (Throwable e) {
+            ProxyTrace trace=CURRENT_TRACE.get();
+            if(trace!=null){
+                trace.error=e.getClass().getSimpleName();
+                trace.stage="transport_exception";
+            }
             status("Sidecar 请求异常 · " + shortError(e));
+            // Previously an exception before the first HTTP header could
+            // silently close the socket, producing DSH [0] no reply.
+            // Never write a second response if bytes have already started.
+            try{
+                if(!out.started()){
+                    writeJson(out,502,new JSONObject().put("error",
+                        new JSONObject().put("type","omnigate_transport_error")
+                            .put("code","native_response_transport_failed")
+                            .put("cause",e.getClass().getSimpleName())));
+                }
+            }catch(Throwable ignored){}
+        } finally {
+            ProxyTrace trace=CURRENT_TRACE.get();
+            if(trace!=null && "response_started".equals(trace.stage))
+                trace.stage="response_returned";
+            CURRENT_TRACE.remove();
         }
     }
 
@@ -489,7 +564,10 @@ public final class SidecarProxyServer {
                 }
             }
 
+            traceStage("waiting_native_response_headers");
             int statusCode = upstream.getResponseCode();
+            ProxyTrace trace=CURRENT_TRACE.get();
+            if(trace!=null)trace.upstreamCode=statusCode;
             Map<String, String> responseHeaders = new LinkedHashMap<>();
             for (Map.Entry<String, java.util.List<String>> e
                     : upstream.getHeaderFields().entrySet()) {
@@ -509,6 +587,11 @@ public final class SidecarProxyServer {
             upstreamBody = statusCode >= 400
                     ? upstream.getErrorStream()
                     : upstream.getInputStream();
+            if(trace!=null){
+                trace.upstreamKind=isPlainSseResponse(responseHeaders)?
+                    "sse":isJsonResponse(responseHeaders)?"json":"other";
+                trace.stage="upstream_headers_received";
+            }
 
             // The original native core may return a completed JSON object
             // even when the OpenAI-compatible client asked for stream:true.
@@ -1077,6 +1160,7 @@ public final class SidecarProxyServer {
             BufferedOutputStream out,
             int status,
             JSONObject body) throws IOException {
+        traceDownstream(status,"json");
         byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
 
         String head = "HTTP/1.1 "
@@ -1153,6 +1237,8 @@ public final class SidecarProxyServer {
             BufferedOutputStream out,
             int status,
             Map<String, String> headers) throws IOException {
+        boolean sse=isPlainSseResponse(headers);
+        traceDownstream(status,sse?"sse":"chunked");
         StringBuilder head = new StringBuilder();
         head.append("HTTP/1.1 ")
                 .append(status)
