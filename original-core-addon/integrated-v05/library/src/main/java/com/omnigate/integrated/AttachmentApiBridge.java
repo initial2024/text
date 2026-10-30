@@ -153,11 +153,10 @@ public final class AttachmentApiBridge {
         String baseline=null;
         boolean submitted=false;
         try {
-            JSONObject owner=OriginalCoreBridge.diagnoseVisibleHostSocket();
-            if(!owner.optBoolean("visibleHostOwnsPort",false) ||
-                    !"same".equals(owner.optString("webDriverIdentity","")))
-                return failure(409,"visible_native_driver_not_verified",false,"not_submitted");
-            baseline=OriginalCoreBridge.inspectNativeAnswerForUserRequest().optString("answer","");
+            JSONObject owner=OriginalCoreBridge.diagnoseActiveNativeOwner();
+            if(!owner.optBoolean("verified",false))
+                return failure(409,"native_api_driver_not_verified",false,"not_submitted");
+            baseline=OriginalCoreBridge.inspectVerifiedApiAnswer().optString("answer","");
             URL url=new URL("http://127.0.0.1:"+OriginalCoreBridge.configuredPort()
                 +"/v1/chat/completions");
             c=(HttpURLConnection)url.openConnection();
@@ -253,6 +252,15 @@ public final class AttachmentApiBridge {
             return failure(502,"recovery_response_encoding_failed",true,"unverified_no_retry");
         }
     }
+    private static String safeBrowserPhase(String field){
+        try{
+            JSONObject owner=OriginalCoreBridge.diagnoseActiveNativeOwner();
+            if(!owner.optBoolean("verified",false))return "owner_not_verified";
+            String value=OriginalCoreBridge.diagnoseVerifiedApiPage()
+                .optString(field,"unknown");
+            return value.matches("[A-Za-z0-9_-]{1,96}")?value:"redacted";
+        }catch(Throwable ex){return "diagnostic_unavailable";}
+    }
     private static Result failure(int code,String error,boolean maybeSent,String stage){
         try {
         JSONObject result=new JSONObject().put("error",new JSONObject()
@@ -261,7 +269,9 @@ public final class AttachmentApiBridge {
             .put("message","Attachment result not confirmed; do not automatically retry"))
             .put("omnigate",new JSONObject()
                 .put("possible_provider_submission",maybeSent)
-                .put("recovery_stage",stage));
+                .put("recovery_stage",stage)
+                .put("attachment_browser_phase",safeBrowserPhase("attachmentSendPhase"))
+                .put("attachment_browser_evidence",safeBrowserPhase("attachmentSendEvidence")));
         return new Result(code,result);
         } catch(Exception invalidJson) {
             return new Result(code,new JSONObject());
