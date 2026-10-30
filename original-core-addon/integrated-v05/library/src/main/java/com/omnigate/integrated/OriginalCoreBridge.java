@@ -465,6 +465,124 @@ public final class OriginalCoreBridge {
         }catch(Throwable ignored){return false;}
     }
 
+    /**
+     * The captured OverlayService is only a candidate until its ORIGINAL
+     * ApiServer socket and WebDriver have been verified. Static isRunning
+     * alone is never an ownership proof.
+     */
+    public static JSONObject diagnoseOriginalOverlayOwner() {
+        JSONObject out = new JSONObject();
+        try {
+            android.app.Service overlay = OmniGateComponentFactory.capturedOverlay();
+            out.put("capturedInstance", overlay != null)
+                .put("instanceEpoch", OmniGateComponentFactory.overlayEpoch())
+                .put("originalOverlayActive", originalOverlayActive());
+            if (overlay == null || !originalOverlayActive()) {
+                out.put("verified", false).put("reason",
+                    overlay == null ? "overlay_instance_not_captured" :
+                    "overlay_service_not_running");
+                return out;
+            }
+            if (!"com.deepseek2.app.ui.OverlayService".equals(
+                    overlay.getClass().getName())) {
+                out.put("verified", false).put("reason",
+                    "incorrect_service_class");
+                return out;
+            }
+            Class<?> klass = overlay.getClass();
+            Field serverField = klass.getDeclaredField("server");
+            Field driverField = klass.getDeclaredField("driver");
+            Field stoppedField = klass.getDeclaredField("runtimeStopped");
+            serverField.setAccessible(true);
+            driverField.setAccessible(true);
+            stoppedField.setAccessible(true);
+            Object server = serverField.get(overlay);
+            Object driver = driverField.get(overlay);
+            boolean stopped = stoppedField.getBoolean(overlay);
+            out.put("runtimeStopped", stopped);
+            if (server == null || driver == null || stopped) {
+                out.put("verified", false).put("reason",
+                    stopped ? "overlay_runtime_stopped" :
+                    server == null ? "overlay_api_server_null" :
+                    "overlay_webdriver_null");
+                return out;
+            }
+            Field serverDriverField = server.getClass().getDeclaredField("driver");
+            Field socketField = server.getClass().getDeclaredField("serverSocket");
+            Field portField = server.getClass().getDeclaredField("port");
+            serverDriverField.setAccessible(true);
+            socketField.setAccessible(true);
+            portField.setAccessible(true);
+            boolean sameDriver = serverDriverField.get(server) == driver;
+            Object socketObj = socketField.get(server);
+            int declaredPort = portField.getInt(server);
+            boolean running = Boolean.TRUE.equals(
+                server.getClass().getMethod("isRunning").invoke(server));
+            boolean socketOk = false;
+            String scope = "none";
+            int boundPort = -1;
+            if (socketObj instanceof java.net.ServerSocket) {
+                java.net.ServerSocket socket =
+                    (java.net.ServerSocket) socketObj;
+                if (socket.isBound() && !socket.isClosed()) {
+                    java.net.InetAddress address = socket.getInetAddress();
+                    scope = address == null ? "unknown" :
+                        address.isAnyLocalAddress() ? "wildcard" :
+                        address.isLoopbackAddress() ? "loopback" :
+                        "other_interface";
+                    boundPort = socket.getLocalPort();
+                    socketOk = address != null &&
+                        (address.isAnyLocalAddress() || address.isLoopbackAddress()) &&
+                        boundPort == configuredPort() &&
+                        declaredPort == boundPort;
+                }
+            }
+            boolean valid = running && sameDriver && socketOk;
+            out.put("verified", valid)
+                .put("reason", valid ? "overlay_socket_and_driver_match" :
+                    "overlay_socket_or_driver_not_verified")
+                .put("serverRunning", running)
+                .put("driverIdentity", sameDriver ? "same" : "different")
+                .put("boundPort", boundPort)
+                .put("serverDeclaredPort", declaredPort)
+                .put("socketScope", scope);
+        } catch (Throwable t) {
+            try {
+                out.put("verified", false).put("reason",
+                    "overlay_inspection_failed_" + t.getClass().getSimpleName());
+            } catch (org.json.JSONException ignored) {}
+        }
+        return out;
+    }
+
+    /** MainActivity or OverlayService may legitimately own the configured
+     * native port, but only one verified owner may serve an API request.
+     * Unknown or stale service objects always fail closed.
+     */
+    public static JSONObject diagnoseActiveNativeOwner() {
+        JSONObject main = diagnoseVisibleHostSocket();
+        String route = observedRouteState(main);
+        JSONObject overlay = diagnoseOriginalOverlayOwner();
+        JSONObject result = new JSONObject();
+        try {
+            boolean mainVerified = "main_socket_and_driver_match".equals(route);
+            boolean overlayVerified = overlay.optBoolean("verified", false);
+            // A duplicate-verified state would imply ambiguous ownership;
+            // never choose a service based on registration recency alone.
+            boolean ambiguous = mainVerified && overlayVerified;
+            result.put("verified", (mainVerified ^ overlayVerified))
+                .put("ambiguousOwners", ambiguous)
+                .put("route", ambiguous ? "ambiguous_native_owners" :
+                    mainVerified ? "main_socket_and_driver_match" :
+                    overlayVerified ? "overlay_socket_and_driver_match" :
+                    route)
+                .put("ownerKind", ambiguous ? "ambiguous" :
+                    mainVerified ? "main" : overlayVerified ? "overlay" : "unknown")
+                .put("overlayOwner", overlay);
+        } catch (org.json.JSONException ignored) {}
+        return result;
+    }
+
     private static boolean listeningAt(int port) {
         try(Socket s=new Socket()){
             s.connect(new InetSocketAddress(
