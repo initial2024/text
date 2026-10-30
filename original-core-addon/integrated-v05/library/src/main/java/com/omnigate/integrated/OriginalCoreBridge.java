@@ -211,6 +211,73 @@ public final class OriginalCoreBridge {
         }
     }
 
+    /**
+     * Return the ORIGINAL WebDriver of exactly the currently verified socket
+     * owner, including the live OverlayService. Never select an owner solely
+     * because its isRunning flag is true or its port responds to TCP.
+     */
+    private static Object verifiedApiDriver() throws Exception {
+        JSONObject route = diagnoseActiveNativeOwner();
+        if (!route.optBoolean("verified", false))
+            throw new IllegalStateException("native_runtime_owner_not_verified");
+        String kind=route.optString("ownerKind","");
+        Object host;
+        if ("main".equals(kind)) {
+            Activity main=originalMain.get();
+            if(main==null || main.isDestroyed() || main.isFinishing())
+                throw new IllegalStateException("verified_main_lost");
+            host=main;
+        } else if ("overlay".equals(kind)) {
+            host=OmniGateComponentFactory.capturedOverlay();
+            if(host==null)
+                throw new IllegalStateException("verified_overlay_lost");
+        } else throw new IllegalStateException("ambiguous_native_owner");
+
+        Field serverField=host.getClass().getDeclaredField("server");
+        Field driverField=host.getClass().getDeclaredField("driver");
+        serverField.setAccessible(true);driverField.setAccessible(true);
+        Object server=serverField.get(host),driver=driverField.get(host);
+        if(server==null || driver==null)
+            throw new IllegalStateException("verified_owner_runtime_lost");
+        Field serverDriver=server.getClass().getDeclaredField("driver");
+        serverDriver.setAccessible(true);
+        if(serverDriver.get(server)!=driver)
+            throw new IllegalStateException("verified_owner_driver_changed");
+        // Re-check the *actual* owner after reflection. If ownership
+        // changed between snapshots, never read another session's answer.
+        JSONObject refreshed=diagnoseActiveNativeOwner();
+        if(!refreshed.optBoolean("verified",false)
+            || !kind.equals(refreshed.optString("ownerKind","")))
+            throw new IllegalStateException("native_owner_changed_during_read");
+        return driver;
+    }
+
+    /** Read-only, redacted Gecko diagnostics from the verified API owner. */
+    public static JSONObject diagnoseVerifiedApiPage() throws Exception {
+        Object driver=verifiedApiDriver();
+        Object value=driver.getClass().getMethod("diagnose").invoke(driver);
+        if(!(value instanceof JSONObject))
+            throw new IllegalStateException("verified_gecko_diagnosis_missing");
+        return (JSONObject)value;
+    }
+
+    /** Scope attachment recovery to the same driver that actually owns
+     * the native API. Never return model content to a public /health call.
+     */
+    public static JSONObject inspectVerifiedApiAnswer() throws Exception {
+        Object driver=verifiedApiDriver();
+        Method read=driver.getClass().getDeclaredMethod("readPageState");
+        read.setAccessible(true);
+        Object state=read.invoke(driver);
+        if(state==null)throw new IllegalStateException("verified_page_state_missing");
+        Class<?> cls=state.getClass();
+        Object raw=cls.getMethod("getAnswer").invoke(state);
+        return new JSONObject()
+            .put("answer",raw instanceof String?(String)raw:"")
+            .put("generating",cls.getMethod("getGenerating").invoke(state))
+            .put("generation",cls.getMethod("getGeneration").invoke(state));
+    }
+
     /** Read only. Caller must run on a worker thread, not the UI thread.
      * The original WebDriver.diagnose() requests the built-in Gecko bridge
      * "diagnose" operation. Do NOT log page text, cookies or chat history.
