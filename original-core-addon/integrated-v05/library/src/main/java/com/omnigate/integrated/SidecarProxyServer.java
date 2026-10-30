@@ -1230,65 +1230,111 @@ public final class SidecarProxyServer {
     }
 
     private void proxyDirectNativeSse(InputStream upstream,
-            BufferedOutputStream downstream,Map<String,String> headers)
+            BufferedOutputStream downstream,Map<String,String> headers,
+            NativeEmptyAnchor anchor)
             throws IOException,org.json.JSONException {
         ProxyTrace tr=CURRENT_TRACE.get();
         NativeSseContentProbe probe=new NativeSseContentProbe(tr);
         byte[] buffer=new byte[8192];
-        boolean downstreamOpen=true;
-        // Delay the 200 header until the native side actually gives us data:
-        // an empty "successful" event stream is not a successful chat reply.
-        int first;
-        do {
-            traceStage("native_sse_waiting_first_data");
-            first=upstream.read(buffer);
-        } while(first==0);
-        if(first<0){
-            if(tr!=null)tr.error="native_sse_empty";
-            writeJson(downstream,502,new JSONObject()
-                .put("error",new JSONObject()
-                    .put("type","omnigate_native_stream_error")
-                    .put("code","native_sse_empty")));
-            return;
-        }
-        if(tr!=null){
-            tr.nativeSseFirstReadMs=Math.max(0,
-                android.os.SystemClock.elapsedRealtime()-tr.started);
-            tr.nativeSseReadChunks++;
-            tr.nativeSseBytesRead+=first;
-            tr.stage="native_sse_first_data";
-        }
-        probe.observe(buffer,first);
-        try{
-            writeChunkedResponseHead(downstream,200,headers);
-            writeChunk(downstream,buffer,first);
-            if(tr!=null){
-                tr.nativeSseFirstWriteMs=Math.max(0,
-                    android.os.SystemClock.elapsedRealtime()-tr.started);
-                tr.nativeSseWrittenChunks++;
-            }
-        }catch(IOException closed){downstreamOpen=false;}
+        ByteArrayOutputStream awaitingFirstContent=new ByteArrayOutputStream();
+        boolean downstreamOpen=true,rawForwarding=false;
+        boolean headersSent=false;
+        // Before first meaningful delta, hold the native stop/[DONE] frames.
+        // The original API can terminate empty after ~10 s while the actual
+        // verified browser is still generating. This must NOT signal success.
         int n;
         while((n=upstream.read(buffer))!=-1){
             if(n<=0)continue;
             if(tr!=null){
+                if(tr.nativeSseFirstReadMs<0)
+                    tr.nativeSseFirstReadMs=Math.max(0,
+                        android.os.SystemClock.elapsedRealtime()-tr.started);
                 tr.nativeSseReadChunks++;
                 tr.nativeSseBytesRead+=n;
             }
             probe.observe(buffer,n);
-            if(downstreamOpen){
-                try{
+            if(!headersSent){
+                writeChunkedResponseHead(downstream,200,headers);
+                headersSent=true;
+                // SSE comments are protocol keepalives, not model tokens.
+                byte[] keepalive=": omnigate-native-sse-started\n\n"
+                    .getBytes(StandardCharsets.UTF_8);
+                try{writeChunk(downstream,keepalive,keepalive.length);}
+                catch(IOException closed){downstreamOpen=false;}
+            }
+            if(rawForwarding){
+                if(downstreamOpen)try{
                     writeChunk(downstream,buffer,n);
                     if(tr!=null)tr.nativeSseWrittenChunks++;
                 }catch(IOException closed){downstreamOpen=false;}
+                continue;
             }
-            // Always drain to natural EOF. Never cancel model generation
-            // because the user minimized the UI or the client disconnected.
+            // This pending area only contains native pre-answer SSE events.
+            // Normal streams begin forwarding immediately on first real
+            // delta.content, and continue byte-for-byte after that point.
+            if(awaitingFirstContent.size()+n>65536){
+                rawForwarding=true;
+                if(tr!=null)tr.nativeEmptyRecovery="precontent_buffer_limit_passthrough";
+            }
+            if(rawForwarding){
+                if(downstreamOpen)try{
+                    byte[] pending=awaitingFirstContent.toByteArray();
+                    if(pending.length>0){
+                        writeChunk(downstream,pending,pending.length);
+                        if(tr!=null)tr.nativeSseWrittenChunks++;
+                    }
+                    writeChunk(downstream,buffer,n);
+                    if(tr!=null)tr.nativeSseWrittenChunks++;
+                    if(tr!=null && tr.nativeSseFirstWriteMs<0)
+                        tr.nativeSseFirstWriteMs=Math.max(0,
+                            android.os.SystemClock.elapsedRealtime()-tr.started);
+                }catch(IOException closed){downstreamOpen=false;}
+                awaitingFirstContent.reset();
+                continue;
+            }
+            awaitingFirstContent.write(buffer,0,n);
+            if(tr!=null && tr.nativeSseContentEvents>0){
+                rawForwarding=true;
+                if(downstreamOpen)try{
+                    byte[] pending=awaitingFirstContent.toByteArray();
+                    writeChunk(downstream,pending,pending.length);
+                    tr.nativeSseWrittenChunks++;
+                    tr.nativeSseFirstWriteMs=Math.max(0,
+                        android.os.SystemClock.elapsedRealtime()-tr.started);
+                }catch(IOException closed){downstreamOpen=false;}
+                awaitingFirstContent.reset();
+            }
+            // Neither disconnect nor UI minimization cancels original model.
         }
         if(tr!=null){
             tr.nativeSseEofMs=Math.max(0,
                 android.os.SystemClock.elapsedRealtime()-tr.started);
             tr.stage="native_sse_eof";
+        }
+        if(!headersSent){
+            writeJson(downstream,502,new JSONObject().put("error",
+                new JSONObject().put("type","omnigate_native_stream_error")
+                    .put("code","native_sse_no_events")));
+            return;
+        }
+        if(!rawForwarding && tr!=null && tr.nativeSseContentEvents==0){
+            if(downstreamOpen){
+                // Intentionally discard the native EMPTY finish/[DONE].
+                // Keep the same client stream alive while the original
+                // WebDriver finishes the already-submitted request.
+                if(tr!=null)tr.stage="native_empty_stream_waiting_page_reply";
+                try{recoverNativeEmptyAnswer(downstream,anchor,tr);}
+                catch(IOException clientClosed){downstreamOpen=false;}
+            }else if(tr!=null){
+                tr.nativeEmptyRecovery="client_disconnected_original_untouched";
+            }
+        }else if(!rawForwarding){
+            // No body-content observation and no tracer. This is not a
+            // verified empty answer; preserve legacy transport behavior.
+            if(downstreamOpen){
+                byte[] pending=awaitingFirstContent.toByteArray();
+                if(pending.length>0)writeChunk(downstream,pending,pending.length);
+            }
         }
         if(downstreamOpen)try{writeFinalChunk(downstream);}
         catch(IOException ignored){}
