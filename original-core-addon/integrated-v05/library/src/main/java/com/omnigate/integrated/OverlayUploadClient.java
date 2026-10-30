@@ -55,12 +55,11 @@ public final class OverlayUploadClient {
         recoveryStage="waiting_for_matching_user_turn";
         while(android.os.SystemClock.uptimeMillis()<deadline){
             try {
-                JSONObject owner=OriginalCoreBridge.diagnoseVisibleHostSocket();
-                if(!owner.optBoolean("visibleHostOwnsPort",false)
-                    || !"same".equals(owner.optString("webDriverIdentity",""))){
-                    recoveryStage="visible_driver_or_socket_mismatch";return null;
+                JSONObject owner=OriginalCoreBridge.diagnoseActiveNativeOwner();
+                if(!owner.optBoolean("verified",false)){
+                    recoveryStage="active_native_driver_or_socket_mismatch";return null;
                 }
-                JSONObject page=OriginalCoreBridge.diagnoseCurrentPage();
+                JSONObject page=OriginalCoreBridge.diagnoseVerifiedApiPage();
                 String observedId=page.optString("attachmentRequestId","");
                 if(!observedId.isEmpty() && !requestId.equals(observedId)){
                     recoveryStage="another_request_replaced_current";return null;
@@ -80,7 +79,7 @@ public final class OverlayUploadClient {
                     recoveryStage="waiting_for_provider_generation_to_finish";
                     stable=0;previous="";stableSince=0L;
                 } else {
-                    JSONObject nativeState=OriginalCoreBridge.inspectNativeAnswerForUserRequest();
+                    JSONObject nativeState=OriginalCoreBridge.inspectVerifiedApiAnswer();
                     String answer=nativeState.optString("answer","");
                     int expected=page.optInt("assistantReplyChars",-1);
                     if(nativeState.optBoolean("generating",true)){
@@ -130,8 +129,8 @@ public final class OverlayUploadClient {
         if (!LocalProxyRuntime.isListening() || !OriginalCoreBridge.isListening()) {
             SENDING.set(false); return "8787 或原核心 API 未监听，未提交";
         }
-        if (!OriginalCoreBridge.originalHostAlive()) {
-            SENDING.set(false); return "原模型网页宿主不存在，未提交";
+        if (!OriginalCoreBridge.diagnoseActiveNativeOwner().optBoolean("verified",false)) {
+            SENDING.set(false); return "当前原版主界面或悬浮 WebDriver 归属未通过；未提交";
         }
         if (model == null || model.isEmpty()) {
             SENDING.set(false); return "无法确认原版模型，会话未通过验收，未提交";
@@ -145,7 +144,7 @@ public final class OverlayUploadClient {
             String baselineAnswer=null;
             try {
                 try {
-                    baselineAnswer=OriginalCoreBridge.inspectNativeAnswerForUserRequest()
+                    baselineAnswer=OriginalCoreBridge.inspectVerifiedApiAnswer()
                         .optString("answer","");
                 } catch(Throwable ignored){}
                 JSONObject attachment = new JSONObject()
