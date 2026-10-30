@@ -41,47 +41,78 @@ public final class AttachmentApiBridge {
      * than silently deliver its text alone as a successful multimodal request.
      * Never log or retain any image data or prompt text.
      */
+    /**
+     * A media signal must be tied to the CURRENT user turn, not to earlier
+     * system instructions, tool results, quoted API examples, or optional
+     * metadata such as empty images/files/attachments arrays. Those used to
+     * trip 422 on text-only DSH conversations.
+     *
+     * Unknown true media remains fail-closed. No raw content is logged.
+     */
     static boolean hasAttachmentSignal(byte[] input){
         if(input==null||input.length==0)return false;
         try {
             JSONObject root=new JSONObject(new String(input,StandardCharsets.UTF_8));
-            if(root.has("attachments")||root.has("images")||root.has("files"))
-                return true;
             JSONArray messages=root.optJSONArray("messages");
-            if(messages==null)return false;
-            for(int i=0;i<messages.length();i++){
-                JSONObject message=messages.optJSONObject(i);
-                if(message==null)continue;
-                if(message.has("attachments")||message.has("images")||
-                   message.has("files"))return true;
-                Object c=message.opt("content");
-                if(c instanceof String){
-                    String text=(String)c;
-                    if(text.contains(START)||text.contains(END)||
-                        text.contains("data:image/")||
-                        text.contains("data:application/pdf;base64,"))return true;
-                }else if(c instanceof JSONArray){
-                    JSONArray parts=(JSONArray)c;
-                    for(int j=0;j<parts.length();j++){
-                        JSONObject part=parts.optJSONObject(j);
-                        if(part==null)continue;
-                        String type=part.optString("type","").toLowerCase(java.util.Locale.ROOT);
-                        if(type.contains("image")||type.contains("file")||
-                           type.contains("attachment")||type.contains("document")||
-                           part.has("image_url")||part.has("file")||
-                           part.has("file_id")||part.has("file_data")||
-                           part.has("image")||part.has("data_url")||
-                           part.has("source"))return true;
-                    }
-                }else if(c instanceof JSONObject){
-                    JSONObject part=(JSONObject)c;
-                    if(part.has("image_url")||part.has("image")||
-                       part.has("file")||part.has("attachments"))return true;
+            if(messages==null||messages.length()==0)return rootMediaPresent(root);
+            JSONObject current=messages.optJSONObject(messages.length()-1);
+            if(current==null||!"user".equals(current.optString("role","")))
+                return false;
+            if(rootMediaPresent(root)||rootMediaPresent(current))return true;
+            Object body=current.opt("content");
+            if(body instanceof String){
+                String str=((String)body).trim();
+                // Standalone relay envelope only; descriptions or code snippets
+                // mentioning image data URLs are just ordinary text.
+                return str.startsWith(START) && str.contains(END);
+            }
+            if(body instanceof JSONArray){
+                JSONArray parts=(JSONArray)body;
+                for(int i=0;i<parts.length();i++){
+                    JSONObject part=parts.optJSONObject(i);
+                    if(part==null)continue;
+                    String kind=part.optString("type","").toLowerCase(java.util.Locale.ROOT);
+                    if("image_url".equals(kind)||"input_image".equals(kind)||
+                       "image".equals(kind)||"file".equals(kind)||
+                       "input_file".equals(kind)||"attachment".equals(kind)||
+                       "document".equals(kind))return true;
+                    // An untyped part is media only if it carries a non-empty
+                    // media payload. Typed text/tool items may have a 'source'
+                    // metadata property; source alone is NOT image evidence.
+                    if(kind.isEmpty() && (present(part,"image_url")||
+                        present(part,"file")||present(part,"file_data")||
+                        present(part,"file_id")||present(part,"image")||
+                        present(part,"data_url")||present(part,"attachments")))
+                        return true;
                 }
+            }else if(body instanceof JSONObject){
+                JSONObject part=(JSONObject)body;
+                String kind=part.optString("type","").toLowerCase(java.util.Locale.ROOT);
+                if("image_url".equals(kind)||"input_image".equals(kind)||
+                   "image".equals(kind)||"file".equals(kind)||
+                   "input_file".equals(kind)||"attachment".equals(kind))
+                    return true;
+                if(kind.isEmpty()&&(present(part,"image_url")||
+                   present(part,"image")||present(part,"file")||
+                   present(part,"attachments")))return true;
             }
         }catch(org.json.JSONException ignored){}
         return false;
     }
+
+    private static boolean rootMediaPresent(JSONObject root){
+        return present(root,"attachments")||present(root,"images")||
+            present(root,"files");
+    }
+    private static boolean present(JSONObject obj,String key){
+        if(obj==null||!obj.has(key)||obj.isNull(key))return false;
+        Object value=obj.opt(key);
+        if(value instanceof JSONArray)return ((JSONArray)value).length()>0;
+        if(value instanceof JSONObject)return ((JSONObject)value).length()>0;
+        if(value instanceof String)return !((String)value).trim().isEmpty();
+        return value!=null && value!=JSONObject.NULL;
+    }
+
     private AttachmentApiBridge(){}
 
     static final class Prepared {
