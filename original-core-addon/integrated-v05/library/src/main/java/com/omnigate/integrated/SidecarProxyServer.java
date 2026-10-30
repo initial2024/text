@@ -52,12 +52,16 @@ public final class SidecarProxyServer {
             responseMode="not_sent", error="none";
         volatile int upstreamCode=-1, downstreamCode=-1;
         volatile boolean clientStream;
+        volatile int earlyLiveDeltaFrames=0;
+        volatile long firstEarlyLiveDeltaMs=-1;
         JSONObject snapshot() throws org.json.JSONException {
             return new JSONObject().put("id",id).put("stage",stage)
                 .put("upstreamKind",upstreamKind)
                 .put("responseMode",responseMode).put("error",error)
                 .put("upstreamHttp",upstreamCode).put("downstreamHttp",downstreamCode)
                 .put("clientRequestedStream",clientStream)
+                .put("earlyLiveDeltaFrames",earlyLiveDeltaFrames)
+                .put("firstEarlyLiveDeltaMs",firstEarlyLiveDeltaMs)
                 .put("ageMs",Math.max(0,
                     android.os.SystemClock.elapsedRealtime()-started));
         }
@@ -1248,8 +1252,17 @@ public final class SidecarProxyServer {
                                             .put("content",prefix.substring(
                                                 delivered.length())))
                                         .put("finish_reason",JSONObject.NULL)));
-                                if(clientOpen)try{writeSseData(downstream,delta.toString());}
-                                catch(IOException closed){clientOpen=false;}
+                                if(clientOpen)try{
+                                    writeSseData(downstream,delta.toString());
+                                    ProxyTrace tr=CURRENT_TRACE.get();
+                                    if(tr!=null){
+                                        tr.earlyLiveDeltaFrames++;
+                                        if(tr.firstEarlyLiveDeltaMs<0)
+                                            tr.firstEarlyLiveDeltaMs=Math.max(0,
+                                                android.os.SystemClock.elapsedRealtime()
+                                                -tr.started);
+                                    }
+                                }catch(IOException closed){clientOpen=false;}
                                 delivered=prefix;
                             }
                         }
