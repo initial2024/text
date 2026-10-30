@@ -127,7 +127,10 @@ public final class NativeRelayPanel {
             if(checked && GatewayApp.relayKey().length()<24){
                 button.setOnCheckedChangeListener(null);
                 button.setChecked(false);
-                button.setOnCheckedChangeListener((v,again)->setEnabled(a,h,again));
+                Object saved=button.getTag();
+                if(saved instanceof CompoundButton.OnCheckedChangeListener)
+                    button.setOnCheckedChangeListener(
+                        (CompoundButton.OnCheckedChangeListener)saved);
                 new AlertDialog.Builder(a)
                     .setTitle("Relay 配对 Key 未配置")
                     .setMessage("请先在 OmniGate 高级设置中保存你之前的 Relay 配对 Key。"+
@@ -139,6 +142,22 @@ public final class NativeRelayPanel {
             }
             setEnabled(a,h,checked);
         });
+        enabled.setTag((CompoundButton.OnCheckedChangeListener)
+            (button,checked)->{
+                if(checked && GatewayApp.relayKey().length()<24) {
+                    button.setOnCheckedChangeListener(null);
+                    button.setChecked(false);
+                    Object saved=button.getTag();
+                    if(saved instanceof CompoundButton.OnCheckedChangeListener)
+                        button.setOnCheckedChangeListener(
+                            (CompoundButton.OnCheckedChangeListener)saved);
+                    new AlertDialog.Builder(a).setTitle("Relay 未配置")
+                        .setMessage("请在高级设置中保存 OmniGate Relay 配对 Key。")
+                        .setPositiveButton("打开设置",(dialog,which)->
+                            a.startActivity(new Intent(a,CompatSettingsActivity.class)))
+                        .setNegativeButton("取消",null).show();
+                } else setEnabled(a,h,checked);
+            });
         refresh(h);
     }
     private static void setEnabled(Activity a,Holder h,boolean on){
@@ -158,10 +177,10 @@ public final class NativeRelayPanel {
         if(h.toggle.isChecked()!=configured){
             h.toggle.setOnCheckedChangeListener(null);
             h.toggle.setChecked(configured);
-            h.toggle.setOnCheckedChangeListener((v,on)->{
-                // External UI state refresh should never silently toggle.
-                v.setChecked(GatewayApp.tunnelEnabled());
-            });
+            Object listener=h.toggle.getTag();
+            if(listener instanceof CompoundButton.OnCheckedChangeListener)
+                h.toggle.setOnCheckedChangeListener(
+                    (CompoundButton.OnCheckedChangeListener)listener);
         }
         h.status.setText(!configured?"OmniGate Relay 未启用":
             RelayRuntime.isConnected()?"Relay WebSocket 已连接（不等于原版 WebDriver 已验证）":
