@@ -382,7 +382,7 @@ public final class CompatSettingsActivity extends Activity {
             String result = OriginalCoreBridge.requestOriginalOverlay(this);
             toast(result);
         });
-        Button originalPage = button(connection, "选择/打开 AI 网页会话", false);
+        Button originalPage = button(connection, "选择/打开原版 AI 网页会话", false);
         originalPage.setOnClickListener(v -> {
             try {
                 Intent i = new Intent();
@@ -392,6 +392,24 @@ public final class CompatSettingsActivity extends Activity {
                 toast("网页入口失败：" + ex.getClass().getSimpleName());
             }
         });
+        // Claude is NOT in the frozen original AiProvider enum and has no
+        // native ApiServer/Gecko adapter. Never advertise it as a 8787 model.
+        Button claudeWeb=button(connection,"Claude 网页（独立打开，暂不支持 API 转发）",false);
+        claudeWeb.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
+            .setTitle("Claude · 网页入口")
+            .setMessage("将使用系统浏览器打开 https://claude.ai/。"+
+                "原版内核目前未实现 Claude 的 WebDriver、上传和回复采集适配，"+
+                "所以它暂不能作为 Minis 的 claude-web API 模型。"+
+                "不复用或读取你的 ChatGPT 登录信息。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("打开 Claude 官网",(d,w)->{
+                try{
+                    Intent web=new Intent(Intent.ACTION_VIEW,Uri.parse("https://claude.ai/"));
+                    startActivity(web);
+                }catch(RuntimeException ex){
+                    toast("浏览器打开失败："+ex.getClass().getSimpleName());
+                }
+            }).show());
 
         LinearLayout api = panel(page, "客户端连接", "Minis、DSH 等客户端填写以下信息");
         margin(api, text(LOCAL_URL, 14, 0xFF323B83, true), 10);
@@ -450,6 +468,10 @@ public final class CompatSettingsActivity extends Activity {
             }
         };
         models.setAdapter(adapter);
+        String currentModel=OriginalCoreBridge.activeProviderModel();
+        for(int i=0;i<modelNames.length;i++){
+            if(modelNames[i].equals(currentModel)){models.setSelection(i);break;}
+        }
         models.setBackground(background(0xFFF3F5FC, 12, 0xFFE5E9F2));
         margin(api, models, 2);
 
@@ -808,9 +830,10 @@ public final class CompatSettingsActivity extends Activity {
             updateState();
             return;
         }
-        if (!OriginalCoreBridge.originalHostAlive()) {
-            replyState.setText("未检测到存活的原 AI 网页宿主。先点“先打开 AI 提供商网页”，"
-                + "进入对应网站、确认正常对话后，再返回此页发送。");
+        if (!OriginalCoreBridge.diagnoseActiveNativeOwner()
+                .optBoolean("verified",false)) {
+            replyState.setText("原生 API 的主界面或悬浮窗 WebDriver 归属尚未验证。"+
+                "只完成文件选择，未发送。请查看 /health。");
             return;
         }
         String active = OriginalCoreBridge.activeProviderModel();
