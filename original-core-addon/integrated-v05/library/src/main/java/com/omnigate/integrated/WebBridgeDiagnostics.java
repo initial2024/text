@@ -23,7 +23,7 @@ public final class WebBridgeDiagnostics {
         report("正在读取原版 GeckoBridge 诊断；不会中断正在生成的回复…");
         new Thread(()->{
             try {
-                JSONObject obj=OriginalCoreBridge.diagnoseCurrentPage();
+                JSONObject obj=OriginalCoreBridge.diagnoseVerifiedApiPage();
                 String provider=obj.optString("provider","unknown");
                 String selectorCount=String.valueOf(obj.optInt("composer",-1));
                 int answerCount=obj.optInt("answer",-1);
@@ -57,7 +57,14 @@ public final class WebBridgeDiagnostics {
                 int nativeGeneration=-1;
                 String nativeProblem="";
                 try {
-                    JSONObject nativeState=OriginalCoreBridge.diagnoseNativePageState();
+                    JSONObject nativeState=OriginalCoreBridge.inspectVerifiedApiAnswer();
+                    nativeState=new JSONObject()
+                        .put("nativeAnswerChars",
+                            nativeState.optString("answer","").length())
+                        .put("nativeGenerating",
+                            nativeState.optBoolean("generating",true))
+                        .put("nativeGeneration",
+                            nativeState.optInt("generation",-1));
                     nativeChars=nativeState.optInt("nativeAnswerChars",-1);
                     nativeGenerating=nativeState.optBoolean("nativeGenerating",false);
                     nativeReady=nativeState.optBoolean("nativeProviderReady",false);
@@ -66,7 +73,11 @@ public final class WebBridgeDiagnostics {
                     nativeProblem=e.getClass().getSimpleName();
                 }
                 JSONObject ownership=OriginalCoreBridge.diagnoseVisibleHostSocket();
-                String serviceStatus="【1601归属】路由="
+                JSONObject activeOwner=OriginalCoreBridge.diagnoseActiveNativeOwner();
+                String serviceStatus="【原生 API 归属】路由="
+                    +activeOwner.optString("route","unknown")
+                    +"；验证宿主="+activeOwner.optString("ownerKind","unknown")
+                    +"；主界面路由="
                     +OriginalCoreBridge.observedRouteState(ownership)
                     +"；可见主界面持有监听="
                     +ownership.optBoolean("visibleHostOwnsPort",false)
