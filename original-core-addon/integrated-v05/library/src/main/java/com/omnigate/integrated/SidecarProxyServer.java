@@ -66,6 +66,7 @@ public final class SidecarProxyServer {
         // Only aggregate counts/times. Never expose SSE data, prompts or text.
         volatile int nativeSseDataEvents=0;
         volatile int nativeSseContentEvents=0;
+        volatile int nativeSseToolCallEvents=0;
         volatile long nativeSseFirstContentMs=-1;
         volatile long nativeSseLastContentMs=-1;
         volatile long nativeSseDoneMs=-1;
@@ -90,6 +91,7 @@ public final class SidecarProxyServer {
                 .put("nativeSseBytesRead",nativeSseBytesRead)
                 .put("nativeSseDataEvents",nativeSseDataEvents)
                 .put("nativeSseContentEvents",nativeSseContentEvents)
+                .put("nativeSseToolCallEvents",nativeSseToolCallEvents)
                 .put("nativeSseFirstContentMs",nativeSseFirstContentMs)
                 .put("nativeSseLastContentMs",nativeSseLastContentMs)
                 .put("nativeSseDoneMs",nativeSseDoneMs)
@@ -1014,6 +1016,15 @@ public final class SidecarProxyServer {
                     !((String)content).isEmpty()) ||
                     (content instanceof JSONArray &&
                     ((JSONArray)content).length()>0);
+                boolean toolCall=delta!=null &&
+                    ((delta.optJSONArray("tool_calls")!=null &&
+                      delta.optJSONArray("tool_calls").length()>0) ||
+                     delta.optJSONObject("function_call")!=null);
+                String finish=choice==null?"":choice.optString("finish_reason","");
+                if(toolCall || "tool_calls".equals(finish) ||
+                    "function_call".equals(finish)){
+                    tr.nativeSseToolCallEvents++;
+                }
                 if(hasText){
                     tr.nativeSseContentEvents++;
                     if(tr.nativeSseFirstContentMs<0)
@@ -1048,8 +1059,9 @@ public final class SidecarProxyServer {
         try{
             JSONObject data=new JSONObject(new String(request.body,
                 StandardCharsets.UTF_8));
-            if(data.has("tools")||data.has("tool_choice")||
-               data.has("functions"))return null;
+            // Tools definitions may be present in DSH system capabilities
+            // even for an ordinary user text turn. The *response* must be
+            // checked for tool calls rather than banning those requests.
             JSONArray messages=data.optJSONArray("messages");
             JSONObject last=messages==null||messages.length()==0?
                 null:messages.optJSONObject(messages.length()-1);
@@ -1293,7 +1305,8 @@ public final class SidecarProxyServer {
                 continue;
             }
             awaitingFirstContent.write(buffer,0,n);
-            if(tr!=null && tr.nativeSseContentEvents>0){
+            if(tr!=null &&
+                (tr.nativeSseContentEvents>0 || tr.nativeSseToolCallEvents>0)){
                 rawForwarding=true;
                 if(downstreamOpen)try{
                     byte[] pending=awaitingFirstContent.toByteArray();
@@ -1317,7 +1330,8 @@ public final class SidecarProxyServer {
                     .put("code","native_sse_no_events")));
             return;
         }
-        if(!rawForwarding && tr!=null && tr.nativeSseContentEvents==0){
+        if(!rawForwarding && tr!=null &&
+            tr.nativeSseContentEvents==0 && tr.nativeSseToolCallEvents==0){
             if(downstreamOpen){
                 // Intentionally discard the native EMPTY finish/[DONE].
                 // Keep the same client stream alive while the original
