@@ -42,6 +42,12 @@ public final class CompatBootstrapProvider extends ContentProvider {
                         NativeRelayPanel.attach(a);
                         LegacyUiSkin.apply(a);
                         ApiQuickPanel.show(a);
+                        a.getWindow().getDecorView().postDelayed(()->{
+                            if(!a.isDestroyed() && !a.isFinishing()){
+                                NativeRelayPanel.attach(a);
+                                LegacyUiSkin.apply(a);
+                            }
+                        },900);
                         if("com.deepseek2.app.ui.MainActivity".equals(a.getClass().getName())) {
                             OriginalCoreBridge.onOriginalMainResumed(a);
                             // Never collapse the original overlay automatically.
