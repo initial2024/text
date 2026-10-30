@@ -24,6 +24,63 @@ public final class AttachmentApiBridge {
     private static final String END="<<<END_DSH_WEB_RELAY_V2_ATTACHMENT_ENVELOPE>>>";
     private static final int MAX_IMAGE_BYTES=8*1024*1024;
     private static final AtomicBoolean ACTIVE=new AtomicBoolean(false);
+    // Metadata only: no prompt, file names, bytes, credentials or page text.
+    private static volatile String lastAttachmentShape="not_observed";
+    private static volatile String lastAttachmentPhase="none";
+    static String lastAttachmentShape(){return lastAttachmentShape;}
+    static String lastAttachmentPhase(){return lastAttachmentPhase;}
+    static void noteFailure(String phase){
+        lastAttachmentPhase=phase==null?"unknown":phase.replaceAll(
+            "[^A-Za-z0-9_-]","").substring(0,Math.min(96,phase.length()));
+    }
+
+    /**
+     * Recognize all media-bearing input structures before the plain-text
+     * forwarding route. If a client format isn't supported, return 422 rather
+     * than silently deliver its text alone as a successful multimodal request.
+     * Never log or retain any image data or prompt text.
+     */
+    static boolean hasAttachmentSignal(byte[] input){
+        if(input==null||input.length==0)return false;
+        try {
+            JSONObject root=new JSONObject(new String(input,StandardCharsets.UTF_8));
+            if(root.has("attachments")||root.has("images")||root.has("files"))
+                return true;
+            JSONArray messages=root.optJSONArray("messages");
+            if(messages==null)return false;
+            for(int i=0;i<messages.length();i++){
+                JSONObject message=messages.optJSONObject(i);
+                if(message==null)continue;
+                if(message.has("attachments")||message.has("images")||
+                   message.has("files"))return true;
+                Object c=message.opt("content");
+                if(c instanceof String){
+                    String text=(String)c;
+                    if(text.contains(START)||text.contains(END)||
+                        text.contains("data:image/")||
+                        text.contains("data:application/pdf;base64,"))return true;
+                }else if(c instanceof JSONArray){
+                    JSONArray parts=(JSONArray)c;
+                    for(int j=0;j<parts.length();j++){
+                        JSONObject part=parts.optJSONObject(j);
+                        if(part==null)continue;
+                        String type=part.optString("type","").toLowerCase(java.util.Locale.ROOT);
+                        if(type.contains("image")||type.contains("file")||
+                           type.contains("attachment")||type.contains("document")||
+                           part.has("image_url")||part.has("file")||
+                           part.has("file_id")||part.has("file_data")||
+                           part.has("image")||part.has("data_url")||
+                           part.has("source"))return true;
+                    }
+                }else if(c instanceof JSONObject){
+                    JSONObject part=(JSONObject)c;
+                    if(part.has("image_url")||part.has("image")||
+                       part.has("file")||part.has("attachments"))return true;
+                }
+            }
+        }catch(org.json.JSONException ignored){}
+        return false;
+    }
     private AttachmentApiBridge(){}
 
     static final class Prepared {
@@ -55,6 +112,23 @@ public final class AttachmentApiBridge {
         String model=root.optString("model","");
         if(model.isEmpty())throw new IllegalArgumentException("model_required");
         final boolean wantedStream=root.optBoolean("stream",false);
+        // The bridge submits only one current-user image/file. A prior user
+        // image in chat history is not serializable to the original editor;
+        // never forward as a misleading text-only conversation.
+        for(int m=0;m<messages.length()-1;m++){
+            JSONObject old=messages.optJSONObject(m);
+            if(old==null)continue;
+            JSONArray history=old.optJSONArray("content");
+            if(history!=null)for(int j=0;j<history.length();j++){
+                JSONObject part=history.optJSONObject(j);
+                if(part!=null){
+                    String type=part.optString("type","").toLowerCase(java.util.Locale.ROOT);
+                    if(type.contains("image")||type.contains("file")||
+                       part.has("image_url")||part.has("file"))
+                        throw new IllegalArgumentException("historical_attachment_not_supported");
+                }
+            }
+        }
 
         if(content instanceof String) {
             String plain=(String)content;
@@ -82,6 +156,8 @@ public final class AttachmentApiBridge {
                 throw new IllegalArgumentException("attachment_bytes_too_large");
             if(Base64.decode(data,Base64.DEFAULT).length>MAX_IMAGE_BYTES)
                 throw new IllegalArgumentException("attachment_bytes_too_large");
+            lastAttachmentShape="v2_envelope";
+            lastAttachmentPhase="parsed_not_submitted";
             return new Prepared(root.toString().getBytes(StandardCharsets.UTF_8),
                 id,model,wantedStream);
         }
@@ -183,6 +259,8 @@ public final class AttachmentApiBridge {
             inner.toString().getBytes(StandardCharsets.UTF_8),Base64.NO_WRAP)+END;
         last.put("content",wrap);
         root.put("stream",false);
+        lastAttachmentShape="inline_content_parts";
+        lastAttachmentPhase="parsed_not_submitted";
         byte[] body=root.toString().getBytes(StandardCharsets.UTF_8);
         return new Prepared(body,id,model,wantedStream);
     }
