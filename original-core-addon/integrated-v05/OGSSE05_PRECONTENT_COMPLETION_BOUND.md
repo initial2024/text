@@ -17,3 +17,6 @@ This fail-closed branch may alter behavior for unusually long (>64KiB) reasoning
 
 ## License
 `xingling66666/fuckds` GPL-3.0 was consulted only for protocol ideas. No copyrighted implementation, webpage token collection, PoW, account pools or text-based tool authorization has been copied/adopted.
+
+## Regression workflow compatibility
+The previous OGSSE04 workflow expected a standalone `if(probe.hasMeaningfulDelta())` branch. OGSSE05 introduces `SsePrecontentBound.observe(n,probe.hasMeaningfulDelta())` with a `START_FORWARD` decision. The old Java semantic assertions remained green; the source-form assertion failed on the first OGSSE05 commit. This follow-up checks the new source path while preserving original telemetry-independent and empty-response recovery checks. Keep initial failure in CI history; never count it as PASS.
