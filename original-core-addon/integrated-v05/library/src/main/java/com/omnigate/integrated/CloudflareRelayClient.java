@@ -35,8 +35,8 @@ public final class CloudflareRelayClient {
     private final OkHttpClient client;
 
     private volatile boolean running;
-    private volatile boolean connected;
-    public boolean isConnected(){return running && connected;}
+    private final RelayConnectionEpoch epochs = new RelayConnectionEpoch();
+    public boolean isConnected(){return epochs.isConnected();}
     private volatile WebSocket socket;
     private volatile int reconnectAttempt;
 
@@ -62,13 +62,14 @@ public final class CloudflareRelayClient {
     public synchronized void start() {
         if (running) return;
         running = true;
+        epochs.start();
         reconnectAttempt = 0;
         connect();
     }
 
     public synchronized void stop() {
         running = false;
-        connected = false;
+        epochs.stop(); // Invalidate all callbacks and in-flight relay writes first.
         WebSocket current = socket;
         socket = null;
         if (current != null) {
@@ -84,63 +85,74 @@ public final class CloudflareRelayClient {
             status("需要配置 Relay Key");
             return;
         }
+        // Include newWebSocket and socket binding in the same lock: callbacks
+        // cannot observe an unbound socket, even on very fast failures.
+        synchronized (epochs) {
+            final long generation = epochs.begin();
+            if (generation < 0) return;
+            status("连接 OmniGate Cloudflare Relay");
+            try {
+                Request request = new Request.Builder()
+                        .url(wsUrl)
+                        .header("Authorization", "Bearer " + relayKey)
+                        .header("User-Agent", "OmniGate-Android/2.8")
+                        .build();
+                WebSocket created = client.newWebSocket(request, new WebSocketListener() {
+                    @Override
+                    public void onOpen(WebSocket webSocket, Response response) {
+                        if (!epochs.opened(generation, webSocket)) return;
+                        reconnectAttempt = 0;
+                        status("自有穿透已连接 · 正在验证公网");
+                        probePublicHealth(generation, webSocket);
+                    }
 
-        status("连接 OmniGate Cloudflare Relay");
-        Request request = new Request.Builder()
-                .url(wsUrl)
-                .header("Authorization", "Bearer " + relayKey)
-                .header("User-Agent", "OmniGate-Android/2.8")
-                .build();
+                    @Override
+                    public void onMessage(WebSocket webSocket, String text) {
+                        if (!epochs.isCurrent(generation, webSocket)) return;
+                        handleMessage(text, generation, webSocket);
+                    }
 
-        socket = client.newWebSocket(request, new WebSocketListener() {
-            @Override
-            public void onOpen(WebSocket webSocket, Response response) {
-                connected = true;
-                socket = webSocket;
-                reconnectAttempt = 0;
-                status("自有穿透已连接 · 正在验证公网");
-                probePublicHealth();
-            }
+                    @Override
+                    public void onMessage(WebSocket webSocket, ByteString bytes) {
+                        if (!epochs.isCurrent(generation, webSocket)) return;
+                        handleMessage(bytes.utf8(), generation, webSocket);
+                    }
 
-            @Override
-            public void onMessage(WebSocket webSocket, String text) {
-                handleMessage(text);
-            }
+                    @Override
+                    public void onClosing(WebSocket webSocket, int code, String reason) {
+                        if (epochs.isCurrent(generation, webSocket))
+                            status("Relay 正在断开 · " + code);
+                    }
 
-            @Override
-            public void onMessage(WebSocket webSocket, ByteString bytes) {
-                handleMessage(bytes.utf8());
-            }
+                    @Override
+                    public void onClosed(WebSocket webSocket, int code, String reason) {
+                        if (!epochs.ended(generation, webSocket)) return;
+                        if (socket == webSocket) socket = null;
+                        if (running) scheduleReconnect(generation, "连接关闭 " + code);
+                    }
 
-            @Override
-            public void onClosing(WebSocket webSocket, int code, String reason) {
-                status("Relay 正在断开 · " + code);
-            }
-
-            @Override
-            public void onClosed(WebSocket webSocket, int code, String reason) {
-                connected = false;
-                if (socket == webSocket) socket = null;
-                if (running) scheduleReconnect("连接关闭 " + code);
-            }
-
-            @Override
-            public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-                connected = false;
-                if (socket == webSocket) socket = null;
-                String detail = t == null
-                        ? "unknown"
-                        : t.getClass().getSimpleName()
-                            + (t.getMessage() == null ? "" : "：" + t.getMessage());
-                if (response != null) {
-                    detail += " · HTTP " + response.code();
+                    @Override
+                    public void onFailure(WebSocket webSocket, Throwable t, Response response) {
+                        if (!epochs.ended(generation, webSocket)) return;
+                        if (socket == webSocket) socket = null;
+                        String detail = t == null ? "unknown" : t.getClass().getSimpleName();
+                        if (response != null) detail += " · HTTP " + response.code();
+                        if (running) scheduleReconnect(generation, detail);
+                    }
+                });
+                if (!epochs.attach(generation, created)) {
+                    created.close(1000, "obsolete");
+                    return;
                 }
-                if (running) scheduleReconnect(detail);
+                socket = created;
+            } catch (Throwable failure) {
+                if (epochs.failedBeforeAttach(generation))
+                    scheduleReconnect(generation, "连接初始化失败");
             }
-        });
+        }
     }
 
-    private void scheduleReconnect(String reason) {
+    private void scheduleReconnect(long generation, String reason) {
         reconnectAttempt++;
         long delay = Math.min(15_000L, 1500L * reconnectAttempt);
         status("自有穿透断开 · " + sanitize(reason) + " · 重连中");
@@ -151,11 +163,12 @@ public final class CloudflareRelayClient {
                 Thread.currentThread().interrupt();
                 return;
             }
-            if (running) connect();
+            // A stale timeout or a deliberate stop can never open another socket.
+            if (epochs.claimReconnect(generation)) connect();
         }, "omnigate-relay-reconnect").start();
     }
 
-    private void probePublicHealth() {
+    private void probePublicHealth(long generation, WebSocket owner) {
         requestPool.execute(() -> {
             HttpURLConnection conn = null;
             try {
@@ -165,7 +178,7 @@ public final class CloudflareRelayClient {
                 conn.setReadTimeout(10_000);
                 conn.setUseCaches(false);
                 if (conn.getResponseCode() != 200) {
-                    status("Relay 已连，但公网探针失败 · HTTP " + conn.getResponseCode());
+                    statusIfCurrent(generation, owner, "Relay 已连，但公网探针失败 · HTTP " + conn.getResponseCode());
                     return;
                 }
 
@@ -176,12 +189,12 @@ public final class CloudflareRelayClient {
                 JSONObject json = new JSONObject(body);
                 if (json.optBoolean("ok")
                         && json.optBoolean("deviceConnected")) {
-                    status("公网可用 · gw-33e850180248.claua.de");
+                    statusIfCurrent(generation, owner, "公网可用 · gw-33e850180248.claua.de");
                 } else {
-                    status("Relay 已连，但公网尚未识别设备");
+                    statusIfCurrent(generation, owner, "Relay 已连，但公网尚未识别设备");
                 }
             } catch (Throwable e) {
-                status("Relay 已连，但公网探针失败 · "
+                statusIfCurrent(generation, owner, "Relay 已连，但公网探针失败 · "
                         + e.getClass().getSimpleName()
                         + (e.getMessage() == null ? "" : "：" + sanitize(e.getMessage())));
             } finally {
@@ -190,15 +203,23 @@ public final class CloudflareRelayClient {
         });
     }
 
-    private void handleMessage(String text) {
+    private void statusIfCurrent(long generation, WebSocket owner, String value) {
+        if (epochs.isCurrent(generation, owner)) status(value);
+    }
+
+    private void handleMessage(String text, long generation, WebSocket owner) {
         try {
             JSONObject msg = new JSONObject(text);
             if (!"req".equals(msg.optString("type"))) return;
-            requestPool.execute(() -> handleRequest(msg));
+            if (!epochs.isCurrent(generation, owner)) return;
+            requestPool.execute(() -> {
+                if (epochs.isCurrent(generation, owner))
+                    handleRequest(msg, generation, owner);
+            });
         } catch (Throwable ignored) {}
     }
 
-    private void handleRequest(JSONObject msg) {
+    private void handleRequest(JSONObject msg, long generation, WebSocket owner) {
         String id = msg.optString("id", "");
         if (id.isEmpty()) return;
 
@@ -268,7 +289,7 @@ public final class CloudflareRelayClient {
                     .put("id", id)
                     .put("status", code)
                     .put("headers", responseHeaders);
-            send(start);
+            send(start, generation, owner);
 
             InputStream in = code >= 400
                     ? conn.getErrorStream()
@@ -287,14 +308,14 @@ public final class CloudflareRelayClient {
                                 .put("data", Base64.encodeToString(
                                         chunk,
                                         Base64.NO_WRAP));
-                        send(frame);
+                        send(frame, generation, owner);
                     }
                 }
             }
 
             send(new JSONObject()
                     .put("type", "resEnd")
-                    .put("id", id));
+                    .put("id", id), generation, owner);
         } catch (Throwable e) {
             try {
                 send(new JSONObject()
@@ -305,17 +326,18 @@ public final class CloudflareRelayClient {
                                 e.getClass().getSimpleName()
                                         + (e.getMessage() == null
                                         ? ""
-                                        : "：" + sanitize(e.getMessage()))));
+                                        : "：" + sanitize(e.getMessage()))), generation, owner);
             } catch (Throwable ignored) {}
         } finally {
             if (conn != null) conn.disconnect();
         }
     }
 
-    private void send(JSONObject json) {
-        WebSocket current = socket;
-        if (current == null) return;
-        current.send(json.toString());
+    private void send(JSONObject json, long generation, WebSocket owner) {
+        // Never deliver an old request's chunks or terminal marker through a
+        // newly connected WebSocket. Disconnected upstream work is still
+        // drained to natural EOF; nothing is resent or canceled.
+        if (epochs.isCurrent(generation, owner)) owner.send(json.toString());
     }
 
     private static String readSmall(InputStream in) throws Exception {
