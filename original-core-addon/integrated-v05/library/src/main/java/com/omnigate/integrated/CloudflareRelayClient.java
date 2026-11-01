@@ -223,6 +223,9 @@ public final class CloudflareRelayClient {
         String id = msg.optString("id", "");
         if (id.isEmpty()) return;
 
+        // Track queue admission per response. Rejection cannot be followed
+        // by a successful resEnd, regardless of original upstream status.
+        RelayReplySendGate delivery=new RelayReplySendGate();
         HttpURLConnection conn = null;
         try {
             String method = msg.optString("method", "GET");
@@ -289,7 +292,7 @@ public final class CloudflareRelayClient {
                     .put("id", id)
                     .put("status", code)
                     .put("headers", responseHeaders);
-            send(start, generation, owner);
+            delivery.recordStart(send(start, generation, owner));
 
             InputStream in = code >= 400
                     ? conn.getErrorStream()
@@ -300,6 +303,9 @@ public final class CloudflareRelayClient {
                     int n;
                     while ((n = response.read(buffer)) >= 0) {
                         if (n == 0) continue;
+                        // On rejection, drain original stream without allocating
+                        // further Relay chunks or generating a false terminal.
+                        if(!delivery.canSendChunk())continue;
                         byte[] chunk = new byte[n];
                         System.arraycopy(buffer, 0, chunk, 0, n);
                         JSONObject frame = new JSONObject()
@@ -308,17 +314,23 @@ public final class CloudflareRelayClient {
                                 .put("data", Base64.encodeToString(
                                         chunk,
                                         Base64.NO_WRAP));
-                        send(frame, generation, owner);
+                        delivery.recordChunk(send(frame, generation, owner));
                     }
                 }
             }
 
-            send(new JSONObject()
+            if(delivery.canSendEnd()){
+                delivery.recordEnd(send(new JSONObject()
                     .put("type", "resEnd")
-                    .put("id", id), generation, owner);
+                    .put("id", id), generation, owner));
+            }
+            if(delivery.failed())
+                statusIfCurrent(generation,owner,
+                    "Relay 回复未完整入队 · 原模型已自然完成，未自动重发");
         } catch (Throwable e) {
             try {
-                send(new JSONObject()
+                if(delivery.canSendError()){
+                    delivery.recordError(send(new JSONObject()
                         .put("type", "resError")
                         .put("id", id)
                         .put("status", 502)
@@ -326,18 +338,20 @@ public final class CloudflareRelayClient {
                                 e.getClass().getSimpleName()
                                         + (e.getMessage() == null
                                         ? ""
-                                        : "：" + sanitize(e.getMessage()))), generation, owner);
+                                        : "：" + sanitize(e.getMessage()))),
+                            generation, owner));
+                }
             } catch (Throwable ignored) {}
         } finally {
             if (conn != null) conn.disconnect();
         }
     }
 
-    private void send(JSONObject json, long generation, WebSocket owner) {
-        // Never deliver an old request's chunks or terminal marker through a
-        // newly connected WebSocket. Disconnected upstream work is still
-        // drained to natural EOF; nothing is resent or canceled.
-        if (epochs.isCurrent(generation, owner)) owner.send(json.toString());
+    private boolean send(JSONObject json, long generation, WebSocket owner) {
+        // true means locally enqueued, not remotely delivered. Fail closed
+        // if old socket is stale, or if OkHttp rejects this outgoing frame.
+        if(!epochs.isCurrent(generation,owner))return false;
+        return owner.send(json.toString());
     }
 
     private static String readSmall(InputStream in) throws Exception {
