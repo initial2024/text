@@ -976,14 +976,19 @@ public final class SidecarProxyServer {
         private final ByteArrayOutputStream line=new ByteArrayOutputStream();
         private boolean oversizeLine=false;
         private final ProxyTrace tr;
+        // Transport decisions must never depend on optional ThreadLocal
+        // diagnostics. Loss of telemetry cannot convert live SSE into an
+        // EOF-only response or bypass the empty-response recovery guard.
+        private final SseMeaningfulGate signal=new SseMeaningfulGate();
         NativeSseContentProbe(ProxyTrace trace){this.tr=trace;}
+        boolean hasMeaningfulDelta(){return signal.isReady();}
         void observe(byte[] bytes,int count){
-            if(tr==null||bytes==null)return;
+            if(bytes==null)return;
             for(int i=0;i<count;i++){
                 int ch=bytes[i]&255;
                 if(ch==10){
                     if(!oversizeLine)consume(line.toByteArray());
-                    else tr.nativeSseUnparsedEvents++;
+                    else if(tr!=null)tr.nativeSseUnparsedEvents++;
                     line.reset();oversizeLine=false;
                 }else if(!oversizeLine){
                     if(line.size()<32*1024)line.write(ch);
@@ -995,15 +1000,18 @@ public final class SidecarProxyServer {
             if(raw.length<5)return;
             String data=new String(raw,StandardCharsets.UTF_8).trim();
             if(!data.startsWith("data:"))return;
-            tr.nativeSseDataEvents++;
+            if(tr!=null)tr.nativeSseDataEvents++;
             data=data.substring(5).trim();
-            long at=Math.max(0,
+            long at=tr==null?-1:Math.max(0,
                 android.os.SystemClock.elapsedRealtime()-tr.started);
             if("[DONE]".equals(data)){
-                tr.nativeSseDoneMs=at;
+                if(tr!=null)tr.nativeSseDoneMs=at;
                 return;
             }
-            if(data.isEmpty()){tr.nativeSseControlEvents++;return;}
+            if(data.isEmpty()){
+                if(tr!=null)tr.nativeSseControlEvents++;
+                return;
+            }
             try{
                 JSONObject event=new JSONObject(data);
                 JSONArray choices=event.optJSONArray("choices");
@@ -1021,21 +1029,23 @@ public final class SidecarProxyServer {
                       delta.optJSONArray("tool_calls").length()>0) ||
                      delta.optJSONObject("function_call")!=null);
                 String finish=choice==null?"":choice.optString("finish_reason","");
-                if(toolCall || "tool_calls".equals(finish) ||
-                    "function_call".equals(finish)){
-                    tr.nativeSseToolCallEvents++;
-                }
-                if(hasText){
-                    tr.nativeSseContentEvents++;
-                    if(tr.nativeSseFirstContentMs<0)
-                        tr.nativeSseFirstContentMs=at;
-                    tr.nativeSseLastContentMs=at;
-                }else{
-                    tr.nativeSseControlEvents++;
+                boolean hasTool=toolCall || "tool_calls".equals(finish) ||
+                    "function_call".equals(finish);
+                signal.observe(hasText,hasTool);
+                if(tr!=null){
+                    if(hasTool)tr.nativeSseToolCallEvents++;
+                    if(hasText){
+                        tr.nativeSseContentEvents++;
+                        if(tr.nativeSseFirstContentMs<0)
+                            tr.nativeSseFirstContentMs=at;
+                        tr.nativeSseLastContentMs=at;
+                    }else{
+                        tr.nativeSseControlEvents++;
+                    }
                 }
             }catch(Exception unparsable){
                 // No payload or schema is included in diagnostics.
-                tr.nativeSseUnparsedEvents++;
+                if(tr!=null)tr.nativeSseUnparsedEvents++;
             }
         }
     }
@@ -1305,15 +1315,16 @@ public final class SidecarProxyServer {
                 continue;
             }
             awaitingFirstContent.write(buffer,0,n);
-            if(tr!=null &&
-                (tr.nativeSseContentEvents>0 || tr.nativeSseToolCallEvents>0)){
+            if(probe.hasMeaningfulDelta()){
                 rawForwarding=true;
                 if(downstreamOpen)try{
                     byte[] pending=awaitingFirstContent.toByteArray();
                     writeChunk(downstream,pending,pending.length);
-                    tr.nativeSseWrittenChunks++;
-                    tr.nativeSseFirstWriteMs=Math.max(0,
-                        android.os.SystemClock.elapsedRealtime()-tr.started);
+                    if(tr!=null){
+                        tr.nativeSseWrittenChunks++;
+                        tr.nativeSseFirstWriteMs=Math.max(0,
+                            android.os.SystemClock.elapsedRealtime()-tr.started);
+                    }
                 }catch(IOException closed){downstreamOpen=false;}
                 awaitingFirstContent.reset();
             }
@@ -1330,8 +1341,7 @@ public final class SidecarProxyServer {
                     .put("code","native_sse_no_events")));
             return;
         }
-        if(!rawForwarding && tr!=null &&
-            tr.nativeSseContentEvents==0 && tr.nativeSseToolCallEvents==0){
+        if(!rawForwarding && !probe.hasMeaningfulDelta()){
             if(downstreamOpen){
                 // Intentionally discard the native EMPTY finish/[DONE].
                 // Keep the same client stream alive while the original
