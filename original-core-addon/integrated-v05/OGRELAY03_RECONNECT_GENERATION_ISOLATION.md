@@ -16,3 +16,5 @@ Previously, a delayed onClosed/onFailure callback from an old socket could reset
 - Reference: xingling66666/fuckds is GPL-3.0; **no source code is copied**. Only transport goals (incremental SSE fidelity and one terminal result per turn) were considered. No web token extraction, PoW, alternative account pools, DOM tool authorization or bypass is adopted.
 
 No API keys, pairing keys, prompt bodies, or conversation contents should be put in GitHub logs. No automatic retry of uncertain model/tool requests. Preserve 8787, original native 1604, Sidecar owner verification, and public-exact-key auth.
+
+CI note: the initial OGRELAY03 workflow parser rejected an unquoted name containing a colon. The workflow title was quoted in the follow-up without changing the transport implementation.

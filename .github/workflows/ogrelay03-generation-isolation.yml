@@ -1,4 +1,4 @@
-name: OGRELAY03 generation isolation: stale WebSocket cannot send to new session
+name: 'OGRELAY03 generation isolation - no stale WebSocket response'
 on:
   push:
     branches: [work/omnigate-integrated-v05]
@@ -43,7 +43,6 @@ jobs:
           assert 'send(start, generation, owner)' in s
           assert 'handleRequest(msg, generation, owner)' in s
           assert 'requestPool.execute(() ->' in s
-          assert 'retries' not in s or 'retries' in s
           assert 'private void send(JSONObject json)' not in s
           print('OGRELAY03_NO_STALE_WEBSOCKET_SEND_OR_REPLAY=PASS_STATIC')
           print('OGRELAY03_REAL_ANDROID_MODEL_STREAM=NOT_TESTED')
