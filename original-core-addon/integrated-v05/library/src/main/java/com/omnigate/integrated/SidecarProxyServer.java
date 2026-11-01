@@ -1028,9 +1028,10 @@ public final class SidecarProxyServer {
                     ((delta.optJSONArray("tool_calls")!=null &&
                       delta.optJSONArray("tool_calls").length()>0) ||
                      delta.optJSONObject("function_call")!=null);
-                String finish=choice==null?"":choice.optString("finish_reason","");
-                boolean hasTool=toolCall || "tool_calls".equals(finish) ||
-                    "function_call".equals(finish);
+                // A finish_reason alone does not prove any real tool_call delta.
+                // If the native stream terminates with "tool_calls" but no
+                // tool payload, retain the verified-empty-response guard.
+                boolean hasTool=toolCall;
                 signal.observe(hasText,hasTool);
                 if(tr!=null){
                     if(hasTool)tr.nativeSseToolCallEvents++;
@@ -1259,6 +1260,7 @@ public final class SidecarProxyServer {
         NativeSseContentProbe probe=new NativeSseContentProbe(tr);
         byte[] buffer=new byte[8192];
         ByteArrayOutputStream awaitingFirstContent=new ByteArrayOutputStream();
+        SsePrecontentBound precontent=new SsePrecontentBound();
         boolean downstreamOpen=true,rawForwarding=false;
         boolean headersSent=false;
         // Before first meaningful delta, hold the native stop/[DONE] frames.
@@ -1291,31 +1293,26 @@ public final class SidecarProxyServer {
                 }catch(IOException closed){downstreamOpen=false;}
                 continue;
             }
-            // This pending area only contains native pre-answer SSE events.
-            // Normal streams begin forwarding immediately on first real
-            // delta.content, and continue byte-for-byte after that point.
-            if(awaitingFirstContent.size()+n>65536){
-                rawForwarding=true;
-                if(tr!=null)tr.nativeEmptyRecovery="precontent_buffer_limit_passthrough";
-            }
-            if(rawForwarding){
-                if(downstreamOpen)try{
-                    byte[] pending=awaitingFirstContent.toByteArray();
-                    if(pending.length>0){
-                        writeChunk(downstream,pending,pending.length);
-                        if(tr!=null)tr.nativeSseWrittenChunks++;
-                    }
-                    writeChunk(downstream,buffer,n);
-                    if(tr!=null)tr.nativeSseWrittenChunks++;
-                    if(tr!=null && tr.nativeSseFirstWriteMs<0)
-                        tr.nativeSseFirstWriteMs=Math.max(0,
-                            android.os.SystemClock.elapsedRealtime()-tr.started);
-                }catch(IOException closed){downstreamOpen=false;}
+            // The first actual content/tool delta immediately opens the
+            // original raw-byte stream. Precontent without a real delta is
+            // bounded: crossing the cap is explicitly reported as an error,
+            // never reclassified as a successful completion or [DONE].
+            SsePrecontentBound.Decision decision=
+                precontent.observe(n,probe.hasMeaningfulDelta());
+            if(decision==SsePrecontentBound.Decision.FAIL_CLOSED_DRAIN){
+                if(tr!=null)tr.nativeEmptyRecovery=
+                    "precontent_limit_fail_closed_original_draining";
                 awaitingFirstContent.reset();
+                if(downstreamOpen)try{
+                    writeNativeRecoveryError(downstream,
+                        "precontent_limit_without_verified_delta");
+                }catch(IOException downstreamClosed){downstreamOpen=false;}
+                // Read the ORIGINAL stream to EOF. No auto replay/cancel.
                 continue;
             }
+            if(decision==SsePrecontentBound.Decision.DRAIN)continue;
             awaitingFirstContent.write(buffer,0,n);
-            if(probe.hasMeaningfulDelta()){
+            if(decision==SsePrecontentBound.Decision.START_FORWARD){
                 rawForwarding=true;
                 if(downstreamOpen)try{
                     byte[] pending=awaitingFirstContent.toByteArray();
@@ -1325,7 +1322,7 @@ public final class SidecarProxyServer {
                         tr.nativeSseFirstWriteMs=Math.max(0,
                             android.os.SystemClock.elapsedRealtime()-tr.started);
                     }
-                }catch(IOException closed){downstreamOpen=false;}
+                }catch(IOException downstreamClosed){downstreamOpen=false;}
                 awaitingFirstContent.reset();
             }
             // Neither disconnect nor UI minimization cancels original model.
@@ -1339,6 +1336,11 @@ public final class SidecarProxyServer {
             writeJson(downstream,502,new JSONObject().put("error",
                 new JSONObject().put("type","omnigate_native_stream_error")
                     .put("code","native_sse_no_events")));
+            return;
+        }
+        if(precontent.failed()){
+            if(downstreamOpen)try{writeFinalChunk(downstream);}
+            catch(IOException ignored){}
             return;
         }
         if(!rawForwarding && !probe.hasMeaningfulDelta()){
