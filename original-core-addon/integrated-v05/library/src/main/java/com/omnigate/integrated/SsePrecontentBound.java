@@ -30,6 +30,16 @@ final class SsePrecontentBound {
         return Decision.BUFFER;
     }
 
+    /**
+     * Reset accounting only after a complete independently verified SSE
+     * prefix was written to the downstream or the client disconnected.
+     */
+    void replaceBufferedAfterVerifiedDrain(int remaining) {
+        if(failed || forwarding)throw new IllegalStateException("already decided");
+        if(remaining<0 || remaining>MAX_PRECONTENT_BYTES+8192)
+            throw new IllegalArgumentException("invalid remaining bytes");
+        pendingBytes=remaining;
+    }
     boolean failed(){return failed;}
     boolean forwarding(){return forwarding;}
 }

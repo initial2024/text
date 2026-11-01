@@ -43,10 +43,11 @@ jobs:
           assert 'boolean hasTool=toolCall;' in probe
           assert 'toolCall || "tool_calls".equals(finish)' not in probe
           assert 'SsePrecontentBound precontent=new SsePrecontentBound();' in direct
-          assert 'precontent.observe(n,probe.hasMeaningfulDelta())' in direct
+          assert 'readBuffered?0:n,probe.hasMeaningfulDelta()' in direct
+          assert 'SseSafePreludeFrames.safePrefixLength(combined,' in direct
           assert 'Decision.FAIL_CLOSED_DRAIN' in direct
           assert 'writeNativeRecoveryError(downstream,' in direct
-          assert 'precontent_limit_without_verified_delta' in direct
+          assert 'unverified_sse_frame_exceeds_limit' in direct
           assert 'if(precontent.failed())' in direct
           assert 'if(!rawForwarding && !probe.hasMeaningfulDelta())' in direct
           assert 'recoverNativeEmptyAnswer(downstream,anchor,tr)' in direct

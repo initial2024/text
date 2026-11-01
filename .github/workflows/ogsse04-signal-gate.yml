@@ -47,7 +47,8 @@ jobs:
           assert 'if(tr!=null)' in probe
           assert 'boolean hasMeaningfulDelta(){return signal.isReady();}' in probe
           # OGSSE05 wraps the same signal in a bounded precontent state machine.
-          assert 'precontent.observe(n,probe.hasMeaningfulDelta())' in upstream
+          assert 'readBuffered?0:n,probe.hasMeaningfulDelta()' in upstream
+          assert 'SseSafePreludeFrames.safePrefixLength(combined,' in upstream
           assert 'if(decision==SsePrecontentBound.Decision.START_FORWARD)' in upstream
           assert 'if(precontent.failed())' in upstream
           assert 'if(!rawForwarding && !probe.hasMeaningfulDelta())' in upstream

@@ -1252,6 +1252,58 @@ public final class SidecarProxyServer {
         writeNativeRecoveryError(output,"verified_reply_not_observed_before_deadline");
     }
 
+    /** Only complete and unambiguously nonterminal SSE frames are safe
+     * to release before a verified assistant text or real tool-call delta. */
+    private static boolean isSafeNativeSsePrelude(
+            byte[] bytes,int offset,int length) {
+        try{
+            java.nio.charset.CharsetDecoder decoder=StandardCharsets.UTF_8
+                .newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT);
+            String raw=decoder.decode(java.nio.ByteBuffer.wrap(
+                bytes,offset,length)).toString();
+            String[] lines=raw.split("\\r?\\n",-1);
+            String data=null;boolean comment=false;
+            for(String line:lines){
+                if(line.isEmpty())continue;
+                if(line.startsWith(":")){comment=true;continue;}
+                if(line.startsWith("data:")){
+                    if(data!=null)return false;
+                    data=line.substring(5).trim();
+                    continue;
+                }
+                return false;
+            }
+            if(data==null)return comment;
+            if(data.isEmpty() || "[DONE]".equals(data))return false;
+            JSONObject event=new JSONObject(data);
+            if(event.has("error"))return false;
+            JSONArray choices=event.optJSONArray("choices");
+            if(choices==null || choices.length()==0)return false;
+            for(int i=0;i<choices.length();i++){
+                JSONObject choice=choices.optJSONObject(i);
+                if(choice==null || choice.optJSONObject("message")!=null)return false;
+                Object finish=choice.opt("finish_reason");
+                if(finish!=null && finish!=JSONObject.NULL &&
+                    !"".equals(String.valueOf(finish)))return false;
+                JSONObject delta=choice.optJSONObject("delta");
+                if(delta==null)return false;
+                Object content=delta.opt("content");
+                if(content!=null && content!=JSONObject.NULL &&
+                    (!(content instanceof String) || !((String)content).isEmpty()))
+                    return false;
+                Object tools=delta.opt("tool_calls");
+                if(tools!=null && tools!=JSONObject.NULL &&
+                    (!(tools instanceof JSONArray) || ((JSONArray)tools).length()>0))
+                    return false;
+                Object fn=delta.opt("function_call");
+                if(fn!=null && fn!=JSONObject.NULL)return false;
+            }
+            return true;
+        }catch(Exception unverified){return false;}
+    }
+
     private void proxyDirectNativeSse(InputStream upstream,
             BufferedOutputStream downstream,Map<String,String> headers,
             NativeEmptyAnchor anchor)
@@ -1278,7 +1330,8 @@ public final class SidecarProxyServer {
             }
             probe.observe(buffer,n);
             if(!headersSent){
-                writeChunkedResponseHead(downstream,200,headers);
+                try{writeChunkedResponseHead(downstream,200,headers);}
+                catch(IOException closed){downstreamOpen=false;}
                 headersSent=true;
                 // SSE comments are protocol keepalives, not model tokens.
                 byte[] keepalive=": omnigate-native-sse-started\n\n"
@@ -1293,25 +1346,48 @@ public final class SidecarProxyServer {
                 }catch(IOException closed){downstreamOpen=false;}
                 continue;
             }
-            // The first actual content/tool delta immediately opens the
-            // original raw-byte stream. Precontent without a real delta is
-            // bounded: crossing the cap is explicitly reported as an error,
-            // never reclassified as a successful completion or [DONE].
-            SsePrecontentBound.Decision decision=
-                precontent.observe(n,probe.hasMeaningfulDelta());
+            // Release only complete, verified nonterminal SSE frames when
+            // long reasoning exceeds the 64KiB pre-answer memory bound.
+            // Never release original finish/[DONE] or unknown frame content
+            // without a real assistant text/tool delta.
+            boolean readBuffered=false;
+            if(!probe.hasMeaningfulDelta() &&
+                (long)awaitingFirstContent.size()+n>
+                    SsePrecontentBound.MAX_PRECONTENT_BYTES){
+                byte[] previous=awaitingFirstContent.toByteArray();
+                byte[] combined=new byte[previous.length+n];
+                System.arraycopy(previous,0,combined,0,previous.length);
+                System.arraycopy(buffer,0,combined,previous.length,n);
+                int safeBytes=SseSafePreludeFrames.safePrefixLength(combined,
+                    SidecarProxyServer::isSafeNativeSsePrelude);
+                if(safeBytes>0){
+                    if(downstreamOpen)try{
+                        writeChunk(downstream,combined,safeBytes);
+                        if(tr!=null)tr.nativeSseWrittenChunks++;
+                    }catch(IOException closed){downstreamOpen=false;}
+                    awaitingFirstContent.reset();
+                    awaitingFirstContent.write(combined,safeBytes,
+                        combined.length-safeBytes);
+                    precontent.replaceBufferedAfterVerifiedDrain(
+                        awaitingFirstContent.size());
+                    readBuffered=true;
+                }
+            }
+            SsePrecontentBound.Decision decision=precontent.observe(
+                readBuffered?0:n,probe.hasMeaningfulDelta());
             if(decision==SsePrecontentBound.Decision.FAIL_CLOSED_DRAIN){
                 if(tr!=null)tr.nativeEmptyRecovery=
-                    "precontent_limit_fail_closed_original_draining";
+                    "unverified_oversize_sse_frame_original_draining";
                 awaitingFirstContent.reset();
                 if(downstreamOpen)try{
                     writeNativeRecoveryError(downstream,
-                        "precontent_limit_without_verified_delta");
+                        "unverified_sse_frame_exceeds_limit");
                 }catch(IOException downstreamClosed){downstreamOpen=false;}
-                // Read the ORIGINAL stream to EOF. No auto replay/cancel.
+                // Drain original provider to natural EOF without replay/Stop.
                 continue;
             }
             if(decision==SsePrecontentBound.Decision.DRAIN)continue;
-            awaitingFirstContent.write(buffer,0,n);
+            if(!readBuffered)awaitingFirstContent.write(buffer,0,n);
             if(decision==SsePrecontentBound.Decision.START_FORWARD){
                 rawForwarding=true;
                 if(downstreamOpen)try{
