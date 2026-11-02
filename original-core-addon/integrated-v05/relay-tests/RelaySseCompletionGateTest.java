@@ -38,7 +38,7 @@ public final class RelaySseCompletionGateTest {
         ok(!feed("data: [DONE]\n\n","data: x\n").complete());
         ok(!feed("data: [DONE]\n\n","data: x\n\n").complete());
         // Valid SSE comments after the marker are not a duplicated answer.
-        ok(feed("data: [DONE]\n\n",": heartbeat\n\n").complete());
+        ok(feed(c,"data: [DONE]\n\n",": heartbeat\n\n").complete());
         // An overlong untrusted data line does not require retaining the body.
         StringBuilder longline=new StringBuilder("data: ");
         for(int i=0;i<9000;i++)longline.append('x');

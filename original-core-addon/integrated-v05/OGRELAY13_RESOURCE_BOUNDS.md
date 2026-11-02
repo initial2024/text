@@ -6,3 +6,6 @@ Tests: pure Java pressure hysteresis, stall, stale epoch, six slots and release;
 ## Follow-up same-HEAD hardening
 - Restored the original spaced handleRequest(msg, generation, owner) call to satisfy the OGRELAY03 static source guard; exact socket epoch semantics were unchanged. Its first post-OGRELAY13 CI failed a format-only source assertion even though 29 JVM owner tests passed; do not hide that failure.
 - RelaySseCompletionGate now also requires at least one non-empty prior SSE data event before a full [DONE] (not just a bare terminal marker or heartbeat); this prevents a trivial false-success. The upstream native Sidecar remains responsible for semantic nonempty content/tool validation. This change does NOT claim UI/model completion verification.
+
+## CI regression correction
+The first post-hardening OGRELAY12 run failed at assertion 16 because the old fixture still considered a bare [DONE] plus comment a complete answer, contradicting the newly tightened invariant. The corrected fixture prepends an actual assistant data frame before [DONE], while still checking that trailing comments are allowed. Record first failure rather than treating it as success.
