@@ -294,6 +294,13 @@ public final class CloudflareRelayClient {
                     .put("headers", responseHeaders);
             delivery.recordStart(send(start, generation, owner));
 
+            // The native SSE adapter can end unexpectedly without the final
+            // OpenAI-compatible [DONE] marker. An HTTP EOF alone is not
+            // evidence of a complete streaming assistant reply.
+            RelaySseCompletionGate completion =
+                    isTrackedChatSse(method, path, code, conn)
+                    ? new RelaySseCompletionGate() : null;
+
             InputStream in = code >= 400
                     ? conn.getErrorStream()
                     : conn.getInputStream();
@@ -303,6 +310,7 @@ public final class CloudflareRelayClient {
                     int n;
                     while ((n = response.read(buffer)) >= 0) {
                         if (n == 0) continue;
+                        if (completion != null) completion.observe(buffer, n);
                         // On rejection, drain original stream without allocating
                         // further Relay chunks or generating a false terminal.
                         if(!delivery.canSendChunk())continue;
@@ -319,6 +327,21 @@ public final class CloudflareRelayClient {
                 }
             }
 
+            // A truncated native SSE stream must not be represented as a
+            // successful resEnd. Preserve all prior chunks; do not retry,
+            // cancel the original generation, or replay via a new socket.
+            if(completion!=null && !completion.complete()){
+                if(delivery.canSendError()){
+                    delivery.recordError(send(new JSONObject()
+                        .put("type","resError")
+                        .put("id",id)
+                        .put("status",502)
+                        .put("message","upstream_sse_incomplete_or_invalid"),
+                        generation,owner));
+                }
+                statusIfCurrent(generation,owner,
+                    "Relay SSE结束校验失败 · 原请求未自动重发");
+            }
             if(delivery.canSendEnd()){
                 delivery.recordEnd(send(new JSONObject()
                     .put("type", "resEnd")
@@ -345,6 +368,25 @@ public final class CloudflareRelayClient {
         } finally {
             if (conn != null) conn.disconnect();
         }
+    }
+
+    /**
+     * Narrowly protect OpenAI-compatible chat SSE. Other HTTP endpoints
+     * (including JSON and event streams without a required [DONE]) keep their
+     * original transport behavior. Compressed upstream bodies cannot be
+     * byte-inspected safely and are never assumed complete by this gate.
+     */
+    private static boolean isTrackedChatSse(
+            String method, String path, int code, HttpURLConnection conn) {
+        if (!"POST".equals(method) || code != 200 ||
+                !("/v1/chat/completions".equals(path) ||
+                  path.startsWith("/v1/chat/completions?"))) return false;
+        String type=conn.getHeaderField("Content-Type");
+        if(type==null || !type.toLowerCase(java.util.Locale.ROOT)
+                .contains("text/event-stream"))return false;
+        String coding=conn.getHeaderField("Content-Encoding");
+        return coding==null || coding.trim().isEmpty() ||
+            "identity".equalsIgnoreCase(coding.trim());
     }
 
     private boolean send(JSONObject json, long generation, WebSocket owner) {
