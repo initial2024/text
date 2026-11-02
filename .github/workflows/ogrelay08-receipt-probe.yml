@@ -35,7 +35,10 @@ jobs:
           assert x['verdict']=='DRY_RUN_NO_NETWORK'
           assert x['requests_sent']==0
           src=Path('original-core-addon/integrated-v05/relay-tests/omnigate_remote_sse_receipt.mjs').read_text()
-          assert "redirect:'error'" in src
+          # OGRELAY09 handles 3xx with manual redirect classification.
+          assert "redirect:'manual'" in src
+          assert "PUBLIC_ENDPOINT_HTTP_REDIRECT_NOT_FOLLOWED" in src
+          assert "redirect:'error'" not in src
           assert "tools:undefined" in src
           assert "OMNIGATE_PUBLIC_API_KEY" in src
           assert "max_tokens:48" in src

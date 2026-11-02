@@ -14,3 +14,6 @@ No Android native source changed, no public Relay settings or ports modified, no
 
 ## Windows read-only operator step
 Download the updated `omnigate_remote_sse_receipt.mjs` **and** its new sibling `omnigate_network_error.mjs` from this exact commit. Retain the previously downloaded `sse_receipt_audit.mjs` in same directory. Run `node .\\omnigate_remote_sse_receipt.mjs --diagnose` **without** any API key. Send back sanitized JSON only. Do not repeat a model POST until the read-only result is interpreted.
+
+## Regression assertion correction
+The first OGRELAY09 commit passed its new 6-case network-classification CI but OGRELAY08's older source-string guard still asserted `redirect:'error'`. The SSE JavaScript protocol tests passed; its obsolete implementation-shape assertion failed. This update retains the no-network/no-tool checks while asserting explicit `redirect:'manual'` and handled 3xx outcomes. Keep the initial failed run visible; no live requests were issued.
