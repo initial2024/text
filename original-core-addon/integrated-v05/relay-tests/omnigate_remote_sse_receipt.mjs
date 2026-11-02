@@ -1,14 +1,21 @@
 import {SseReceiptAudit} from './sse_receipt_audit.mjs';
 import {classifyFetchFailure,redirectSummary} from './omnigate_network_error.mjs';
 import {lookup} from 'node:dns/promises';
+import {configureIpv4PreferredFetch} from './omnigate_ipv4_preference.mjs';
 const base='https://gw-33e850180248.claua.de';
 const endpoint=base+'/v1/chat/completions';
 const args=process.argv.slice(2);
+const networkMode=args.length===1 &&
+    (args[0]==='--diagnose'||args[0]==='--execute');
+// Scoped to this short-lived Node diagnostic process. Dry run stays
+// network-free and does not mutate the user's Windows IP settings.
+const ipPolicy=networkMode?configureIpv4PreferredFetch():null;
 if(args.length===1&&args[0]==='--diagnose'){
   // Read-only and credential-free. DNS and public health GET only; no POST.
   const report={
     verdict:'PUBLIC_NETWORK_READONLY_DIAGNOSTIC',
     node_major:Number(process.versions.node.split('.')[0]),
+    connection_policy:ipPolicy,
     proxy_env_present:Boolean(process.env.HTTPS_PROXY||process.env.HTTP_PROXY||
       process.env.ALL_PROXY||process.env.https_proxy||process.env.http_proxy),
     dns:'NOT_CHECKED',health_http:null,health_network:null,
@@ -80,6 +87,7 @@ try {
 }catch(e){
   process.stderr.write(JSON.stringify({
     verdict:'REQUEST_TRANSPORT_FAILED_BEFORE_HTTP_RESPONSE',
+    connection_policy:ipPolicy,
     http_status:null,
     requests_attempted:1,
     requests_sent:1,
@@ -93,6 +101,7 @@ try {
 if(response.status>=300&&response.status<400){
   process.stderr.write(JSON.stringify({
     verdict:'PUBLIC_ENDPOINT_HTTP_REDIRECT_NOT_FOLLOWED',
+    connection_policy:ipPolicy,
     http_status:response.status,
     requests_attempted:1,
     requests_sent:1,
@@ -107,6 +116,7 @@ const contentType=response.headers.get('content-type')||'';
 if(response.status!==200||!contentType.toLowerCase().includes('text/event-stream')){
   process.stderr.write(JSON.stringify({
     verdict:'HTTP_STATUS_OR_CONTENT_TYPE_UNEXPECTED',
+    connection_policy:ipPolicy,
     http_status:response.status,
     sse_content_type:contentType.toLowerCase().includes('text/event-stream'),
     requests_sent:1,
@@ -126,6 +136,7 @@ try{
   }
   const result=probe.finish();
   result.http_status=response.status;
+  result.connection_policy=ipPolicy;
   result.requests_sent=1;
   result.issued_post=true;
   process.stdout.write(JSON.stringify(result)+'\n');
@@ -133,6 +144,7 @@ try{
 }catch(e){
   process.stderr.write(JSON.stringify({
     verdict:'SSE_STREAM_READ_FAILED',
+    connection_policy:ipPolicy,
     requests_sent:1,
     detail:e?.name||'Error',
     credentials_logged:false
