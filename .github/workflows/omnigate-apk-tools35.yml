@@ -1,0 +1,43 @@
+name: 'OmniGate APK official local verification toolchain (no secrets)'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths: ['.github/workflows/omnigate-apk-tools35.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  toolchain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Stage official Android APK validation tools only
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="$ANDROID_HOME"
+          BT="$SDK_ROOT/build-tools/35.0.0"
+          if [ ! -s "$BT/lib/apksigner.jar" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort | tail -1)"
+            test -x "$SDKMANAGER"
+            "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'build-tools;35.0.0'
+          fi
+          test -s "$BT/lib/apksigner.jar"
+          test -x "$BT/zipalign"
+          test -x "$BT/aapt2"
+          mkdir -p tmp-apk-tools/lib
+          cp "$BT/lib/apksigner.jar" tmp-apk-tools/lib/apksigner.jar
+          cp "$BT/apksigner" "$BT/zipalign" "$BT/aapt2" tmp-apk-tools/
+          "$BT/apksigner" --version
+          sha256sum tmp-apk-tools/lib/apksigner.jar > tmp-apk-tools/SHA256SUMS.txt
+          printf '%s\n' 'Android SDK Build-Tools 35.0.0: validation tooling only; no keystore, APK or user data.' > tmp-apk-tools/README.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniGate-Official-Apk-Tools35-Validation-ONLY
+          path: tmp-apk-tools/
+          retention-days: 1
+          if-no-files-found: error
