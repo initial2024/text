@@ -21,6 +21,7 @@ final class RelaySseCompletionGate {
     private int doneCount;
     private boolean invalidAfterDone;
     private boolean invalidDoneEvent;
+    private boolean sawDataBeforeDone;
 
     void observe(byte[] buffer,int n){
         if(buffer==null || n<0 || n>buffer.length)
@@ -68,6 +69,10 @@ final class RelaySseCompletionGate {
                 candidateDone=true;
             }else{
                 nonDoneData=true;
+                // A terminal marker by itself cannot establish even the
+                // presence of a response data event. Semantic content/tool
+                // verification remains the native Sidecar's responsibility.
+                if(doneCount==0 && count>5)sawDataBeforeDone=true;
                 if(doneCount>0)invalidAfterDone=true;
             }
         }
@@ -86,7 +91,7 @@ final class RelaySseCompletionGate {
     }
 
     boolean complete(){
-        return doneCount==1 && !invalidAfterDone &&
+        return sawDataBeforeDone && doneCount==1 && !invalidAfterDone &&
             !invalidDoneEvent && !overflow && len==0 &&
             !candidateDone && !eventHasData;
     }

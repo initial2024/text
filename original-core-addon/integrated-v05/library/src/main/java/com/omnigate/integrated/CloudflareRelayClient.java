@@ -225,7 +225,7 @@ public final class CloudflareRelayClient {
                 requestPool.execute(() -> {
                     try {
                         if(epochs.isCurrent(generation, owner))
-                            handleRequest(msg,generation,owner);
+                            handleRequest(msg, generation, owner);
                     } finally {requestLimit.leave();}
                 });
             } catch(java.util.concurrent.RejectedExecutionException stopped){

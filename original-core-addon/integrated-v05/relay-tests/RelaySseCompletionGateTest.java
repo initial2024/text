@@ -24,7 +24,9 @@ public final class RelaySseCompletionGateTest {
         String done="data: [DONE]\r\n\r\n";
         ok(feed(c,f,done).complete());
         ok(eachByte(": keepalive\r\n\r\n"+c+f+done).complete());
-        ok(feed("data:[DONE]\n\n").complete());
+        ok(!feed("data:[DONE]\n\n").complete()); // no prior SSE data
+        ok(!feed(": heartbeat\n\ndata: [DONE]\n\n").complete());
+        ok(feed("data: {\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\ndata:[DONE]\n\n").complete());
         ok(!feed(c,f).complete());                       // EOF without done
         ok(!feed(c,"data: [DONE]\r\n").complete());      // unfinished delimiter
         ok(!feed("data: [DONE]").complete());           // truncated line
