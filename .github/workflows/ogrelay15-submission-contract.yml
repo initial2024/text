@@ -1,0 +1,39 @@
+name: 'OGRELAY15 bridge submission correlation diagnostics'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - '.github/workflows/ogrelay15-submission-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  submission-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Verify fail-closed bridge mismatch classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java').read_text()
+          a=s.index('if(anchor==null){')
+          b=s.index('long deadline=',a)
+          block=s[a:b]
+          assert 'lastSubmissionSequence' in block
+          assert 'deepseekSubmissionStatus' in block
+          assert 'bridge_submission_contract_missing' in block
+          assert 'native_send_not_confirmed' in block
+          assert 'submitted_confirmed' in block
+          assert 'writeNativeRecoveryError(output,code)' in block
+          assert 'click' not in block.lower()
+          assert 'POST' not in block
+          print('OGRELAY15_BRIDGE_CONTRACT_MISMATCH_CLASSIFIED=PASS')
+          print('OGRELAY15_UNCONFIRMED_SEND_NOT_REPORTED_AS_CORRELATION=PASS')
+          print('OGRELAY15_NO_MODEL_RETRY_OR_SYNTHETIC_SUCCESS=PASS')
+          PY

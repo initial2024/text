@@ -1137,8 +1137,22 @@ public final class SidecarProxyServer {
             NativeEmptyAnchor anchor,ProxyTrace tr)
             throws IOException,org.json.JSONException {
         if(anchor==null){
-            if(tr!=null)tr.nativeEmptyRecovery="no_verified_pre_submit_anchor";
-            writeNativeRecoveryError(output,"cannot_correlate_current_turn");
+            // Distinguish a stale/mismatched private page bridge from a real
+            // model reply correlation failure. This path NEVER clicks Send,
+            // retries a model request, or fabricates a successful answer.
+            String code="cannot_correlate_current_turn";
+            try{
+                JSONObject page=OriginalCoreBridge.diagnoseVerifiedApiPage();
+                if(!page.has("lastSubmissionSequence") ||
+                   !page.has("deepseekSubmissionStatus")){
+                    code="bridge_submission_contract_missing";
+                }else if(!"submitted_confirmed".equals(
+                    page.optString("deepseekSubmissionStatus",""))){
+                    code="native_send_not_confirmed";
+                }
+            }catch(Throwable ignored){}
+            if(tr!=null)tr.nativeEmptyRecovery="no_verified_pre_submit_anchor:"+code;
+            writeNativeRecoveryError(output,code);
             return;
         }
         long deadline=android.os.SystemClock.elapsedRealtime()+300000;
