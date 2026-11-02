@@ -1,0 +1,45 @@
+name: 'OGRELAY14 reject duplicate native relay request ids'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/RelayActiveRequestIds.java'
+      - 'original-core-addon/integrated-v05/relay-tests/RelayActiveRequestIdsTest.java'
+      - '.github/workflows/ogrelay14-idempotent-requests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  request-id-guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Run request ID duplicate/reconnect/race tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/RelayActiveRequestIds.java" "$R/relay-tests/RelayActiveRequestIdsTest.java"
+          java -cp "$OUT" com.omnigate.integrated.RelayActiveRequestIdsTest
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java').read_text()
+          assert 'private final RelayActiveRequestIds activeIds' in s
+          assert 'if(!activeIds.reserve(requestId))' in s
+          assert 'relay_duplicate_or_invalid_request_id' in s
+          assert s.count('activeIds.release(requestId)')>=3
+          assert 'requestLimit.leave()' in s
+          assert 'handleRequest(msg, generation, owner)' in s
+          assert 'return owner.send(json.toString())' in s
+          assert 'if(completion!=null && !completion.complete())' in s
+          assert 'if(delivery.canSendEnd())' in s
+          print('OGRELAY14_REAL_ANDROID_SOURCE_REPLAY_GUARD=PASS')
+          print('OGRELAY14_NO_EXTRA_MODEL_POST_OR_RETRY=PASS')
+          PY

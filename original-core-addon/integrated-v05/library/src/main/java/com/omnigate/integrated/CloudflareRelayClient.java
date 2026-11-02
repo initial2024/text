@@ -34,6 +34,9 @@ public final class CloudflareRelayClient {
     private final ExecutorService requestPool = Executors.newCachedThreadPool();
     // Keep public Relay request concurrency bounded, independent of streams.
     private final RelayRequestLimiter requestLimit = new RelayRequestLimiter(6);
+    // Hold request ids across socket generations until original HTTP work
+    // naturally returns. A duplicate public Relay event must not re-POST.
+    private final RelayActiveRequestIds activeIds = new RelayActiveRequestIds();
     private final OkHttpClient client;
 
     private volatile boolean running;
@@ -215,7 +218,14 @@ public final class CloudflareRelayClient {
             if (!epochs.isCurrent(generation, owner)) return;
             String requestId=msg.optString("id", "");
             if(requestId.isEmpty())return;
+            if(!activeIds.reserve(requestId)){
+                send(new JSONObject().put("type","resError")
+                    .put("id",requestId).put("status",409)
+                    .put("message","relay_duplicate_or_invalid_request_id"),generation,owner);
+                return;
+            }
             if(!requestLimit.tryEnter()){
+                activeIds.release(requestId);
                 send(new JSONObject().put("type","resError")
                     .put("id",requestId).put("status",503)
                     .put("message","relay_local_capacity_exceeded"),generation,owner);
@@ -226,10 +236,14 @@ public final class CloudflareRelayClient {
                     try {
                         if(epochs.isCurrent(generation, owner))
                             handleRequest(msg, generation, owner);
-                    } finally {requestLimit.leave();}
+                    } finally {
+                        requestLimit.leave();
+                        activeIds.release(requestId);
+                    }
                 });
             } catch(java.util.concurrent.RejectedExecutionException stopped){
                 requestLimit.leave();
+                activeIds.release(requestId);
                 send(new JSONObject().put("type","resError")
                     .put("id",requestId).put("status",503)
                     .put("message","relay_local_executor_unavailable"),generation,owner);
