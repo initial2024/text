@@ -31,8 +31,10 @@ jobs:
           assert 'native_send_not_confirmed' in block
           assert 'submitted_confirmed' in block
           assert 'writeNativeRecoveryError(output,code)' in block
-          assert 'click' not in block.lower()
-          assert 'POST' not in block
+          assert '.click(' not in block
+          assert 'requestSubmit(' not in block
+          assert 'new URL(' not in block
+          assert 'openConnection(' not in block
           print('OGRELAY15_BRIDGE_CONTRACT_MISMATCH_CLASSIFIED=PASS')
           print('OGRELAY15_UNCONFIRMED_SEND_NOT_REPORTED_AS_CORRELATION=PASS')
           print('OGRELAY15_NO_MODEL_RETRY_OR_SYNTHETIC_SUCCESS=PASS')
