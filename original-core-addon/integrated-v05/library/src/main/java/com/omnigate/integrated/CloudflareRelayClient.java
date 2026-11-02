@@ -32,6 +32,8 @@ public final class CloudflareRelayClient {
     private final int localPort;
     private final StatusListener listener;
     private final ExecutorService requestPool = Executors.newCachedThreadPool();
+    // Keep public Relay request concurrency bounded, independent of streams.
+    private final RelayRequestLimiter requestLimit = new RelayRequestLimiter(6);
     private final OkHttpClient client;
 
     private volatile boolean running;
@@ -194,9 +196,8 @@ public final class CloudflareRelayClient {
                     statusIfCurrent(generation, owner, "Relay 已连，但公网尚未识别设备");
                 }
             } catch (Throwable e) {
-                statusIfCurrent(generation, owner, "Relay 已连，但公网探针失败 · "
-                        + e.getClass().getSimpleName()
-                        + (e.getMessage() == null ? "" : "：" + sanitize(e.getMessage())));
+                statusIfCurrent(generation, owner,
+                        "Relay 公网探针失败 · " + e.getClass().getSimpleName());
             } finally {
                 if (conn != null) conn.disconnect();
             }
@@ -212,10 +213,27 @@ public final class CloudflareRelayClient {
             JSONObject msg = new JSONObject(text);
             if (!"req".equals(msg.optString("type"))) return;
             if (!epochs.isCurrent(generation, owner)) return;
-            requestPool.execute(() -> {
-                if (epochs.isCurrent(generation, owner))
-                    handleRequest(msg, generation, owner);
-            });
+            String requestId=msg.optString("id", "");
+            if(requestId.isEmpty())return;
+            if(!requestLimit.tryEnter()){
+                send(new JSONObject().put("type","resError")
+                    .put("id",requestId).put("status",503)
+                    .put("message","relay_local_capacity_exceeded"),generation,owner);
+                return;
+            }
+            try {
+                requestPool.execute(() -> {
+                    try {
+                        if(epochs.isCurrent(generation, owner))
+                            handleRequest(msg,generation,owner);
+                    } finally {requestLimit.leave();}
+                });
+            } catch(java.util.concurrent.RejectedExecutionException stopped){
+                requestLimit.leave();
+                send(new JSONObject().put("type","resError")
+                    .put("id",requestId).put("status",503)
+                    .put("message","relay_local_executor_unavailable"),generation,owner);
+            }
         } catch (Throwable ignored) {}
     }
 
@@ -226,6 +244,7 @@ public final class CloudflareRelayClient {
         // Track queue admission per response. Rejection cannot be followed
         // by a successful resEnd, regardless of original upstream status.
         RelayReplySendGate delivery=new RelayReplySendGate();
+        RelayQueuePacer queuePacer=new RelayQueuePacer();
         HttpURLConnection conn = null;
         try {
             String method = msg.optString("method", "GET");
@@ -314,6 +333,12 @@ public final class CloudflareRelayClient {
                         // On rejection, drain original stream without allocating
                         // further Relay chunks or generating a false terminal.
                         if(!delivery.canSendChunk())continue;
+                        // Pause this worker before allocating another Base64
+                        // frame; fail closed after prolonged queue congestion.
+                        if(!awaitRelayQueueRoom(generation, owner, queuePacer)){
+                            delivery.recordChunk(false);
+                            continue;
+                        }
                         byte[] chunk = new byte[n];
                         System.arraycopy(buffer, 0, chunk, 0, n);
                         JSONObject frame = new JSONObject()
@@ -357,11 +382,7 @@ public final class CloudflareRelayClient {
                         .put("type", "resError")
                         .put("id", id)
                         .put("status", 502)
-                        .put("message",
-                                e.getClass().getSimpleName()
-                                        + (e.getMessage() == null
-                                        ? ""
-                                        : "：" + sanitize(e.getMessage()))),
+                        .put("message", "local_upstream_transport_failed"),
                             generation, owner));
                 }
             } catch (Throwable ignored) {}
@@ -387,6 +408,23 @@ public final class CloudflareRelayClient {
         String coding=conn.getHeaderField("Content-Encoding");
         return coding==null || coding.trim().isEmpty() ||
             "identity".equalsIgnoreCase(coding.trim());
+    }
+
+    private boolean awaitRelayQueueRoom(
+            long generation, WebSocket owner, RelayQueuePacer pacer) {
+        for(;;){
+            RelayQueuePacer.Decision decision=pacer.observe(
+                owner.queueSize(),
+                android.os.SystemClock.elapsedRealtime(),
+                epochs.isCurrent(generation,owner));
+            if(decision==RelayQueuePacer.Decision.READY)return true;
+            if(decision!=RelayQueuePacer.Decision.WAIT)return false;
+            try{Thread.sleep(75L);}
+            catch(InterruptedException interrupted){
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
     }
 
     private boolean send(JSONObject json, long generation, WebSocket owner) {
