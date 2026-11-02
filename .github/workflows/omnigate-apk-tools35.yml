@@ -32,6 +32,9 @@ jobs:
           mkdir -p tmp-apk-tools/lib
           cp "$BT/lib/apksigner.jar" tmp-apk-tools/lib/apksigner.jar
           cp "$BT/apksigner" "$BT/zipalign" "$BT/aapt2" tmp-apk-tools/
+          LIBCXX="$(find "$BT" -type f -name 'libc++.so' -print -quit)"
+          test -n "$LIBCXX"
+          cp "$LIBCXX" tmp-apk-tools/libc++.so
           "$BT/apksigner" --version
           sha256sum tmp-apk-tools/lib/apksigner.jar > tmp-apk-tools/SHA256SUMS.txt
           printf '%s\n' 'Android SDK Build-Tools 35.0.0: validation tooling only; no keystore, APK or user data.' > tmp-apk-tools/README.txt
