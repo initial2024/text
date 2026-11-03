@@ -34,6 +34,18 @@ final class IsolatedGeckoBrowser {
     private Object geckoView;
     private int selected=-1;
 
+    static void showPicker(Activity host){
+        // The model homepage and Settings share the same user-controlled
+        // picker. There is no model POST, account fallback or token copying.
+        new AlertDialog.Builder(host)
+            .setTitle("账号切换 · 隔离浏览器")
+            .setMessage("每个账号槽位独立保存网页登录状态；"+
+                "此入口不更改原版 WebDriver/8787 使用的账号。"+
+                "平台限流或鉴权异常时不得换号继续请求。")
+            .setItems(AccountBrowserSlots.LABELS,(dialog,which)->
+                show(host,AccountBrowserSlots.PROVIDERS[which]))
+            .setNegativeButton("取消",null).show();
+    }
     static void show(Activity host,String provider){
         if(!AccountBrowserSlots.supported(provider))
             throw new IllegalArgumentException("provider");

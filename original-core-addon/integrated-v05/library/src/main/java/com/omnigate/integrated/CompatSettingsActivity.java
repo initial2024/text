@@ -227,6 +227,13 @@ public final class CompatSettingsActivity extends Activity {
         margin(hero, text("API 控制台   /   v0.7.0", 13, 0xFFE5E7FF, false), 7);
         margin(hero, text("自动恢复本地 8787 · Relay 按已有授权重连 · 原版模型不自动重启", 12, 0xFFD6E9FF, false), 0);
 
+        // Visible immediately when entering Settings, without scrolling
+        // through API/Relay controls or expanding hidden Advanced options.
+        Button accountEntry=button(page,"账号切换 / 多账号备份（独立浏览器）",true);
+        accountEntry.setOnClickListener(v->IsolatedGeckoBrowser.showPicker(this));
+        margin(page,text("DeepSeek / GLM / ChatGPT / Grok｜登录独立存储；"+
+            "不会切换原版 8787 模型执行账号",12,0xFF637086,false),8);
+
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
         localBadge = statusBadge(connection, "○ 8787 检查中");
         upstreamBadge = statusBadge(connection, "○ 1601 检查中");
@@ -395,13 +402,7 @@ public final class CompatSettingsActivity extends Activity {
         Button isolatedAccountSwitch=button(connection,
             "独立账号槽位：DeepSeek / GLM / ChatGPT / Grok",false);
         isolatedAccountSwitch.setOnClickListener(v->
-            new android.app.AlertDialog.Builder(this)
-                .setTitle("独立浏览器账号")
-                .setMessage("不同槽位隔离网站 Cookie 与存储，首次自行登录。"+
-                    "不会更换原版 WebDriver；不自动切换账号绕过风控。")
-                .setItems(AccountBrowserSlots.LABELS,(d,which)->
-                    IsolatedGeckoBrowser.show(this,AccountBrowserSlots.PROVIDERS[which]))
-                .setNegativeButton("取消",null).show());
+            IsolatedGeckoBrowser.showPicker(this));
 
         // Claude is NOT in the frozen original AiProvider enum and has no
         // native ApiServer/Gecko adapter. Never advertise it as a 8787 model.

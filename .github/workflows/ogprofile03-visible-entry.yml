@@ -1,0 +1,46 @@
+name: 'OGPROFILE03 visible account switch entrances'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - '.github/workflows/ogprofile03-visible-entry.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  entry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Guard first-screen and Settings-top account entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          home=(p/'OmniGateHomeActivity.java').read_text()
+          setting=(p/'CompatSettingsActivity.java').read_text()
+          browser=(p/'IsolatedGeckoBrowser.java').read_text()
+          assert 'button(main,"账号切换 / 多账号备份",true,' in home
+          assert home.index('账号切换 / 多账号备份') < home.index('LinearLayout network=card(page)')
+          assert 'accountEntry=button(page,"账号切换 / 多账号备份（独立浏览器）",true)' in setting
+          assert setting.index('accountEntry=button') < setting.index('LinearLayout connection = panel(page')
+          assert setting.count('IsolatedGeckoBrowser.showPicker(this)') >= 2
+          assert 'static void showPicker(Activity host)' in browser
+          assert 'setItems(AccountBrowserSlots.LABELS' in browser
+          assert 'show(host,AccountBrowserSlots.PROVIDERS[which])' in browser
+          assert '平台限流或鉴权异常时不得换号继续请求' in browser
+          assert 'getMethod("contextId",String.class)' in browser
+          assert 'new GeckoRuntime(' not in browser
+          assert 'openOriginal(' in home
+          assert 'CloudflareRelayClient' not in browser
+          print('OGPROFILE03_HOME_FIRST_SCREEN_ENTRY=PASS')
+          print('OGPROFILE03_SETTINGS_TOP_VISIBLE_ENTRY=PASS')
+          print('OGPROFILE03_EXISTING_ACCOUNT_ISOLATION_UNCHANGED=PASS')
+          print('OGPROFILE03_REAL_PHONE_NAVIGATION=NOT_TESTED')
+          PY

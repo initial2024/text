@@ -116,6 +116,12 @@ public final class OmniGateHomeActivity extends Activity {
         nativeStatus=txt("原版模型 API：检查中…",13,0xFFBBD5FF,false);add(main,nativeStatus,5);
         ownerStatus=txt("WebDriver 归属：检查中…",12,0xFFFFD18D,false);add(main,ownerStatus,14);
         button(main,"刷新运行状态",true,()->refresh());
+        // This is a first-screen navigation entry, not the original model's
+        // login/account control. Explicit auxiliary browser isolation only.
+        button(main,"账号切换 / 多账号备份",true,
+            ()->IsolatedGeckoBrowser.showPicker(this));
+        add(main,txt("DeepSeek · GLM · ChatGPT · Grok｜独立浏览器账号，"+
+            "不会切换原版 API 执行账号",12,MUTED,false),7);
 
         LinearLayout network=card(page);
         add(network,txt("我的公网穿透",19,Color.WHITE,true),8);
