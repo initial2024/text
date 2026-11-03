@@ -27,3 +27,13 @@ Insert trusted `contextId(String)` in `ProviderBrowser.createSession` **before `
 The original classes.dex lacks a `GeckoSessionSettings.Builder.contextId` method reference, even though GeckoView defines it elsewhere. Therefore just replacing the `build` invoke is not sufficient and would produce an invalid DEX/call signature. Correct DEX index tables, registers, code sizes, exception handlers, checksums and class references must be rebuilt with a verified toolchain.
 
 **Current verified:** real APK original bytecode mapping and exact-context source gate. **Not done:** native DEX hook, private signer usage, newly signed installation, account login/streaming/transition E2E. Do not claim a one-tap native switch until those pass.
+
+## Safe, exact-code constructor hook ABI
+
+The public Android entry point added to the compatibility DEX is:
+
+`NativePrimaryContextHook.contextIdForNewSession(Context, Object originalAiProvider)`.
+
+The original `ProviderBrowser.createSession()` can pass **its existing** `this.context` and `this.provider` fields. Return `null` means no primary target was armed: retain the original default session context. A non-null return is a validated, same-provider isolated context. Invoke `Builder.contextId(result)` before `Builder.build()`. A mismatch must abort constructing the new session; do not silently fall back to the old account.
+
+The original DEX needs a method-ID entry for the public hook and `Builder.contextId(String)`, plus sufficient verified local registers and updated code size. These calls are **not** present in original `classes.dex` and cannot be patched by swapping an existing `invoke-virtual` operand. The native code-item rebuild remains blocked until an executable and verifiable DEX assembler/injector and fixed signer run on a private original APK. No claim that the native hook has been installed in a distributable APK.

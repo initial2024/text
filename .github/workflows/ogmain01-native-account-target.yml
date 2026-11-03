@@ -12,6 +12,7 @@ on:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
       - 'original-core-addon/integrated-v05/relay-tests/MainAccountRoutePolicyTest.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/NativePrimaryContextHook.java'
       - '.github/workflows/ogmain01-native-account-target.yml'
   workflow_dispatch:
 permissions: {contents: read}
@@ -62,5 +63,9 @@ jobs:
           assert 'MainAccountTargetStore.cancel(this)' in (p/'OmniGateHomeActivity.java').read_text()
           assert 'contextForNewNativeSession(' in store
           print('OGMAIN01_MAIN_ACCOUNT_FENCE_WIRED=PASS_STATIC')
+          hook=(p/'NativePrimaryContextHook.java').read_text()
+          assert 'public static String contextIdForNewSession(Context context,Object nativeProvider)' in hook
+          assert 'MainAccountTargetStore.contextForNewNativeSession(' in hook
+          assert '"com.deepseek2.app.gateway.AiProvider"' in hook
           print('OGMAIN01_NATIVE_GECKO_BUILDER_INJECTION=NOT_YET_IN_PRIVATE_APK')
           PY
