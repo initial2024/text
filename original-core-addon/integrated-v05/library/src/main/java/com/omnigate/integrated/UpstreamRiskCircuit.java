@@ -17,6 +17,18 @@ final class UpstreamRiskCircuit {
     interface AuditSink {
         void record(String channel, String eventCode, int httpStatus, long untilEpochMs);
     }
+    interface StateStore {
+        State load();
+        void save(State state);
+    }
+    static final class State {
+        final boolean manual;
+        final long until;
+        final String code;
+        State(boolean manual,long until,String code){
+            this.manual=manual;this.until=until;this.code=code;
+        }
+    }
     static final class Decision {
         final boolean allowed;
         final int status;
@@ -33,6 +45,8 @@ final class UpstreamRiskCircuit {
     private final String channel;
     private final int localMaxInFlight;
     private final AuditSink sink;
+    private final StateStore store;
+    private boolean restored;
     private int inFlight;
     private boolean manualHold;
     private long blockedUntilMs;
@@ -40,15 +54,51 @@ final class UpstreamRiskCircuit {
     private final ArrayDeque<String> audit=new ArrayDeque<>();
 
     UpstreamRiskCircuit(String channel, int localMaxInFlight, AuditSink sink) {
+        this(channel,localMaxInFlight,sink,null);
+    }
+    UpstreamRiskCircuit(String channel, int localMaxInFlight,
+                        AuditSink sink,StateStore store) {
         if(!("native".equals(channel)||"claude".equals(channel)||
              "relay".equals(channel))||localMaxInFlight<1)
             throw new IllegalArgumentException("fixed channel or concurrency");
         this.channel=channel;
         this.localMaxInFlight=localMaxInFlight;
         this.sink=sink;
+        this.store=store;
+        this.restored=store==null;
+    }
+
+    private void restoreIfNeeded(){
+        if(restored)return;
+        State state=store.load();
+        if(state==null)throw new IllegalStateException("risk_store_not_ready");
+        if(state.manual || state.until>0){
+            manualHold=state.manual;
+            blockedUntilMs=Math.max(0,state.until);
+            blockingCode=validFixedCode(state.code)?state.code:"risk_state_invalid";
+            if(!validFixedCode(state.code))manualHold=true;
+        }
+        restored=true;
+    }
+    private static boolean validFixedCode(String code){
+        return "none".equals(code)||"upstream_auth_required".equals(code)||
+          "upstream_access_denied".equals(code)||
+          "provider_challenge".equals(code)||
+          "upstream_quota_requires_review".equals(code)||
+          "upstream_rate_limit_no_retry_hint".equals(code)||
+          "upstream_rate_limited".equals(code)||
+          "upstream_overloaded".equals(code)||
+          "provider_request_budget_exhausted".equals(code)||
+          "manual_review_reset".equals(code)||
+          "risk_state_invalid".equals(code);
+    }
+    private void persist(){
+        if(store!=null)
+            store.save(new State(manualHold,blockedUntilMs,blockingCode));
     }
 
     synchronized Decision enter(long nowMs) {
+        restoreIfNeeded();
         Decision blocked=blockReason(nowMs);
         if(blocked!=null)return blocked;
         if(inFlight>=localMaxInFlight)
@@ -58,6 +108,7 @@ final class UpstreamRiskCircuit {
     }
 
     synchronized Decision permission(long nowMs) {
+        restoreIfNeeded();
         Decision blocked=blockReason(nowMs);
         return blocked==null
             ?new Decision(true,200,"admitted",0):blocked;
@@ -84,6 +135,7 @@ final class UpstreamRiskCircuit {
             int status, String retryAfter, String cfMitigated,
             String errorCode, String requestsRemaining, String requestsReset,
             long nowMs) {
+        restoreIfNeeded();
         if("challenge".equalsIgnoreCase(trim(cfMitigated))){
             hold("provider_challenge",status,nowMs);return;
         }
@@ -114,23 +166,32 @@ final class UpstreamRiskCircuit {
 
     synchronized int inFlight(){return inFlight;}
     synchronized String[] auditCodes(){return audit.toArray(new String[0]);}
-    synchronized String holdCode(){return manualHold?blockingCode:"none";}
+    synchronized String holdCode(){restoreIfNeeded();return manualHold?blockingCode:"none";}
 
     /** Only a reviewed, explicit user action may release a permanent hold. */
     synchronized void clearAfterExplicitUserReview(long nowMs) {
+        restoreIfNeeded();
         manualHold=false;
-        blockedUntilMs=0;
-        blockingCode="none";
-        log("manual_review_reset",0,0,nowMs);
+        // An explicit review never shortens a previous official Retry-After.
+        if(blockedUntilMs<=nowMs){
+            blockedUntilMs=0;
+            blockingCode="none";
+        }else if("none".equals(blockingCode)){
+            blockingCode="upstream_rate_limited";
+        }
+        persist();
+        log("manual_review_reset",0,blockedUntilMs,nowMs);
     }
 
     private void hold(String code,int status,long nowMs){
-        manualHold=true;blockedUntilMs=0;blockingCode=code;
-        log(code,status,0,nowMs);
+        manualHold=true;blockingCode=code;
+        persist();
+        log(code,status,blockedUntilMs,nowMs);
     }
     private void cool(String code,int status,long until,long nowMs){
         if(manualHold)return;
         if(until>blockedUntilMs){blockedUntilMs=until;blockingCode=code;}
+        persist();
         log(code,status,until,nowMs);
     }
     private void log(String code,int status,long until,long nowMs){

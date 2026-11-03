@@ -37,9 +37,25 @@ public final class SidecarProxyServer {
     // One in-flight user-initiated model turn per upstream path, not a
     // fabricated provider rate limit. Model HTTP POST auto retry remains zero.
     private static final UpstreamRiskCircuit NATIVE_CHAT_RISK =
-        new UpstreamRiskCircuit("native",1,SidecarProxyServer::logRiskEvent);
+        new UpstreamRiskCircuit("native",1,SidecarProxyServer::logRiskEvent,
+            new AndroidRiskStateStore("native"));
     private static final UpstreamRiskCircuit CLAUDE_CHAT_RISK =
-        new UpstreamRiskCircuit("claude",1,SidecarProxyServer::logRiskEvent);
+        new UpstreamRiskCircuit("claude",1,SidecarProxyServer::logRiskEvent,
+            new AndroidRiskStateStore("claude"));
+
+    public static String redactedRiskStatus(){
+        long now=System.currentTimeMillis();
+        try{
+            UpstreamRiskCircuit.Decision nativeState=NATIVE_CHAT_RISK.permission(now);
+            UpstreamRiskCircuit.Decision claudeState=CLAUDE_CHAT_RISK.permission(now);
+            return "网页模型："+nativeState.code+
+                "；Claude API："+claudeState.code;
+        }catch(RuntimeException notReady){return "风险状态暂不可读取";}
+    }
+    public static void reviewRiskAfterExplicitConfirmation(boolean claude){
+        if(claude)CLAUDE_CHAT_RISK.clearAfterExplicitUserReview(System.currentTimeMillis());
+        else NATIVE_CHAT_RISK.clearAfterExplicitUserReview(System.currentTimeMillis());
+    }
 
     private static void logRiskEvent(String channel,String code,int http,long until){
         // Only fixed code/channel/status/time; never user prompts, domains,

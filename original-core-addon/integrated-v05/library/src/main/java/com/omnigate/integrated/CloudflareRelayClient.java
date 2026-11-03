@@ -47,10 +47,19 @@ public final class CloudflareRelayClient {
     // This is the transport reconnect ceiling, not a platform-safe RPM.
     // Native model submissions always have zero automatic retries.
     private static final int MAX_TRANSIENT_RECONNECTS=2;
-    private final UpstreamRiskCircuit relayConnectionCircuit =
+    private static final UpstreamRiskCircuit relayConnectionCircuit =
         new UpstreamRiskCircuit("relay",1,
             (channel,code,http,until)->android.util.Log.i("OmniGateRisk",
-                "channel=relay event="+code+" http="+http+" until_ms="+until));
+                "channel=relay event="+code+" http="+http+" until_ms="+until),
+            new AndroidRiskStateStore("relay"));
+
+    public static String redactedRiskStatus(){
+        try{return relayConnectionCircuit.permission(System.currentTimeMillis()).code;}
+        catch(RuntimeException notReady){return "risk_state_unavailable";}
+    }
+    public static void reviewRiskAfterExplicitConfirmation(){
+        relayConnectionCircuit.clearAfterExplicitUserReview(System.currentTimeMillis());
+    }
 
 
     public CloudflareRelayClient(

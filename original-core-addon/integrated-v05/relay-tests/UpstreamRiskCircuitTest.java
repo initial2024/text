@@ -89,6 +89,27 @@ public final class UpstreamRiskCircuitTest {
         observe(privacy,401,"text-with-sk-secret",null,null,null,null,t);
         ok(privacy.auditCodes()[0].contains("upstream_auth_required"));
         ok(!privacy.auditCodes()[0].contains("text-with-sk-secret"));
+        final UpstreamRiskCircuit.State[] durable=new UpstreamRiskCircuit.State[1];
+        UpstreamRiskCircuit.StateStore mock=new UpstreamRiskCircuit.StateStore(){
+            public UpstreamRiskCircuit.State load(){
+                return durable[0]==null?
+                    new UpstreamRiskCircuit.State(false,0,"none"):durable[0];
+            }
+            public void save(UpstreamRiskCircuit.State state){durable[0]=state;}
+        };
+        UpstreamRiskCircuit saved=new UpstreamRiskCircuit("native",1,null,mock);
+        observe(saved,429,"120",null,null,null,null,t);
+        ok(durable[0]!=null && durable[0].until==t+120_000);
+        UpstreamRiskCircuit restarted=new UpstreamRiskCircuit("native",1,null,mock);
+        ok(!restarted.permission(t+10).allowed);
+        observe(restarted,401,null,null,null,null,null,t+20);
+        ok(durable[0].manual);
+        UpstreamRiskCircuit again=new UpstreamRiskCircuit("native",1,null,mock);
+        ok(!again.permission(t+100).allowed);
+        again.clearAfterExplicitUserReview(t+200);
+        ok(!again.permission(t+500).allowed); // do not shorten original 120s
+        ok(again.enter(t+120_000).allowed);again.exit();
+        ok(!durable[0].manual);
         UpstreamRiskCircuit concurrent=gate();
         final CountDownLatch latch=new CountDownLatch(1);
         final AtomicInteger admitted=new AtomicInteger();
