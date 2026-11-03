@@ -11,8 +11,7 @@ import android.content.SharedPreferences;
 final class AndroidRiskStateStore implements UpstreamRiskCircuit.StateStore {
     private final String channel;
     AndroidRiskStateStore(String channel){
-        if(!("native".equals(channel)||"claude".equals(channel)||
-             "relay".equals(channel)))
+        if(!ProviderRiskScopes.validChannel(channel))
             throw new IllegalArgumentException("channel");
         this.channel=channel;
     }

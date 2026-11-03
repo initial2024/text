@@ -43,20 +43,62 @@ public final class SidecarProxyServer {
         new UpstreamRiskCircuit("claude",1,SidecarProxyServer::logRiskEvent,
             new AndroidRiskStateStore("claude"));
 
+    private static final UpstreamRiskCircuit DEEPSEEK_RISK =
+        new UpstreamRiskCircuit("deepseek",1,SidecarProxyServer::logRiskEvent,
+            new AndroidRiskStateStore("deepseek"));
+    private static final UpstreamRiskCircuit CHATGPT_RISK =
+        new UpstreamRiskCircuit("chatgpt",1,SidecarProxyServer::logRiskEvent,
+            new AndroidRiskStateStore("chatgpt"));
+    private static final UpstreamRiskCircuit GROK_RISK =
+        new UpstreamRiskCircuit("grok",1,SidecarProxyServer::logRiskEvent,
+            new AndroidRiskStateStore("grok"));
+    private static final UpstreamRiskCircuit GLM_RISK =
+        new UpstreamRiskCircuit("glm",1,SidecarProxyServer::logRiskEvent,
+            new AndroidRiskStateStore("glm"));
+    private static UpstreamRiskCircuit riskForProvider(String channel){
+        switch(channel){
+            case "deepseek":return DEEPSEEK_RISK;
+            case "chatgpt":return CHATGPT_RISK;
+            case "grok":return GROK_RISK;
+            case "glm":return GLM_RISK;
+            default:throw new IllegalArgumentException("unsupported provider");
+        }
+    }
+    public static UpstreamRiskCircuit.Decision riskPermissionForProvider(
+            String channel,long now){
+        return riskForProvider(channel).permission(now);
+    }
     public static String redactedRiskStatus(){
         long now=System.currentTimeMillis();
         try{
             UpstreamRiskCircuit.Decision nativeState=NATIVE_CHAT_RISK.permission(now);
             UpstreamRiskCircuit.Decision claudeState=CLAUDE_CHAT_RISK.permission(now);
-            return "网页模型："+nativeState.code+
+            return "网页模型全局："+nativeState.code+
+                "；DeepSeek："+DEEPSEEK_RISK.permission(now).code+
+                "；ChatGPT："+CHATGPT_RISK.permission(now).code+
+                "；Grok："+GROK_RISK.permission(now).code+
+                "；GLM："+GLM_RISK.permission(now).code+
                 "；Claude API："+claudeState.code;
         }catch(RuntimeException notReady){return "风险状态暂不可读取";}
     }
     public static void reviewRiskAfterExplicitConfirmation(boolean claude){
-        if(claude)CLAUDE_CHAT_RISK.clearAfterExplicitUserReview(System.currentTimeMillis());
-        else NATIVE_CHAT_RISK.clearAfterExplicitUserReview(System.currentTimeMillis());
+        reviewRiskAfterExplicitConfirmation(claude?"claude":"native");
+    }
+    public static void reviewRiskAfterExplicitConfirmation(String channel){
+        final long now=System.currentTimeMillis();
+        if("native".equals(channel))NATIVE_CHAT_RISK.clearAfterExplicitUserReview(now);
+        else if("claude".equals(channel))CLAUDE_CHAT_RISK.clearAfterExplicitUserReview(now);
+        else riskForProvider(channel).clearAfterExplicitUserReview(now);
     }
 
+    private static void writeRiskDenied(
+            BufferedOutputStream out,UpstreamRiskCircuit.Decision denied)
+            throws IOException,org.json.JSONException {
+        writeJson(out,denied.status,new JSONObject().put("error",
+            new JSONObject().put("type","omnigate_request_circuit")
+                .put("code",denied.code)
+                .put("retry_after_seconds",denied.retryAfterSeconds)));
+    }
     private static void logRiskEvent(String channel,String code,int http,long until){
         // Only fixed code/channel/status/time; never user prompts, domains,
         // account identifiers, tokens, response bodies or exception messages.
@@ -237,6 +279,7 @@ public final class SidecarProxyServer {
     private void handle(Socket socket) {
         UpstreamRiskCircuit activeRisk=null;
         boolean riskAdmitted=false;
+        boolean globalNativeAdmitted=false;
         try (Socket client = socket;
              BufferedInputStream in = new BufferedInputStream(client.getInputStream());
              TrackedOutput out = new TrackedOutput(client.getOutputStream())) {
@@ -353,15 +396,31 @@ public final class SidecarProxyServer {
                  "/v1/completions".equals(request.path))){
                 boolean claude="/v1/chat/completions".equals(request.path)
                     && ClaudeDirectAdapter.isClaude(request.body);
-                activeRisk=claude?CLAUDE_CHAT_RISK:NATIVE_CHAT_RISK;
-                UpstreamRiskCircuit.Decision admit=activeRisk.enter(
-                    System.currentTimeMillis());
+                long riskNow=System.currentTimeMillis();
+                if(!claude){
+                    // Preserve any pre-migration 'native' global cooldown and
+                    // global single-flight bound. Never let a provider switch
+                    // bypass a historical platform restriction.
+                    UpstreamRiskCircuit.Decision legacy=NATIVE_CHAT_RISK.enter(riskNow);
+                    if(!legacy.allowed){
+                        writeRiskDenied(out,legacy);return;
+                    }
+                    globalNativeAdmitted=true;
+                    ProviderRiskScopes.Selection selection=
+                        ProviderRiskScopes.select(
+                            OriginalCoreBridge.activeProviderModel(),request.body);
+                    if(!selection.allowed){
+                        writeJson(out,409,new JSONObject().put("error",
+                            new JSONObject().put("type","omnigate_provider_guard")
+                                .put("code",selection.reason)));
+                        return;
+                    }
+                    activeRisk=riskForProvider(selection.channel);
+                }else activeRisk=CLAUDE_CHAT_RISK;
+                UpstreamRiskCircuit.Decision admit=activeRisk.enter(riskNow);
                 if(!admit.allowed){
                     status("上游请求已熔断 · "+admit.code+" · 未提交原模型");
-                    writeJson(out,admit.status,new JSONObject().put("error",
-                        new JSONObject().put("type","omnigate_request_circuit")
-                            .put("code",admit.code)
-                            .put("retry_after_seconds",admit.retryAfterSeconds)));
+                    writeRiskDenied(out,admit);
                     return;
                 }
                 riskAdmitted=true;
@@ -609,6 +668,7 @@ public final class SidecarProxyServer {
             }catch(Throwable ignored){}
         } finally {
             if(riskAdmitted && activeRisk!=null)activeRisk.exit();
+            if(globalNativeAdmitted)NATIVE_CHAT_RISK.exit();
             ProxyTrace trace=CURRENT_TRACE.get();
             if(trace!=null && "response_started".equals(trace.stage))
                 trace.stage="response_returned";

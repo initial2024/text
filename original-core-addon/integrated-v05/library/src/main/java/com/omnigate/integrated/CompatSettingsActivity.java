@@ -547,7 +547,7 @@ public final class CompatSettingsActivity extends Activity {
         Button reviewRisk=button(riskPanel,"人工复核后解除硬熔断",false);
         reviewRisk.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
             .setTitle("选择已排查的上游")
-            .setItems(new String[]{"原版网页模型","本地 Claude API","自有 Relay"},
+            .setItems(new String[]{"原版网页模型（全局）","DeepSeek","ChatGPT","Grok","GLM","本地 Claude API","自有 Relay"},
                 (dialog,which)->new android.app.AlertDialog.Builder(this)
                 .setTitle("确认已处理平台限制？")
                 .setMessage("仅在已核查官方账号、鉴权及平台规则后使用。"+
@@ -556,9 +556,10 @@ public final class CompatSettingsActivity extends Activity {
                 .setNegativeButton("取消",null)
                 .setPositiveButton("已核查，解除硬熔断",(d,w)->{
                     try{
-                        if(which==0)SidecarProxyServer.reviewRiskAfterExplicitConfirmation(false);
-                        else if(which==1)SidecarProxyServer.reviewRiskAfterExplicitConfirmation(true);
-                        else CloudflareRelayClient.reviewRiskAfterExplicitConfirmation();
+                        String[] riskNames={"native","deepseek","chatgpt",
+                            "grok","glm","claude","relay"};
+                        if(which==6)CloudflareRelayClient.reviewRiskAfterExplicitConfirmation();
+                        else SidecarProxyServer.reviewRiskAfterExplicitConfirmation(riskNames[which]);
                         riskInfo.setText(SidecarProxyServer.redactedRiskStatus()+
                             "；Relay："+CloudflareRelayClient.redactedRiskStatus());
                     }catch(RuntimeException e){toast("风控状态操作失败；未自动重试");}
