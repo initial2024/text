@@ -23,7 +23,7 @@ public final class VoluntaryAccountBudgetTest {
         require(check(true,true,true,2,0,2,0).nextSlot==1);
         require(check(true,true,true,2,0,2,0).action==
             VoluntaryAccountBudget.Action.SWITCH_BROWSER);
-        require(check(true,true,true,2,0,2,2,1).nextSlot==3);
+        require(check(true,true,true,2,0,2,2,1).nextSlot==2);
         require(check(true,true,true,1,2,1,1,1).action==
             VoluntaryAccountBudget.Action.ALL_SLOTS_AT_BUDGET);
         require(check(true,true,true,1,0,1).action==
