@@ -35,30 +35,77 @@ final class IsolatedGeckoBrowser {
     private Object geckoView;
     private int selected=-1;
 
+    private static int dp(Context c,int pixels){
+        return Math.round(c.getResources().getDisplayMetrics().density*pixels);
+    }
+    private static android.graphics.drawable.GradientDrawable surface(int color,int radius,Context c){
+        android.graphics.drawable.GradientDrawable g=new android.graphics.drawable.GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(c,radius));
+        return g;
+    }
     static void showPicker(Activity host){
-        // Avoid AlertDialog.setMessage()+setItems(): the message panel hides
-        // the choice list on Android, leaving only "取消" (observed on phone).
-        // Each visible row is a DIRECT provider+slot action, not just a
-        // provider chooser with another nested account selection.
         try{
-            int n=AccountBrowserSlots.PROVIDERS.length;
-            int[] counts=new int[n],selected=new int[n];
-            for(int i=0;i<n;i++){
-                String provider=AccountBrowserSlots.PROVIDERS[i];
-                counts[i]=AccountBrowserStore.count(host,provider);
-                selected[i]=AccountBrowserStore.selected(host,provider);
+            final int ink=0xFFF5F6FF,muted=0xFFB4BEDF,accent=0xFF6C5BFB;
+            Dialog picker=new Dialog(host);
+            LinearLayout shell=new LinearLayout(host);
+            shell.setOrientation(LinearLayout.VERTICAL);
+            shell.setPadding(dp(host,18),dp(host,24),dp(host,18),dp(host,16));
+            shell.setBackgroundColor(0xFF0B1024);
+            TextView title=new TextView(host);
+            title.setText("账号空间");
+            title.setTextColor(ink);title.setTextSize(27);
+            title.setTypeface(null,android.graphics.Typeface.BOLD);
+            shell.addView(title);
+            TextView subtitle=new TextView(host);
+            subtitle.setText("点选平台和账号，即可打开独立登录空间。不会改变原版 8787 主执行账号。");
+            subtitle.setTextSize(12);subtitle.setTextColor(muted);
+            subtitle.setPadding(0,dp(host,6),0,dp(host,12));
+            shell.addView(subtitle);
+            ScrollView scroll=new ScrollView(host);
+            scroll.setFillViewport(false);
+            LinearLayout options=new LinearLayout(host);
+            options.setOrientation(LinearLayout.VERTICAL);
+            scroll.addView(options);
+            for(int p=0;p<AccountBrowserSlots.PROVIDERS.length;p++){
+                final String provider=AccountBrowserSlots.PROVIDERS[p];
+                int count=AccountBrowserStore.count(host,provider);
+                int selected=AccountBrowserStore.selected(host,provider);
+                TextView heading=new TextView(host);
+                heading.setText(AccountBrowserSlots.LABELS[p]+"    ·    "+count+" 个隔离账号");
+                heading.setTextColor(0xFF87E6EF);heading.setTextSize(14);
+                heading.setTypeface(null,android.graphics.Typeface.BOLD);
+                heading.setPadding(dp(host,4),dp(host,13),0,dp(host,8));
+                options.addView(heading);
+                for(int slot=0;slot<count;slot++){
+                    final int index=slot;
+                    Button entry=new Button(host);
+                    entry.setAllCaps(false);
+                    entry.setText("账号 "+(slot+1)+(slot==selected?"   ·   上次打开":"")+"     ›");
+                    entry.setGravity(android.view.Gravity.CENTER_VERTICAL|android.view.Gravity.START);
+                    entry.setTextColor(ink);entry.setTextSize(14);
+                    entry.setPadding(dp(host,18),0,dp(host,12),0);
+                    entry.setBackground(surface(slot==selected?0xFF35336C:0xFF1B2443,14,host));
+                    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(host,48));
+                    lp.bottomMargin=dp(host,7);options.addView(entry,lp);
+                    entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});
+                }
             }
-            AccountQuickSwitchRows.Row[] rows=
-                AccountQuickSwitchRows.build(counts,selected);
-            String[] labels=new String[rows.length];
-            for(int i=0;i<rows.length;i++)labels[i]=rows[i].label;
-            new AlertDialog.Builder(host)
-                .setTitle("一键切换 · 平台 / 账号")
-                .setItems(labels,(dialog,which)->{
-                    if(which>=0&&which<rows.length)
-                        show(host,rows[which].provider,rows[which].slot);
-                })
-                .setNegativeButton("取消",null).show();
+            shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+            TextView notice=new TextView(host);
+            notice.setText("独立 Cookie / localStorage · 风控熔断优先 · 不会自动重发");
+            notice.setTextSize(11);notice.setTextColor(muted);
+            notice.setPadding(0,dp(host,9),0,dp(host,8));shell.addView(notice);
+            Button close=new Button(host);
+            close.setText("返回控制台");close.setAllCaps(false);
+            close.setTextColor(ink);close.setBackground(surface(accent,14,host));
+            shell.addView(close,new LinearLayout.LayoutParams(-1,dp(host,48)));
+            close.setOnClickListener(v->picker.dismiss());
+            picker.setContentView(shell);
+            picker.show();
+            Window w=picker.getWindow();
+            if(w!=null)w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT);
         }catch(RuntimeException storageError){
             new AlertDialog.Builder(host)
                 .setTitle("账号选择暂不可用")
@@ -82,36 +129,40 @@ final class IsolatedGeckoBrowser {
         dialog=new Dialog(host);
         LinearLayout root=new LinearLayout(host);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(10,10,10,10);
-        root.setBackgroundColor(Color.WHITE);
+        root.setPadding(dp(host,12),dp(host,12),dp(host,12),dp(host,8));
+        root.setBackgroundColor(0xFF0B1024);
         TextView info=new TextView(host);
-        info.setText("独立网页登录："+provider+
-            "\n每个账号隔离 Cookie / localStorage；首次需要自行登录。"+
-            "不接管原版 8787 模型运行，风控时不会自动轮换账号。");
-        info.setTextColor(Color.BLACK);
+        info.setText("OmniGate  /  "+provider.toUpperCase(java.util.Locale.ROOT)+
+            "\n隔离账号空间 · 与原版 8787 主执行登录独立");
+        info.setTextSize(16);
+        info.setTypeface(null,android.graphics.Typeface.BOLD);
+        info.setPadding(dp(host,8),dp(host,5),dp(host,8),dp(host,9));
+        info.setTextColor(0xFFF3F4FF);
         root.addView(info);
         HorizontalScrollView scroll=new HorizontalScrollView(host);
         tabs=new LinearLayout(host);tabs.setOrientation(LinearLayout.HORIZONTAL);
         scroll.addView(tabs);
         root.addView(scroll);
-        state=new TextView(host);state.setTextColor(Color.DKGRAY);
+        state=new TextView(host);state.setTextColor(0xFF86E8EE);
+        state.setTextSize(12);state.setPadding(dp(host,7),dp(host,6),dp(host,7),dp(host,6));
         root.addView(state);
         TextView instructions=new TextView(host);
-        instructions.setText("自定义使用预算 ≠ 平台安全次数。仅在你点击「本轮已完成」"+
-            "确认浏览器空闲后计数并按预算切换；不监听账号请求、不自动发消息。"+
-            "平台风控或限流仍强制停止切换。");
-        instructions.setTextColor(Color.DKGRAY);
+        instructions.setText("次数仅来自手动确认；风控时停止切换，不会自动发消息。"+
+            "网页 Token 无可信统计来源。");
+        instructions.setTextColor(0xFFAFB9DE);
+        instructions.setTextSize(11);
         root.addView(instructions);
         localBudgetState=new TextView(host);
-        localBudgetState.setTextColor(Color.DKGRAY);
+        localBudgetState.setTextColor(0xFFCAD3F2);
+        localBudgetState.setTextSize(11);
         root.addView(localBudgetState);
         LinearLayout budgetActions=new LinearLayout(host);
         budgetActions.setOrientation(LinearLayout.HORIZONTAL);
-        Button configure=button("设置本地次数预算");
+        Button configure=button("设置额度");
         configure.setOnClickListener(v->configureBudget());
         autoToggle=button("自动切换：关闭");
         autoToggle.setOnClickListener(v->toggleAutomaticBudget());
-        Button completed=button("本轮已完成 / 计数");
+        Button completed=button("完成本轮");
         completed.setOnClickListener(v->finishedTurn());
         budgetActions.addView(configure,new LinearLayout.LayoutParams(0,-2,1f));
         budgetActions.addView(autoToggle,new LinearLayout.LayoutParams(0,-2,1f));
@@ -142,7 +193,10 @@ final class IsolatedGeckoBrowser {
         dialog.setOnDismissListener(v->releaseSession());
     }
     private Button button(String name){
-        Button b=new Button(host);b.setAllCaps(false);b.setText(name);b.setTextSize(11);
+        Button b=new Button(host);b.setAllCaps(false);b.setText(name);b.setTextSize(12);
+        b.setTextColor(0xFFF1F4FF);
+        b.setBackground(surface(0xFF282E55,12,host));
+        b.setMinHeight(dp(host,43));
         return b;
     }
     private void show(){
@@ -186,7 +240,7 @@ final class IsolatedGeckoBrowser {
             " | UTC日 "+(limit>0?limit+"次":"未设定")+
             "\n"+hourAdvice+"；"+recommendation+"\n"+counts+
             "\n仅计算你手动确认的轮次；网页 Token 用量不可可靠计量。");
-        autoToggle.setText(enabled?"自动切换：已启用":"自动切换：关闭");
+        autoToggle.setText(enabled?"自动：开":"自动：关");
     }
     private void configureBudget(){
         LinearLayout content=new LinearLayout(host);
@@ -195,8 +249,9 @@ final class IsolatedGeckoBrowser {
         content.setPadding(pad,pad/2,pad,pad/2);
         TextView detail=new TextView(host);
         detail.setText("推荐值只作本地提醒，不能推算网页平台风控。"+
-            "若账号后台明确公布每日请求额度，可在下方人工填写。"+
-            "不要填写 API 的 RPM 或 TPM。");
+            "分别设置每小时与每日次数。只有账号页面明确公布对应周期的"+
+            "网页额度才填参考值，不可把 API 的 RPM/TPM 套用于网页。"+
+            "小时按滚动60分钟计算；网页版 Token 不可统计。");
         content.addView(detail);
         EditText daily=new EditText(host);
         daily.setInputType(InputType.TYPE_CLASS_NUMBER);

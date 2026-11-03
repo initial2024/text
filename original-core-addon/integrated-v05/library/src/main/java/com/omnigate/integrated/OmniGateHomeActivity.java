@@ -30,7 +30,7 @@ public final class OmniGateHomeActivity extends Activity {
     private static final int VIOLET=0xFF6951F6, CYAN=0xFF56DFE8;
     private static final int MUTED=0xFFADB4D7;
     private LinearLayout page;
-    private TextView localStatus, publicStatus, nativeStatus, ownerStatus;
+    private TextView localStatus, publicStatus, nativeStatus, ownerStatus, accountStatus;
     private boolean checking;
     private int dp(float x){return Math.round(getResources().getDisplayMetrics().density*x);}
     private GradientDrawable background(int c,int rad){
@@ -96,10 +96,8 @@ public final class OmniGateHomeActivity extends Activity {
         sc.addView(page);
 
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView logo=new ImageView(this);
-        try { logo.setImageDrawable(getPackageManager().getApplicationIcon(getPackageName())); }
-        catch(Exception e){ logo.setVisibility(View.INVISIBLE); }
-        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        Diamond logo=new Diamond(this);
+        logo.setContentDescription("OmniGate 品牌标识 · 网关和连接");
         header.addView(logo,new LinearLayout.LayoutParams(dp(64),dp(64)));
         LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);
         names.setPadding(dp(14),0,0,0);
@@ -116,12 +114,14 @@ public final class OmniGateHomeActivity extends Activity {
         nativeStatus=txt("原版模型 API：检查中…",13,0xFFBBD5FF,false);add(main,nativeStatus,5);
         ownerStatus=txt("WebDriver 归属：检查中…",12,0xFFFFD18D,false);add(main,ownerStatus,14);
         button(main,"刷新运行状态",true,()->refresh());
-        // This is a first-screen navigation entry, not the original model's
-        // login/account control. Explicit auxiliary browser isolation only.
-        button(main,"账号切换 / 多账号备份",true,
+        accountStatus=txt("账号空间：读取中…",13,CYAN,true);
+        add(main,accountStatus,9);
+        button(main,"一键切换独立账号",true,
             ()->IsolatedGeckoBrowser.showPicker(this));
-        add(main,txt("DeepSeek · GLM · ChatGPT · Grok｜独立浏览器账号，"+
-            "不会切换原版 API 执行账号",12,MUTED,false),7);
+        button(main,"主执行账号 · 前往原版模型页",false,
+            ()->openOriginal("com.deepseek2.app.ui.MainActivity"));
+        add(main,txt("主执行会话与隔离浏览器不同。切换后需确认原版模型页的登录身份，"+
+            "未确认前不得视为已切换 API 发送账号。",12,MUTED,false),7);
 
         LinearLayout network=card(page);
         add(network,txt("我的公网穿透",19,Color.WHITE,true),8);
@@ -157,10 +157,18 @@ public final class OmniGateHomeActivity extends Activity {
         add(page,txt("版本说明 · 原版和 OmniGate 兼容层相互独立；"+
             "409 表示原版会话归属仍未验证，绝不自动截停模型对话。",11,MUTED,false),0);
 
-        // Animated branded entry. The real installed icon is also updated
-        // independently in private APK resources; there is no raw icon font.
-        header.setAlpha(0f);header.setScaleX(.90f);header.setScaleY(.90f);
-        header.animate().alpha(1).scaleX(1).scaleY(1).setDuration(650).start();
+        // Real home-screen entrance animation, not an APK splash claim.
+        header.setAlpha(0f);header.setTranslationY(dp(28));
+        header.animate().alpha(1f).translationY(0).setDuration(480).start();
+        main.setAlpha(0f);main.setTranslationY(dp(38));
+        main.animate().alpha(1f).translationY(0).setStartDelay(110)
+            .setDuration(520).start();
+        network.setAlpha(0f);network.setTranslationY(dp(45));
+        network.animate().alpha(1f).translationY(0).setStartDelay(230)
+            .setDuration(480).start();
+        original.setAlpha(0f);original.setTranslationY(dp(45));
+        original.animate().alpha(1f).translationY(0).setStartDelay(330)
+            .setDuration(480).start();
     }
     @Override protected void onResume(){
         super.onResume();
@@ -180,6 +188,16 @@ public final class OmniGateHomeActivity extends Activity {
         }
     }
     private void refresh(){
+        if(accountStatus!=null){
+            String last=AccountBrowserStore.lastSelectedProvider(this);
+            String label="未打开独立账号";
+            if(!last.isEmpty())
+                label=last.toUpperCase(java.util.Locale.ROOT)+
+                    " · 独立账号 "+(AccountBrowserStore.selected(this,last)+1);
+            accountStatus.setText("独立账号："+label+
+                "\n主执行模型："+OriginalCoreBridge.activeProviderModel()+
+                " · 原版登录需单独核验");
+        }
         if(checking)return;checking=true;
         localStatus.setText("本地 8787："+(LocalProxyRuntime.isListening()?"已启动":"正在恢复"));
         publicStatus.setText("Cloudflare："+(RelayRuntime.isConnected()?

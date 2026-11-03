@@ -47,8 +47,14 @@ final class AccountBrowserStore {
     }
     static synchronized void select(Context c,String provider,int index){
         contextId(c,provider,index);
-        if(!prefs(c).edit().putInt(provider+".selected",index).commit())
+        if(!prefs(c).edit().putInt(provider+".selected",index)
+            .putString("last_provider",provider).commit())
             throw new IllegalStateException("selection_persistence_failed");
+    }
+    /** Reflects the last OPENED auxiliary Gecko context, never original 8787. */
+    static synchronized String lastSelectedProvider(Context c){
+        String provider=prefs(c).getString("last_provider","");
+        return AccountBrowserSlots.supported(provider)?provider:"";
     }
 
     /** No guessed platform-safe count: feature OFF and budget unset by default. */
