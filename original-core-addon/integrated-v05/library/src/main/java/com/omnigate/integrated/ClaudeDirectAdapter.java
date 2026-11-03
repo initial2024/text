@@ -21,7 +21,8 @@ final class ClaudeDirectAdapter {
             .optString("model","").startsWith("claude-"); }
         catch(Exception ex){return false;}
     }
-    static Result invoke(byte[] raw, String authorization) {
+    static Result invoke(byte[] raw, String authorization,
+                         UpstreamRiskCircuit risk) {
         String key=authorization==null?"":authorization.trim();
         if(key.regionMatches(true,0,"Bearer ",0,7)) key=key.substring(7).trim();
         if(!key.matches("sk-ant-[A-Za-z0-9_-]{12,240}"))
@@ -44,6 +45,13 @@ final class ClaudeDirectAdapter {
             connection.setFixedLengthStreamingMode(data.length);
             try(OutputStream out=connection.getOutputStream()){out.write(data);}
             int status=connection.getResponseCode();
+            if(risk!=null){
+                risk.observe(status,connection.getHeaderField("Retry-After"),
+                    connection.getHeaderField("cf-mitigated"),null,
+                    connection.getHeaderField("anthropic-ratelimit-requests-remaining"),
+                    connection.getHeaderField("anthropic-ratelimit-requests-reset"),
+                    System.currentTimeMillis());
+            }
             try(InputStream input=status>=400?connection.getErrorStream():connection.getInputStream()){
                 if(input==null)return error(502,"claude_upstream_empty");
                 ByteArrayOutputStream out=new ByteArrayOutputStream();
@@ -53,7 +61,23 @@ final class ClaudeDirectAdapter {
                     out.write(buffer,0,n);
                 }
                 JSONObject res=new JSONObject(out.toString("UTF-8"));
-                if(status!=200)return error(status,"claude_upstream_http_"+status);
+                if(status!=200){
+                    if(risk!=null && status==429){
+                        JSONObject providerError=res.optJSONObject("error");
+                        JSONObject details=providerError==null?null:
+                            providerError.optJSONObject("details");
+                        String errorCode=details==null?"":details.optString("error_code","");
+                        if(errorCode.isEmpty() && providerError!=null)
+                            errorCode=providerError.optString("code","");
+                        if(UpstreamRiskCircuit.quotaCode(errorCode)){
+                            // Billing/quota errors must not silently reopen
+                            // simply because a retry-after hint was present.
+                            risk.observe(status,null,null,errorCode,null,null,
+                                System.currentTimeMillis());
+                        }
+                    }
+                    return error(status,"claude_upstream_http_"+status);
+                }
                 JSONArray blocks=res.optJSONArray("content");
                 if(blocks==null)return error(502,"claude_content_missing");
                 StringBuilder text=new StringBuilder();

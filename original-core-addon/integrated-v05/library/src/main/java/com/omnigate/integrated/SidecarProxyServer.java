@@ -34,6 +34,20 @@ public final class SidecarProxyServer {
     }
 
     private final ExecutorService pool = Executors.newCachedThreadPool();
+    // One in-flight user-initiated model turn per upstream path, not a
+    // fabricated provider rate limit. Model HTTP POST auto retry remains zero.
+    private static final UpstreamRiskCircuit NATIVE_CHAT_RISK =
+        new UpstreamRiskCircuit("native",1,SidecarProxyServer::logRiskEvent);
+    private static final UpstreamRiskCircuit CLAUDE_CHAT_RISK =
+        new UpstreamRiskCircuit("claude",1,SidecarProxyServer::logRiskEvent);
+
+    private static void logRiskEvent(String channel,String code,int http,long until){
+        // Only fixed code/channel/status/time; never user prompts, domains,
+        // account identifiers, tokens, response bodies or exception messages.
+        android.util.Log.i("OmniGateRisk",
+            "channel="+channel+" event="+code+" http="+http+" until_ms="+until);
+    }
+
     // One foreground native chat at a time can be safely correlated to a
     // verified DeepSeek editor. A competing request keeps the old proxy path.
     private static final java.util.concurrent.atomic.AtomicBoolean LIVE_DEEPSEEK_BUSY =
@@ -205,6 +219,8 @@ public final class SidecarProxyServer {
     }
 
     private void handle(Socket socket) {
+        UpstreamRiskCircuit activeRisk=null;
+        boolean riskAdmitted=false;
         try (Socket client = socket;
              BufferedInputStream in = new BufferedInputStream(client.getInputStream());
              TrackedOutput out = new TrackedOutput(client.getOutputStream())) {
@@ -312,6 +328,29 @@ public final class SidecarProxyServer {
                 return;
             }
 
+            // Only a real model-submission request consumes an upstream slot.
+            // Health/probe and invalid local authentication do not touch the
+            // platform risk counter. Claude and original browser are isolated.
+            if("POST".equals(request.method) &&
+                ("/v1/chat/completions".equals(request.path) ||
+                 "/v1/responses".equals(request.path) ||
+                 "/v1/completions".equals(request.path))){
+                boolean claude="/v1/chat/completions".equals(request.path)
+                    && ClaudeDirectAdapter.isClaude(request.body);
+                activeRisk=claude?CLAUDE_CHAT_RISK:NATIVE_CHAT_RISK;
+                UpstreamRiskCircuit.Decision admit=activeRisk.enter(
+                    System.currentTimeMillis());
+                if(!admit.allowed){
+                    status("上游请求已熔断 · "+admit.code+" · 未提交原模型");
+                    writeJson(out,admit.status,new JSONObject().put("error",
+                        new JSONObject().put("type","omnigate_request_circuit")
+                            .put("code",admit.code)
+                            .put("retry_after_seconds",admit.retryAfterSeconds)));
+                    return;
+                }
+                riskAdmitted=true;
+            }
+
             // Independently routed official Claude API. It does NOT impersonate
             // claude.ai or share the original Gecko driver. Never expose the
             // caller's Anthropic credential through the public relay path.
@@ -325,7 +364,8 @@ public final class SidecarProxyServer {
                     return;
                 }
                 ClaudeDirectAdapter.Result answer=ClaudeDirectAdapter.invoke(
-                    request.body,cleanHeader(request.headers.get("authorization")));
+                    request.body,cleanHeader(request.headers.get("authorization")),
+                    activeRisk);
                 boolean stream=false;
                 try{stream=new JSONObject(new String(request.body,
                     StandardCharsets.UTF_8)).optBoolean("stream",false);}
@@ -531,7 +571,7 @@ public final class SidecarProxyServer {
                     return;
                 }
             }
-            proxyToFrozenCore(request, out, titleRequest);
+            proxyToFrozenCore(request, out, titleRequest, activeRisk);
         } catch (Throwable e) {
             ProxyTrace trace=CURRENT_TRACE.get();
             if(trace!=null){
@@ -552,6 +592,7 @@ public final class SidecarProxyServer {
                 }
             }catch(Throwable ignored){}
         } finally {
+            if(riskAdmitted && activeRisk!=null)activeRisk.exit();
             ProxyTrace trace=CURRENT_TRACE.get();
             if(trace!=null && "response_started".equals(trace.stage))
                 trace.stage="response_returned";
@@ -561,7 +602,8 @@ public final class SidecarProxyServer {
     }
 
     private void proxyToFrozenCore(Request request, BufferedOutputStream clientOut,
-            boolean titleRequest) throws IOException, org.json.JSONException {
+            boolean titleRequest,UpstreamRiskCircuit activeRisk)
+            throws IOException, org.json.JSONException {
         HttpURLConnection upstream = null;
         InputStream upstreamBody = null;
         // Read-only snapshot BEFORE posting to 1604. Never post twice.
@@ -621,6 +663,14 @@ public final class SidecarProxyServer {
             }
             traceStage("waiting_native_response_headers");
             int statusCode = upstream.getResponseCode();
+            if(activeRisk!=null){
+                activeRisk.observe(statusCode,
+                    upstream.getHeaderField("Retry-After"),
+                    upstream.getHeaderField("cf-mitigated"),null,
+                    upstream.getHeaderField("x-ratelimit-remaining-requests"),
+                    upstream.getHeaderField("x-ratelimit-reset-requests"),
+                    System.currentTimeMillis());
+            }
             ProxyTrace trace=CURRENT_TRACE.get();
             if(trace!=null)trace.upstreamCode=statusCode;
             Map<String, String> responseHeaders = new LinkedHashMap<>();
