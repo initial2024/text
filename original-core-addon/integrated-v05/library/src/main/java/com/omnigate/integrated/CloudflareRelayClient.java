@@ -44,6 +44,14 @@ public final class CloudflareRelayClient {
     public boolean isConnected(){return epochs.isConnected();}
     private volatile WebSocket socket;
     private volatile int reconnectAttempt;
+    // This is the transport reconnect ceiling, not a platform-safe RPM.
+    // Native model submissions always have zero automatic retries.
+    private static final int MAX_TRANSIENT_RECONNECTS=2;
+    private final UpstreamRiskCircuit relayConnectionCircuit =
+        new UpstreamRiskCircuit("relay",1,
+            (channel,code,http,until)->android.util.Log.i("OmniGateRisk",
+                "channel=relay event="+code+" http="+http+" until_ms="+until));
+
 
     public CloudflareRelayClient(
             String wsUrl,
@@ -66,6 +74,12 @@ public final class CloudflareRelayClient {
 
     public synchronized void start() {
         if (running) return;
+        UpstreamRiskCircuit.Decision allowed=relayConnectionCircuit.permission(
+            System.currentTimeMillis());
+        if(!allowed.allowed){
+            status("Relay 连接暂停 · "+allowed.code+" · 请先检查鉴权或冷却时间");
+            return;
+        }
         running = true;
         epochs.start();
         reconnectAttempt = 0;
@@ -86,6 +100,13 @@ public final class CloudflareRelayClient {
 
     private void connect() {
         if (!running) return;
+        UpstreamRiskCircuit.Decision allowed=relayConnectionCircuit.permission(
+            System.currentTimeMillis());
+        if(!allowed.allowed){
+            running=false;
+            status("Relay 不再自动连接 · "+allowed.code);
+            return;
+        }
         if (relayKey == null || relayKey.length() < 24) {
             status("需要配置 Relay Key");
             return;
@@ -133,6 +154,15 @@ public final class CloudflareRelayClient {
                     public void onClosed(WebSocket webSocket, int code, String reason) {
                         if (!epochs.ended(generation, webSocket)) return;
                         if (socket == webSocket) socket = null;
+                        if(code==1008){
+                            // RFC 6455 policy violation: do not reconnect
+                            // automatically or try another account/IP.
+                            relayConnectionCircuit.observe(403,null,null,null,
+                                null,null,System.currentTimeMillis());
+                            running=false;
+                            status("Relay 策略限制 · 已停止自动重连");
+                            return;
+                        }
                         if (running) scheduleReconnect(generation, "连接关闭 " + code);
                     }
 
@@ -141,7 +171,20 @@ public final class CloudflareRelayClient {
                         if (!epochs.ended(generation, webSocket)) return;
                         if (socket == webSocket) socket = null;
                         String detail = t == null ? "unknown" : t.getClass().getSimpleName();
-                        if (response != null) detail += " · HTTP " + response.code();
+                        if (response != null) {
+                            detail += " · HTTP " + response.code();
+                            relayConnectionCircuit.observe(response.code(),
+                                response.header("Retry-After"),
+                                response.header("cf-mitigated"),
+                                null,null,null,System.currentTimeMillis());
+                        }
+                        UpstreamRiskCircuit.Decision allowed=
+                            relayConnectionCircuit.permission(System.currentTimeMillis());
+                        if(!allowed.allowed){
+                            running=false;
+                            status("Relay 握手已熔断 · "+allowed.code+" · 不再自动重连");
+                            return;
+                        }
                         if (running) scheduleReconnect(generation, detail);
                     }
                 });
@@ -158,9 +201,21 @@ public final class CloudflareRelayClient {
     }
 
     private void scheduleReconnect(long generation, String reason) {
+        UpstreamRiskCircuit.Decision allowed=relayConnectionCircuit.permission(
+            System.currentTimeMillis());
+        if(!allowed.allowed){
+            running=false;
+            status("Relay 限流或鉴权熔断 · "+allowed.code);
+            return;
+        }
+        if(reconnectAttempt>=MAX_TRANSIENT_RECONNECTS){
+            running=false;
+            status("Relay 瞬时故障重连已达本地上限 · 不再自动尝试");
+            return;
+        }
         reconnectAttempt++;
-        long delay = Math.min(15_000L, 1500L * reconnectAttempt);
-        status("自有穿透断开 · " + sanitize(reason) + " · 重连中");
+        long delay=Math.min(15_000L,1500L*reconnectAttempt);
+        status("自有穿透断开 · " + sanitize(reason) + " · 有界重连");
         new Thread(() -> {
             try {
                 Thread.sleep(delay);
