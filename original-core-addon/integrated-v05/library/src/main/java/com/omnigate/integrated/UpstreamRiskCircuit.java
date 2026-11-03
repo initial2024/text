@@ -89,6 +89,8 @@ final class UpstreamRiskCircuit {
           "upstream_rate_limited".equals(code)||
           "upstream_overloaded".equals(code)||
           "provider_request_budget_exhausted".equals(code)||
+          "provider_token_budget_exhausted".equals(code)||
+          "provider_cooldown_active".equals(code)||
           "manual_review_reset".equals(code)||
           "risk_state_invalid".equals(code);
     }
@@ -164,6 +166,20 @@ final class UpstreamRiskCircuit {
         }
     }
 
+    /**
+     * Official token-bucket hints may exhaust tokens before request count.
+     * Never invent an RPM/TPM or truncate a provider reset interval.
+     */
+    synchronized void observeTokenBudget(String remainingTokens,
+            String resetTokens,long nowMs) {
+        restoreIfNeeded();
+        if("0".equals(trim(remainingTokens))) {
+            long until=providerResetAt(resetTokens,nowMs);
+            if(until>nowMs)
+                cool("provider_token_budget_exhausted",200,until,nowMs);
+        }
+    }
+
     synchronized int inFlight(){return inFlight;}
     synchronized String[] auditCodes(){return audit.toArray(new String[0]);}
     synchronized String holdCode(){restoreIfNeeded();return manualHold?blockingCode:"none";}
@@ -176,8 +192,10 @@ final class UpstreamRiskCircuit {
         if(blockedUntilMs<=nowMs){
             blockedUntilMs=0;
             blockingCode="none";
-        }else if("none".equals(blockingCode)){
-            blockingCode="upstream_rate_limited";
+        }else {
+            // Preserve the provider's deadline without retaining a stale
+            // authentication label after the explicit user review.
+            blockingCode="provider_cooldown_active";
         }
         persist();
         log("manual_review_reset",0,blockedUntilMs,nowMs);

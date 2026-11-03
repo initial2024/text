@@ -686,6 +686,10 @@ public final class SidecarProxyServer {
                     upstream.getHeaderField("x-ratelimit-remaining-requests"),
                     upstream.getHeaderField("x-ratelimit-reset-requests"),
                     System.currentTimeMillis());
+                activeRisk.observeTokenBudget(
+                    upstream.getHeaderField("x-ratelimit-remaining-tokens"),
+                    upstream.getHeaderField("x-ratelimit-reset-tokens"),
+                    System.currentTimeMillis());
             }
             ProxyTrace trace=CURRENT_TRACE.get();
             if(trace!=null)trace.upstreamCode=statusCode;

@@ -110,6 +110,16 @@ public final class UpstreamRiskCircuitTest {
         ok(!again.permission(t+500).allowed); // do not shorten original 120s
         ok(again.enter(t+120_000).allowed);again.exit();
         ok(!durable[0].manual);
+        UpstreamRiskCircuit tokenBudget=gate();
+        tokenBudget.observeTokenBudget("0","12s",t);
+        ok(!tokenBudget.enter(t+11999).allowed);
+        ok(tokenBudget.enter(t+12000).allowed);tokenBudget.exit();
+        UpstreamRiskCircuit noTokenHeader=gate();
+        noTokenHeader.observeTokenBudget("1","5m",t);
+        ok(noTokenHeader.enter(t).allowed);noTokenHeader.exit();
+        UpstreamRiskCircuit unknownToken=gate();
+        unknownToken.observeTokenBudget("0","bad-reset",t);
+        ok(unknownToken.enter(t).allowed);unknownToken.exit();
         UpstreamRiskCircuit concurrent=gate();
         final CountDownLatch latch=new CountDownLatch(1);
         final AtomicInteger admitted=new AtomicInteger();
