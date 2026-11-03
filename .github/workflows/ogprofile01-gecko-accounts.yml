@@ -40,17 +40,15 @@ jobs:
           assert 'getMethod("contextId",String.class)' in s
           assert 'getMethod("releaseSession")' in s
           assert 'getMethod("close")' in s
-          assert 'getDefault(' not in s
-          assert 'GeckoRuntime.create(' not in s
+          assert 'getDefault(' not in s and 'GeckoRuntime.create(' not in s
           assert 'AccountBrowserSlots.home(provider)' in s
           assert 'AccountBrowserSlots.validContextId(id)' in s
           assert 'Context.MODE_PRIVATE' in store and '.commit()' in store
           assert 'MAX_SLOTS' in store
-          assert 'IsolatedGeckoBrowser.show' in ui
-          assert '不接管原版 8787 模型运行' in s
-          assert '风控时不会自动轮换账号' in s
-          assert 'AccountQuickSwitchRows.build(counts,selected)' in s
-          print('OGPROFILE01_GECKO_STORAGE_PARTITIONING_WIRED=PASS_STATIC')
-          print('OGPROFILE01_ORIGINAL_WEBDRIVER_NOT_REPLACED=PASS_STATIC')
-          print('OGPROFILE01_REAL_DEVICE_PROFILE_LOGIN=NOT_TESTED')
+          assert 'IsolatedGeckoBrowser.showPicker(this)' in ui
+          assert '与原版 8787 主执行登录独立' in s
+          assert 'voluntaryBrowserSwitchPermitted(provider)' in s
+          assert 'Cookie' not in (p/'AccountBrowserStore.java').read_text().split('static synchronized void select')[1]
+          print('OGPROFILE01_ISOLATED_GECKO_ACCOUNT_BOUNDARIES=PASS')
+          print('OGPROFILE01_REAL_DEVICE_LOGIN=NOT_TESTED')
           PY

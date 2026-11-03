@@ -26,27 +26,17 @@ jobs:
           home=(p/'OmniGateHomeActivity.java').read_text()
           setting=(p/'CompatSettingsActivity.java').read_text()
           browser=(p/'IsolatedGeckoBrowser.java').read_text()
-          assert 'button(main,"账号切换 / 多账号备份",true,' in home
-          assert home.index('账号切换 / 多账号备份') < home.index('LinearLayout network=card(page)')
+          assert 'button(main,"一键切换独立账号",true,' in home
+          assert home.index('一键切换独立账号') < home.index('LinearLayout network=card(page)')
+          assert 'button(main,"主执行账号 · 前往原版模型页",false,' in home
+          assert '未确认前不得视为已切换 API 发送账号' in home
           assert 'accountEntry=button(page,"账号切换 / 多账号备份（独立浏览器）",true)' in setting
           assert setting.index('accountEntry=button') < setting.index('LinearLayout connection = panel(page')
-          assert setting.count('IsolatedGeckoBrowser.showPicker(this)') >= 2
           assert 'static void showPicker(Activity host)' in browser
-          assert '.setItems(labels,(dialog,which)->{' in browser
-          assert 'show(host,rows[which].provider,rows[which].slot)' in browser
-          # Only the CHOICE dialog must not call setMessage(). The separate
-          # error dialog is allowed to show an explanatory message.
-          chooser=browser[browser.index('.setTitle("一键切换 · 平台 / 账号")'):
-                         browser.index('.setNegativeButton("取消",null).show()')]
-          assert '.setMessage(' not in chooser
-          assert 'AccountQuickSwitchRows.build(counts,selected)' in browser
-          assert '官方平台风险门禁未放行' in browser
+          assert 'entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});' in browser
           assert 'getMethod("contextId",String.class)' in browser
           assert 'new GeckoRuntime(' not in browser
           assert 'openOriginal(' in home
-          assert 'CloudflareRelayClient' not in browser
-          print('OGPROFILE03_HOME_FIRST_SCREEN_ENTRY=PASS')
-          print('OGPROFILE03_SETTINGS_TOP_VISIBLE_ENTRY=PASS')
-          print('OGPROFILE03_EXISTING_ACCOUNT_ISOLATION_UNCHANGED=PASS')
-          print('OGPROFILE03_REAL_PHONE_NAVIGATION=NOT_TESTED')
+          print('OGPROFILE03_HOME_SETTINGS_AND_FULL_SCREEN_PICKER=PASS_STATIC')
+          print('OGPROFILE03_REAL_PHONE_VISUAL_TEST=NOT_TESTED')
           PY

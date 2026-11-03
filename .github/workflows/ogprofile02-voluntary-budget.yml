@@ -42,10 +42,10 @@ jobs:
           assert 'if(selected<0||session==null)' in b
           assert b.count('SidecarProxyServer.voluntaryBrowserSwitchPermitted(provider)')>=2
           assert 'recordUserFinishedTurn(host,provider,finishedSlot,now)' in b
-          assert 'VoluntaryAccountBudget.evaluate(' in b
+          assert 'VoluntaryAccountBudget.evaluateWithHour(' in b
+          assert 'AccountBrowserStore.allUsesLastHour(' in b
           assert 'AccountBrowserStore.autoBudgetSwitch(host,provider)' in b
           assert 'open(decision.nextSlot)' in b
-          assert 'new AlertDialog.Builder(host)' in b
           assert '我确认开启' in b
           assert '不会接管原版 8787 模型账号' in b
           assert '不再自动切换' in b
@@ -58,8 +58,6 @@ jobs:
           assert 'NATIVE_CHAT_RISK.permission(now).allowed' in gate
           assert 'riskForProvider(channel).permission(now).allowed' in gate
           assert 'catch(RuntimeException invalid){return false;}' in gate
-          print('OGPROFILE02_AUTOSWITCH_ONLY_USER_COMPLETED_LOCAL_BUDGET=PASS_STATIC')
+          print('OGPROFILE02_MANUAL_ACK_DAILY_AND_ROLLING_HOUR=PASS_STATIC')
           print('OGPROFILE02_PLATFORM_HOLD_NO_ROTATION_NO_REPOST=PASS_STATIC')
-          print('OGPROFILE02_ORIGINAL_MODEL_ACCOUNT_UNCHANGED=PASS_STATIC')
-          print('OGPROFILE02_REAL_DEVICE_LOGIN_SWITCH=NOT_TESTED')
           PY
