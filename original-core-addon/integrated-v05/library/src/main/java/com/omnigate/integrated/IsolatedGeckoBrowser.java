@@ -137,12 +137,15 @@ final class IsolatedGeckoBrowser {
             Class<?> runtimeClass=Class.forName(
                 "org.mozilla.geckoview.GeckoRuntime");
             Object created=sessionClass.getConstructor(settingsClass).newInstance(settings);
+            // Register cleanup ownership before opening; any reflection or
+            // display failure must close the original GeckoSession.
+            session=created;
             sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
             Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
             Object visual=viewClass.getConstructor(Context.class).newInstance(host);
             if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
+            geckoView=visual;
             viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
-            geckoView=visual;session=created;
             display.addView((View)visual,new FrameLayout.LayoutParams(-1,-1));
             sessionClass.getMethod("loadUri",String.class)
                 .invoke(created,AccountBrowserSlots.home(provider));

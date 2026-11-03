@@ -398,7 +398,7 @@ public final class CompatSettingsActivity extends Activity {
             new android.app.AlertDialog.Builder(this)
                 .setTitle("独立浏览器账号")
                 .setMessage("不同槽位隔离网站 Cookie 与存储，首次自行登录。"+
-                    "不会更换原版 WebDriver 或自动切换账号绕过风控。")
+                    "不会更换原版 WebDriver；不自动切换账号绕过风控。")
                 .setItems(AccountBrowserSlots.LABELS,(d,which)->
                     IsolatedGeckoBrowser.show(this,AccountBrowserSlots.PROVIDERS[which]))
                 .setNegativeButton("取消",null).show());
