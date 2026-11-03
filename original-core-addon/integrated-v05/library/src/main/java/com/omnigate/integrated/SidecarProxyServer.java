@@ -68,6 +68,21 @@ public final class SidecarProxyServer {
             String channel,long now){
         return riskForProvider(channel).permission(now);
     }
+    /**
+     * Only known provider/native official signals can allow an auxiliary
+     * browser switch under a voluntary budget. No change to original WebDriver.
+     * Unknown or unreadable risk state MUST fail closed.
+     */
+    public static boolean voluntaryBrowserSwitchPermitted(String channel){
+        try{
+            if(!ProviderRiskScopes.validChannel(channel) ||
+                "native".equals(channel)||"claude".equals(channel)||
+                "relay".equals(channel))return false;
+            long now=System.currentTimeMillis();
+            return NATIVE_CHAT_RISK.permission(now).allowed &&
+                riskForProvider(channel).permission(now).allowed;
+        }catch(RuntimeException invalid){return false;}
+    }
     public static String redactedRiskStatus(){
         long now=System.currentTimeMillis();
         try{
