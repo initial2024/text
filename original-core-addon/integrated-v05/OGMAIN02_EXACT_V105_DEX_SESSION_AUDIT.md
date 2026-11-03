@@ -3,7 +3,7 @@
 **Input, read-only from user's connected file Library:** OmniGate v1.0.5 candidate, 170,559,340 bytes, SHA-256 `75023cca15ff0b58c1770e853439029eed145711e7ec05833dfd441d4ea3c21f`. Original APK/signing key are **not** uploaded to the public GitHub repository.
 
 ## Grounded in actual original `classes.dex`
-Target: `com.deepseek2.app.gateway.ProviderBrowser.createSession()` `code_item` offset `5108208` (0x004DF250), `classes.dex`. **Confirm this offset independently before editing a different binary.** The method executes:
+Target: `com.deepseek2.app.gateway.ProviderBrowser.createSession()` `code_item` offset `5108208` (0x004DF1F0), `classes.dex`. **Confirm this offset independently before editing a different binary.** The method executes:
 
 1. `new GeckoSessionSettings.Builder()`
 2. `usePrivateMode(boolean)`
