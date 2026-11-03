@@ -169,6 +169,11 @@ final class IsolatedGeckoBrowser {
         budgetActions.addView(autoToggle,new LinearLayout.LayoutParams(0,-2,1f));
         budgetActions.addView(completed,new LinearLayout.LayoutParams(0,-2,1f));
         root.addView(budgetActions);
+        Button mainTarget=button("设为主执行目标 · 核验接线");
+        mainTarget.setOnClickListener(v->requestNativeTarget());
+        LinearLayout.LayoutParams targetParams=new LinearLayout.LayoutParams(-1,dp(host,45));
+        targetParams.topMargin=dp(host,7);
+        root.addView(mainTarget,targetParams);
         display=new FrameLayout(host);
         root.addView(display,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout footer=new LinearLayout(host);
@@ -382,6 +387,33 @@ final class IsolatedGeckoBrowser {
         }catch(RuntimeException invalid){
             state.setText("自动切换设置失败："+invalid.getClass().getSimpleName());
         }
+    }
+    private void requestNativeTarget(){
+        if(selected<0||session==null){
+            state.setText("隔离浏览器尚未打开；未登记执行目标");
+            return;
+        }
+        if(!SidecarProxyServer.voluntaryBrowserSwitchPermitted(provider)){
+            state.setText("平台熔断中，不允许更改执行目标来绕过限制");
+            return;
+        }
+        final int requestedSlot=selected;
+        new AlertDialog.Builder(host)
+            .setTitle("把此账号设为主执行目标？")
+            .setMessage("将登记 "+provider+" · 账号 "+(requestedSlot+1)+
+                " 作为未来 8787 原生 WebDriver 的目标隔离上下文。"+
+                "当前辅助 GeckoSession 不能直接替换原版驱动；在原版实际"+
+                "WebDriver 未绑定并核验之前，模型发送会返回 409，不会错发到旧账号。"+
+                "本操作不复制 Cookie、不重启或切断正在生成的任务。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("登记目标并保护发送",(d,w)->{
+                try{
+                    MainAccountTargetStore.request(host,provider,requestedSlot);
+                    state.setText(MainAccountRequestGuard.state(host));
+                }catch(RuntimeException error){
+                    state.setText("执行目标登记失败："+error.getClass().getSimpleName());
+                }
+            }).show();
     }
     private void finishedTurn(){
         if(selected<0||session==null){

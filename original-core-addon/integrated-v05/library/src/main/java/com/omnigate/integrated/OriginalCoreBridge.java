@@ -252,6 +252,32 @@ public final class OriginalCoreBridge {
         return driver;
     }
 
+    /** Only a socket owned by the exact live native MAIN WebDriver qualifies. */
+    static boolean isExactMainApiOwner(){
+        JSONObject current=diagnoseActiveNativeOwner();
+        return current.optBoolean("verified",false)
+            && "main".equals(current.optString("ownerKind",""));
+    }
+
+    /**
+     * Safe attestation only. Never modify original WebDriver or cookies.
+     * The existing frozen main WebDriver commonly still uses its default
+     * Gecko context: that cannot be accepted as an auxiliary slot login.
+     */
+    static boolean verifiedMainDriverUsesContext(String provider,String contextId){
+        if(!AccountBrowserSlots.supported(provider)||
+            !AccountBrowserSlots.validContextId(contextId)||
+            !provider.equals(ProviderRiskScopes.fromModel(activeProviderModel()))||
+            !isExactMainApiOwner())return false;
+        try{
+            Object driver=verifiedApiDriver();
+            if(!NativeGeckoContextInspector.exactMatch(driver,contextId))return false;
+            return isExactMainApiOwner()&&driver==verifiedApiDriver();
+        }catch(Throwable failed){
+            return false;
+        }
+    }
+
     /** Read-only, redacted Gecko diagnostics from the verified API owner. */
     public static JSONObject diagnoseVerifiedApiPage() throws Exception {
         Object driver=verifiedApiDriver();

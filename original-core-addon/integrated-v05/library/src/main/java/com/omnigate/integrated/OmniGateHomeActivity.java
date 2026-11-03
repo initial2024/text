@@ -120,6 +120,20 @@ public final class OmniGateHomeActivity extends Activity {
             ()->IsolatedGeckoBrowser.showPicker(this));
         button(main,"主执行账号 · 前往原版模型页",false,
             ()->openOriginal("com.deepseek2.app.ui.MainActivity"));
+        button(main,"清除主执行目标 · 恢复原版登录路由",false,()->
+            new AlertDialog.Builder(this)
+                .setTitle("清除主执行目标？")
+                .setMessage("清除后恢复原版 WebDriver 的登录路由。"+
+                    "不会删除隔离账号、Cookie 或会话数据，也不能清除平台风控熔断。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("仅清除绑定目标",(d,w)->{
+                    try{MainAccountTargetStore.cancel(this);refresh();}
+                    catch(RuntimeException ex){
+                        new AlertDialog.Builder(this).setTitle("未能清除")
+                            .setMessage(ex.getClass().getSimpleName())
+                            .setPositiveButton("确定",null).show();
+                    }
+                }).show());
         add(main,txt("主执行会话与隔离浏览器不同。切换后需确认原版模型页的登录身份，"+
             "未确认前不得视为已切换 API 发送账号。",12,MUTED,false),7);
 
@@ -196,7 +210,7 @@ public final class OmniGateHomeActivity extends Activity {
                     " · 独立账号 "+(AccountBrowserStore.selected(this,last)+1);
             accountStatus.setText("独立账号："+label+
                 "\n主执行模型："+OriginalCoreBridge.activeProviderModel()+
-                " · 原版登录需单独核验");
+                "\n"+MainAccountRequestGuard.state(this));
         }
         if(checking)return;checking=true;
         localStatus.setText("本地 8787："+(LocalProxyRuntime.isListening()?"已启动":"正在恢复"));

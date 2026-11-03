@@ -1,0 +1,57 @@
+name: 'OGMAIN01 verified native account target fence'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/MainAccountTargetStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/MainAccountRequestGuard.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/MainAccountRoutePolicy.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/NativeGeckoContextInspector.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OriginalCoreBridge.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
+      - 'original-core-addon/integrated-v05/relay-tests/MainAccountRoutePolicyTest.java'
+      - '.github/workflows/ogmain01-native-account-target.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  logic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Verify exact context match, user consent and no wrong-account post
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/MainAccountRoutePolicy.java" \
+            "$R/relay-tests/MainAccountRoutePolicyTest.java"
+          java -cp "$OUT" com.omnigate.integrated.MainAccountRoutePolicyTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          src=(p/'SidecarProxyServer.java').read_text()
+          store=(p/'MainAccountTargetStore.java').read_text()
+          ui=(p/'IsolatedGeckoBrowser.java').read_text()
+          main=(p/'OriginalCoreBridge.java').read_text()
+          inspector=(p/'NativeGeckoContextInspector.java').read_text()
+          assert 'MainAccountRequestGuard.evaluate(' in src
+          assert src.index('MainAccountRequestGuard.evaluate(') < src.index('LocalHourlyApiQuota.admit(')
+          assert 'main_execution_context_not_bound' in src
+          assert 'verifiedMainDriverUsesContext(' in main
+          assert 'driver==verifiedApiDriver()' in main
+          assert 'getContextId' in inspector and 'getSettings' in inspector
+          assert 'MainAccountTargetStore.request(host,provider,requestedSlot)' in ui
+          assert '不会错发到旧账号' in ui
+          assert 'MainAccountTargetStore.cancel(this)' in (p/'OmniGateHomeActivity.java').read_text()
+          assert 'contextForNewNativeSession(' in store
+          print('OGMAIN01_MAIN_ACCOUNT_FENCE_WIRED=PASS_STATIC')
+          print('OGMAIN01_NATIVE_GECKO_BUILDER_INJECTION=NOT_YET_IN_PRIVATE_APK')
+          PY

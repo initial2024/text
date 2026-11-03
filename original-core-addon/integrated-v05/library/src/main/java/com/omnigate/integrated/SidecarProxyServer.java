@@ -716,6 +716,20 @@ public final class SidecarProxyServer {
             BufferedOutputStream out,String channel)
             throws IOException,org.json.JSONException {
         try{
+            // Guard immediately before the first possible outbound model
+            // submission. Merely choosing an auxiliary Gecko slot is NOT
+            // permission to send on the original WebDriver session.
+            MainAccountRoutePolicy.Decision route=MainAccountRequestGuard.evaluate(
+                GatewayApp.applicationContext(),channel);
+            if(!route.allowed){
+                writeJson(out,409,new JSONObject().put("error",new JSONObject()
+                    .put("type","omnigate_main_account_guard")
+                    .put("code","main_execution_context_not_bound")
+                    .put("detail",route.outcome.name())
+                    .put("message","Chosen isolated browser profile is not the verified "+
+                        "native 8787 execution session; nothing was submitted")));
+                return false;
+            }
             LocalHourlyApiQuota.Decision decision=LocalHourlyApiQuota.admit(
                 GatewayApp.applicationContext(),channel,System.currentTimeMillis());
             if(decision.allowed)return true;
