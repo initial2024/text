@@ -59,8 +59,11 @@ final class MainAccountTargetStore {
     static synchronized String contextForNewNativeSession(Context c,String nativeModel){
         Target target=active(c);
         if(target==null)return null;
+        // A different provider must NOT inherit another provider's
+        // isolated cookie jar. Leave its existing session unchanged and
+        // keep the 8787 target guard armed, so no unintended send occurs.
         if(!target.provider.equals(ProviderRiskScopes.fromModel(nativeModel)))
-            throw new IllegalStateException("native_provider_target_mismatch");
+            return null;
         return target.contextId;
     }
 }

@@ -13,20 +13,20 @@ import android.content.Context;
 public final class NativePrimaryContextHook {
     private NativePrimaryContextHook(){}
     public static String contextIdForNewSession(Context context,Object nativeProvider){
-        if(context==null||nativeProvider==null)
-            throw new IllegalArgumentException("native_context_or_provider_null");
+        // A missing/unknown native ABI must NOT crash MainActivity launch.
+        // Null never authorizes the target; the independent 8787 admission
+        // guard still blocks wrong-account submissions.
+        if(context==null||nativeProvider==null)return null;
         try{
             if(!"com.deepseek2.app.gateway.AiProvider"
-                .equals(nativeProvider.getClass().getName()))
-                throw new IllegalArgumentException("wrong_native_provider_type");
+                .equals(nativeProvider.getClass().getName()))return null;
             Object model=nativeProvider.getClass().getMethod("getModel")
                 .invoke(nativeProvider);
-            if(!(model instanceof String))
-                throw new IllegalStateException("native_model_unknown");
+            if(!(model instanceof String))return null;
             return MainAccountTargetStore.contextForNewNativeSession(
                 context,(String)model);
-        }catch(ReflectiveOperationException impossible){
-            throw new IllegalStateException("native_provider_reflection_failed",impossible);
+        }catch(ReflectiveOperationException|RuntimeException unavailable){
+            return null;
         }
     }
 }

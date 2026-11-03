@@ -409,7 +409,13 @@ final class IsolatedGeckoBrowser {
             .setPositiveButton("登记目标并保护发送",(d,w)->{
                 try{
                     MainAccountTargetStore.request(host,provider,requestedSlot);
-                    state.setText(MainAccountRequestGuard.state(host));
+                    state.setText("主执行目标已登记；正在核验实际原版 WebDriver…");
+                    new Thread(()->{
+                        String checked=MainAccountRequestGuard.state(host);
+                        host.runOnUiThread(()->{
+                            if(dialog.isShowing()&&!host.isDestroyed())state.setText(checked);
+                        });
+                    },"omnigate-main-target-inspect").start();
                 }catch(RuntimeException error){
                     state.setText("执行目标登记失败："+error.getClass().getSimpleName());
                 }

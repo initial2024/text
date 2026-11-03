@@ -210,7 +210,7 @@ public final class OmniGateHomeActivity extends Activity {
                     " · 独立账号 "+(AccountBrowserStore.selected(this,last)+1);
             accountStatus.setText("独立账号："+label+
                 "\n主执行模型："+OriginalCoreBridge.activeProviderModel()+
-                "\n"+MainAccountRequestGuard.state(this));
+                "\n正在核验执行绑定…");
         }
         if(checking)return;checking=true;
         localStatus.setText("本地 8787："+(LocalProxyRuntime.isListening()?"已启动":"正在恢复"));
@@ -221,8 +221,11 @@ public final class OmniGateHomeActivity extends Activity {
             String route=OriginalCoreBridge.observedRouteState(state);
             boolean running=OriginalCoreBridge.nativeOwnerRunning();
             int port=OriginalCoreBridge.configuredPort();
+            String binding=MainAccountRequestGuard.state(this);
             runOnUiThread(()->{
                 if(isFinishing()||isDestroyed())return;
+                if(accountStatus!=null)accountStatus.setText(
+                    accountStatus.getText().toString().replace("正在核验执行绑定…",binding));
                 nativeStatus.setText("原版 API："+port+" · "+(running?"实例运行":"当前主界面未持有"));
                 ownerStatus.setText("WebDriver："+("main_socket_and_driver_match".equals(route)?
                     "已验证，模型界面可用":
