@@ -24,6 +24,7 @@ import android.widget.TextView;
 final class IsolatedGeckoBrowser {
     private final Activity host;
     private final String provider;
+    private final int startingSlot;
     private final Dialog dialog;
     private final LinearLayout tabs;
     private final FrameLayout display;
@@ -35,24 +36,49 @@ final class IsolatedGeckoBrowser {
     private int selected=-1;
 
     static void showPicker(Activity host){
-        // The model homepage and Settings share the same user-controlled
-        // picker. There is no model POST, account fallback or token copying.
-        new AlertDialog.Builder(host)
-            .setTitle("账号切换 · 隔离浏览器")
-            .setMessage("每个账号槽位独立保存网页登录状态；"+
-                "此入口不更改原版 WebDriver/8787 使用的账号。"+
-                "平台限流或鉴权异常时不得换号继续请求。")
-            .setItems(AccountBrowserSlots.LABELS,(dialog,which)->
-                show(host,AccountBrowserSlots.PROVIDERS[which]))
-            .setNegativeButton("取消",null).show();
+        // Avoid AlertDialog.setMessage()+setItems(): the message panel hides
+        // the choice list on Android, leaving only "取消" (observed on phone).
+        // Each visible row is a DIRECT provider+slot action, not just a
+        // provider chooser with another nested account selection.
+        try{
+            int n=AccountBrowserSlots.PROVIDERS.length;
+            int[] counts=new int[n],selected=new int[n];
+            for(int i=0;i<n;i++){
+                String provider=AccountBrowserSlots.PROVIDERS[i];
+                counts[i]=AccountBrowserStore.count(host,provider);
+                selected[i]=AccountBrowserStore.selected(host,provider);
+            }
+            AccountQuickSwitchRows.Row[] rows=
+                AccountQuickSwitchRows.build(counts,selected);
+            String[] labels=new String[rows.length];
+            for(int i=0;i<rows.length;i++)labels[i]=rows[i].label;
+            new AlertDialog.Builder(host)
+                .setTitle("一键切换 · 平台 / 账号")
+                .setItems(labels,(dialog,which)->{
+                    if(which>=0&&which<rows.length)
+                        show(host,rows[which].provider,rows[which].slot);
+                })
+                .setNegativeButton("取消",null).show();
+        }catch(RuntimeException storageError){
+            new AlertDialog.Builder(host)
+                .setTitle("账号选择暂不可用")
+                .setMessage("读取本地隔离账号槽位失败；没有改变登录状态、"+
+                    "模型请求或风控。请保留现有应用数据。")
+                .setPositiveButton("确定",null).show();
+        }
     }
     static void show(Activity host,String provider){
+        show(host,provider,AccountBrowserStore.selected(host,provider));
+    }
+    static void show(Activity host,String provider,int slot){
         if(!AccountBrowserSlots.supported(provider))
             throw new IllegalArgumentException("provider");
-        new IsolatedGeckoBrowser(host,provider).show();
+        if(slot<0||slot>=AccountBrowserStore.count(host,provider))
+            throw new IllegalArgumentException("slot");
+        new IsolatedGeckoBrowser(host,provider,slot).show();
     }
-    private IsolatedGeckoBrowser(Activity host,String provider){
-        this.host=host;this.provider=provider;
+    private IsolatedGeckoBrowser(Activity host,String provider,int slot){
+        this.host=host;this.provider=provider;this.startingSlot=slot;
         dialog=new Dialog(host);
         LinearLayout root=new LinearLayout(host);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -126,7 +152,7 @@ final class IsolatedGeckoBrowser {
             ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT);
         renderTabs();
         refreshLocalBudget();
-        switchTo(AccountBrowserStore.selected(host,provider));
+        switchTo(startingSlot);
     }
     private void refreshLocalBudget(){
         int limit=AccountBrowserStore.voluntaryBudget(host,provider);

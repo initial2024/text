@@ -32,8 +32,11 @@ jobs:
           assert setting.index('accountEntry=button') < setting.index('LinearLayout connection = panel(page')
           assert setting.count('IsolatedGeckoBrowser.showPicker(this)') >= 2
           assert 'static void showPicker(Activity host)' in browser
-          assert 'setItems(AccountBrowserSlots.LABELS' in browser
-          assert 'show(host,AccountBrowserSlots.PROVIDERS[which])' in browser
+          assert '.setItems(labels,(dialog,which)->{' in browser
+          assert 'show(host,rows[which].provider,rows[which].slot)' in browser
+          picker=browser[browser.index('static void showPicker(Activity host)'):browser.index('static void show(Activity host,String provider)')]
+          assert '.setMessage(' not in picker
+          assert 'AccountQuickSwitchRows.build(counts,selected)' in picker
           assert '平台限流或鉴权异常时不得换号继续请求' in browser
           assert 'getMethod("contextId",String.class)' in browser
           assert 'new GeckoRuntime(' not in browser
