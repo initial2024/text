@@ -392,6 +392,17 @@ public final class CompatSettingsActivity extends Activity {
                 toast("网页入口失败：" + ex.getClass().getSimpleName());
             }
         });
+        Button isolatedAccountSwitch=button(connection,
+            "独立账号槽位：DeepSeek / GLM / ChatGPT / Grok",false);
+        isolatedAccountSwitch.setOnClickListener(v->
+            new android.app.AlertDialog.Builder(this)
+                .setTitle("独立浏览器账号")
+                .setMessage("不同槽位隔离网站 Cookie 与存储，首次自行登录。"+
+                    "不会更换原版 WebDriver 或自动切换账号绕过风控。")
+                .setItems(AccountBrowserSlots.LABELS,(d,which)->
+                    IsolatedGeckoBrowser.show(this,AccountBrowserSlots.PROVIDERS[which]))
+                .setNegativeButton("取消",null).show());
+
         // Claude is NOT in the frozen original AiProvider enum and has no
         // native ApiServer/Gecko adapter. Never advertise it as a 8787 model.
         Button claudeWeb=button(connection,"Claude 网页（独立打开，暂不支持 API 转发）",false);
