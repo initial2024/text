@@ -1,71 +1,68 @@
 package com.omnigate.integrated;
 
+import android.app.Activity;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.util.ArrayList;
-import java.util.IdentityHashMap;
-import java.util.List;
 
 /**
- * READ-ONLY proof of the GeckoSession actually referenced by the verified
- * native API WebDriver; never changes a GeckoSession, cookies or owner fields.
- * A missing or ambiguous session fails closed. No generated session ID is logged.
+ * Exact v1.0.5 native DEX contract (read-only):
+ * MainActivity.{browser,driver,server};
+ * ProviderBrowser.{bridge,session,view,provider};
+ * WebDriver.{bridge,provider};
+ * GeckoBridge.session; ApiServer.{driver,provider}.
+ *
+ * No heuristic object graph scans, no cookie access. Context is immutable
+ * after GeckoSession.open(). Unknown/different references FAIL CLOSED.
  */
 final class NativeGeckoContextInspector {
-    private static final int MAX_DEPTH=3;
-    private static final int MAX_OBJECTS=64;
     private NativeGeckoContextInspector(){}
-    static boolean exactMatch(Object actualNativeDriver,String desiredContextId){
-        if(actualNativeDriver==null||!AccountBrowserSlots.validContextId(desiredContextId))
-            return false;
+    private static Object field(Object object,String name)throws Exception{
+        if(object==null)throw new IllegalStateException("native_owner_null");
+        Field f=object.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        Object v=f.get(object);
+        if(v==null)throw new IllegalStateException("native_field_null");
+        return v;
+    }
+    static boolean exactMainMatch(Activity main,Object originalDriver,
+            String desiredProvider,String desiredContext){
+        if(main==null||originalDriver==null||
+            !AccountBrowserSlots.supported(desiredProvider)||
+            !AccountBrowserSlots.validContextId(desiredContext))return false;
         try{
-            Class<?> sessionType=Class.forName("org.mozilla.geckoview.GeckoSession");
-            Class<?> viewType=Class.forName("org.mozilla.geckoview.GeckoView");
-            IdentityHashMap<Object,Boolean> visited=new IdentityHashMap<>();
-            List<Object> sessions=new ArrayList<>(2);
-            walk(actualNativeDriver,0,visited,sessions,sessionType,viewType);
-            if(sessions.size()!=1)return false;
-            Object settings=sessionType.getMethod("getSettings").invoke(sessions.get(0));
+            Object currentDriver=field(main,"driver");
+            if(currentDriver!=originalDriver)return false;
+            Object server=field(main,"server");
+            if(field(server,"driver")!=originalDriver)return false;
+
+            Object browser=field(main,"browser");
+            Object webBridge=field(originalDriver,"bridge");
+            if(field(browser,"bridge")!=webBridge)return false;
+
+            Object session=field(webBridge,"session");
+            if(field(browser,"session")!=session)return false;
+            Object view=field(browser,"view");
+            Class<?> cls=Class.forName("org.mozilla.geckoview.GeckoView");
+            if(!cls.isInstance(view)||cls.getMethod("getSession").invoke(view)!=session)
+                return false;
+
+            // The actual native API server, WebDriver and browser must
+            // share the SAME provider enum object, not merely Prefs text.
+            Object prov=field(originalDriver,"provider");
+            if(prov!=field(browser,"provider")||prov!=field(server,"provider"))
+                return false;
+            Object model=prov.getClass().getMethod("getModel").invoke(prov);
+            if(!(model instanceof String)||
+                !desiredProvider.equals(ProviderRiskScopes.fromModel((String)model)))
+                return false;
+
+            Class<?> gecko=Class.forName("org.mozilla.geckoview.GeckoSession");
+            if(!gecko.isInstance(session))return false;
+            Object settings=gecko.getMethod("getSettings").invoke(session);
             if(settings==null)return false;
             Object actual=settings.getClass().getMethod("getContextId").invoke(settings);
-            return desiredContextId.equals(actual);
-        }catch(Throwable unavailable){
+            return desiredContext.equals(actual);
+        }catch(Throwable unknown){
             return false;
-        }
-    }
-    private static void walk(Object node,int depth,
-            IdentityHashMap<Object,Boolean> visited,List<Object> sessions,
-            Class<?> sessionType,Class<?> viewType){
-        if(node==null||visited.containsKey(node)||visited.size()>=MAX_OBJECTS)return;
-        visited.put(node,true);
-        if(sessionType.isInstance(node)){
-            sessions.add(node);
-            return;
-        }
-        if(viewType.isInstance(node)){
-            try{
-                Object s=viewType.getMethod("getSession").invoke(node);
-                walk(s,depth+1,visited,sessions,sessionType,viewType);
-            }catch(ReflectiveOperationException ignored){}
-            return;
-        }
-        if(depth>=MAX_DEPTH)return;
-        String type=node.getClass().getName();
-        if(!type.startsWith("com.deepseek2.app."))return;
-        Class<?> cls=node.getClass();
-        while(cls!=null&&cls!=Object.class){
-            for(Field f:cls.getDeclaredFields()){
-                if(Modifier.isStatic(f.getModifiers())||f.getType().isPrimitive())continue;
-                String fieldType=f.getType().getName();
-                if(!sessionType.isAssignableFrom(f.getType()) &&
-                   !viewType.isAssignableFrom(f.getType()) &&
-                   !fieldType.startsWith("com.deepseek2.app."))continue;
-                try{
-                    f.setAccessible(true);
-                    walk(f.get(node),depth+1,visited,sessions,sessionType,viewType);
-                }catch(IllegalAccessException|SecurityException ignored){}
-            }
-            cls=cls.getSuperclass();
         }
     }
 }

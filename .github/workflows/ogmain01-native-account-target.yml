@@ -48,6 +48,15 @@ jobs:
           assert 'verifiedMainDriverUsesContext(' in main
           assert 'driver==verifiedApiDriver()' in main
           assert 'getContextId' in inspector and 'getSettings' in inspector
+          assert 'field(main,"browser")' in inspector
+          assert 'field(originalDriver,"bridge")' in inspector
+          assert 'field(webBridge,"session")' in inspector
+          assert 'field(server,"driver")' in inspector
+          assert 'field(browser,"provider")' in inspector
+          assert 'cls.getMethod("getSession")' in inspector
+          assert 'exactMainMatch(' in inspector
+          assert 'field(main,"driver")' in inspector
+          assert 'exactMainMatch(' in main
           assert 'MainAccountTargetStore.request(host,provider,requestedSlot)' in ui
           assert '不会错发到旧账号' in ui
           assert 'MainAccountTargetStore.cancel(this)' in (p/'OmniGateHomeActivity.java').read_text()

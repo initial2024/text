@@ -271,7 +271,10 @@ public final class OriginalCoreBridge {
             !isExactMainApiOwner())return false;
         try{
             Object driver=verifiedApiDriver();
-            if(!NativeGeckoContextInspector.exactMatch(driver,contextId))return false;
+            Activity main=originalMain.get();
+            if(main==null||main.isFinishing()||main.isDestroyed())return false;
+            if(!NativeGeckoContextInspector.exactMainMatch(
+                main,driver,provider,contextId))return false;
             return isExactMainApiOwner()&&driver==verifiedApiDriver();
         }catch(Throwable failed){
             return false;
