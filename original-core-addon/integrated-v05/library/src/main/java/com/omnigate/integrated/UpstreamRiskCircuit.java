@@ -42,6 +42,10 @@ final class UpstreamRiskCircuit {
     private static final Pattern RESET_UNITS =
         Pattern.compile("(?i)([0-9]+)(ms|s|m|h|d)");
     private static final int LOG_CAPACITY=32;
+    // When an authoritative, account-applicable API limit is present, retain
+    // 20% capacity as headroom. This is a local precaution, not an
+    // authoritative provider "safe usage" guarantee.
+    static final int HEADROOM_PERCENT=20;
     private final String channel;
     private final int localMaxInFlight;
     private final AuditSink sink;
@@ -95,6 +99,8 @@ final class UpstreamRiskCircuit {
           "upstream_overloaded".equals(code)||
           "provider_request_budget_exhausted".equals(code)||
           "provider_token_budget_exhausted".equals(code)||
+          "provider_request_headroom_80_percent".equals(code)||
+          "provider_token_headroom_80_percent".equals(code)||
           "provider_cooldown_active".equals(code)||
           "manual_review_reset".equals(code)||
           "risk_state_invalid".equals(code);
@@ -183,6 +189,32 @@ final class UpstreamRiskCircuit {
             if(until>nowMs)
                 cool("provider_token_budget_exhausted",200,until,nowMs);
         }
+    }
+
+    /**
+     * Proactive headroom is valid ONLY with same-response, coherent official
+     * remaining + limit + reset headers. For providers with web-UI-only
+     * access, or absent/unrecognized headers, no number is inferred.
+     * A 20% reserve means consumed >= 80% (integer-safe, no overflow).
+     */
+    synchronized void observeOfficialHeadroom(String remainingRaw,
+            String limitRaw,String resetRaw,boolean tokens,long nowMs){
+        restoreIfNeeded();
+        long remaining=parseNonnegative(remainingRaw);
+        long limit=parseNonnegative(limitRaw);
+        if(limit<=0||remaining<0||remaining>limit)return;
+        long resetAt=providerResetAt(resetRaw,nowMs);
+        if(resetAt<=nowMs)return;
+        if(remaining<=limit/5){
+            cool(tokens?"provider_token_headroom_80_percent":
+                "provider_request_headroom_80_percent",200,resetAt,nowMs);
+        }
+    }
+    private static long parseNonnegative(String raw){
+        String s=trim(raw);
+        if(s.isEmpty()||s.length()>19||!s.matches("[0-9]+"))return -1;
+        try{return Long.parseLong(s);}
+        catch(NumberFormatException invalid){return -1;}
     }
 
     synchronized int inFlight(){return inFlight;}

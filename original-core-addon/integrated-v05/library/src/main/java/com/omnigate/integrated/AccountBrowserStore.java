@@ -66,6 +66,21 @@ final class AccountBrowserStore {
         if(!prefs(c).edit().putInt(provider+".user_daily_budget",budget).commit())
             throw new IllegalStateException("budget_persist_failed");
     }
+    /** Explicitly user-entered daily reference; never inferred from API RPM. */
+    static synchronized int userDailyReference(Context c,String provider){
+        count(c,provider);
+        int value=prefs(c).getInt(provider+".reference_daily_turns",0);
+        if(value<0||value>100000)
+            throw new IllegalStateException("reference_daily_invalid");
+        return value;
+    }
+    static synchronized void setUserDailyReference(Context c,String provider,int value){
+        count(c,provider);
+        if(value<2||value>100000)
+            throw new IllegalArgumentException("reference_daily");
+        if(!prefs(c).edit().putInt(provider+".reference_daily_turns",value).commit())
+            throw new IllegalStateException("reference_daily_persist_failed");
+    }
     static synchronized boolean autoBudgetSwitch(Context c,String provider){
         count(c,provider);
         return prefs(c).getBoolean(provider+".user_auto_switch",false);

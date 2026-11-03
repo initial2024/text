@@ -772,6 +772,18 @@ public final class SidecarProxyServer {
                     upstream.getHeaderField("x-ratelimit-remaining-tokens"),
                     upstream.getHeaderField("x-ratelimit-reset-tokens"),
                     System.currentTimeMillis());
+                // OpenAI-compatible API headroom only if ALL three supplied
+                // fields describe one response's actual enforced limits.
+                activeRisk.observeOfficialHeadroom(
+                    upstream.getHeaderField("x-ratelimit-remaining-requests"),
+                    upstream.getHeaderField("x-ratelimit-limit-requests"),
+                    upstream.getHeaderField("x-ratelimit-reset-requests"),
+                    false,System.currentTimeMillis());
+                activeRisk.observeOfficialHeadroom(
+                    upstream.getHeaderField("x-ratelimit-remaining-tokens"),
+                    upstream.getHeaderField("x-ratelimit-limit-tokens"),
+                    upstream.getHeaderField("x-ratelimit-reset-tokens"),
+                    true,System.currentTimeMillis());
             }
             ProxyTrace trace=CURRENT_TRACE.get();
             if(trace!=null)trace.upstreamCode=statusCode;

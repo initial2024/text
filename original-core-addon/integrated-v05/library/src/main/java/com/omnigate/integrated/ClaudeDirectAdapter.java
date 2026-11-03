@@ -55,6 +55,16 @@ final class ClaudeDirectAdapter {
                     connection.getHeaderField("anthropic-ratelimit-tokens-remaining"),
                     connection.getHeaderField("anthropic-ratelimit-tokens-reset"),
                     System.currentTimeMillis());
+                risk.observeOfficialHeadroom(
+                    connection.getHeaderField("anthropic-ratelimit-requests-remaining"),
+                    connection.getHeaderField("anthropic-ratelimit-requests-limit"),
+                    connection.getHeaderField("anthropic-ratelimit-requests-reset"),
+                    false,System.currentTimeMillis());
+                risk.observeOfficialHeadroom(
+                    connection.getHeaderField("anthropic-ratelimit-tokens-remaining"),
+                    connection.getHeaderField("anthropic-ratelimit-tokens-limit"),
+                    connection.getHeaderField("anthropic-ratelimit-tokens-reset"),
+                    true,System.currentTimeMillis());
             }
             try(InputStream input=status>=400?connection.getErrorStream():connection.getInputStream()){
                 if(input==null)return error(502,"claude_upstream_empty");

@@ -165,29 +165,85 @@ final class IsolatedGeckoBrowser {
             if(i>0)counts.append("  ");
             counts.append("账号").append(i+1).append(":").append(today[i]);
         }
+        int reference=AccountBrowserStore.userDailyReference(host,provider);
+        String recommendation=reference>=2
+            ?("所填日参考额度的80%建议 "+
+              AccountBudgetAdvisor.recommendFromUserEnteredDailyReference(reference)+
+              "次/槽（人工填写，未自动核验）")
+            :("保守起点建议 "+AccountBudgetAdvisor.conservativeUnverifiedStart()+
+              "次/槽/日（纯本地经验，非官方限制）");
         localBudgetState.setText(
-            "仅本地记录·UTC日｜预算："+(limit>0?limit+"次/槽":"未设定")+
-            "｜"+counts+"（不是实际平台请求统计）");
+            "本地计数 · UTC日 | 已设预算："+(limit>0?limit+"次/槽":"未设定")+
+            "\n"+recommendation+"\n"+counts+
+            "（只计你手动确认完成的轮次）");
         autoToggle.setText(enabled?"自动切换：已启用":"自动切换：关闭");
     }
     private void configureBudget(){
+        LinearLayout content=new LinearLayout(host);
+        content.setOrientation(LinearLayout.VERTICAL);
+        int pad=(int)(16*host.getResources().getDisplayMetrics().density);
+        content.setPadding(pad,pad/2,pad,pad/2);
+        TextView detail=new TextView(host);
+        detail.setText("推荐值只作本地提醒，不能推算网页平台风控。"+
+            "若账号后台明确公布每日请求额度，可在下方人工填写。"+
+            "不要填写 API 的 RPM 或 TPM。");
+        content.addView(detail);
+        EditText daily=new EditText(host);
+        daily.setInputType(InputType.TYPE_CLASS_NUMBER);
+        daily.setSingleLine(true);
+        daily.setHint("官方账号页单日额度（可留空）");
+        int reference=AccountBrowserStore.userDailyReference(host,provider);
+        if(reference>0)daily.setText(Integer.toString(reference));
+        content.addView(daily);
+        TextView examples=new TextView(host);
+        examples.setText("参考额度 60 次/日 → 推荐 48 次/日（80%）；"+
+            "未提供日额度 → 保守经验建议 8 次/日，不代表安全阈值。");
+        content.addView(examples);
         EditText input=new EditText(host);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setSingleLine(true);
+        input.setHint("自定义本地预算 1–100 次/槽/日");
         int prior=AccountBrowserStore.voluntaryBudget(host,provider);
         if(prior>0)input.setText(Integer.toString(prior));
+        content.addView(input);
         new AlertDialog.Builder(host)
-            .setTitle("自定义每账号每日使用预算（UTC）")
-            .setMessage("输入 1–100，纯本地自定预算，不代表平台允许的安全调用次数。"+
-                "只统计你主动点击「本轮已完成」的次数，不读取对话。")
-            .setView(input)
+            .setTitle("每账号预算 · 80% 推荐")
+            .setView(content)
             .setNegativeButton("取消",null)
-            .setPositiveButton("保存",(d,which)->{
+            .setNeutralButton("应用推荐",(d,which)->{
                 try{
-                    int configured=Integer.parseInt(input.getText().toString().trim());
-                    AccountBrowserStore.setVoluntaryBudget(host,provider,configured);
+                    String raw=daily.getText().toString().trim();
+                    int suggested=AccountBudgetAdvisor.conservativeUnverifiedStart();
+                    if(!raw.isEmpty()){
+                        int explicit=Integer.parseInt(raw);
+                        suggested=AccountBudgetAdvisor
+                            .recommendFromUserEnteredDailyReference(explicit);
+                        AccountBrowserStore.setUserDailyReference(host,provider,explicit);
+                    }else if(reference>=2){
+                        // Blank field means use conservative unknown starting
+                        // point rather than silently trusting an old limit.
+                        suggested=AccountBudgetAdvisor.conservativeUnverifiedStart();
+                    }
+                    AccountBrowserStore.setVoluntaryBudget(host,provider,suggested);
+                    refreshLocalBudget();
+                    state.setText("已应用本地建议 "+suggested+
+                        " 次/日；不是已核实的平台安全次数");
+                }catch(RuntimeException invalid){
+                    state.setText("未修改预算：请填写 2–100000 的真实单日参考额度");
+                }
+            })
+            .setPositiveButton("保存自定义",(d,which)->{
+                try{
+                    int custom=Integer.parseInt(input.getText().toString().trim());
+                    AccountBrowserStore.setVoluntaryBudget(host,provider,custom);
+                    String raw=daily.getText().toString().trim();
+                    if(!raw.isEmpty()){
+                        int explicit=Integer.parseInt(raw);
+                        AccountBrowserStore.setUserDailyReference(host,provider,explicit);
+                    }
                     refreshLocalBudget();
                 }catch(RuntimeException invalid){
-                    state.setText("预算无效：请输入 1–100 的整数");
+                    state.setText("预算无效：自定义需 1–100；参考额度需 2–100000");
                 }
             }).show();
     }
