@@ -91,7 +91,7 @@ public final class SidecarProxyServer {
         else riskForProvider(channel).clearAfterExplicitUserReview(now);
     }
 
-    private static void writeRiskDenied(
+    private void writeRiskDenied(
             BufferedOutputStream out,UpstreamRiskCircuit.Decision denied)
             throws IOException,org.json.JSONException {
         writeJson(out,denied.status,new JSONObject().put("error",
@@ -406,9 +406,16 @@ public final class SidecarProxyServer {
                         writeRiskDenied(out,legacy);return;
                     }
                     globalNativeAdmitted=true;
+                    // Parse only the documented model key, not the prompt
+                    // contents. Unknown model or provider selection fail closed.
+                    String requestedModel="";
+                    try {
+                        requestedModel=new JSONObject(new String(request.body,
+                            StandardCharsets.UTF_8)).optString("model","");
+                    }catch(org.json.JSONException badModel){}
                     ProviderRiskScopes.Selection selection=
                         ProviderRiskScopes.select(
-                            OriginalCoreBridge.activeProviderModel(),request.body);
+                            OriginalCoreBridge.activeProviderModel(),requestedModel);
                     if(!selection.allowed){
                         writeJson(out,409,new JSONObject().put("error",
                             new JSONObject().put("type","omnigate_provider_guard")

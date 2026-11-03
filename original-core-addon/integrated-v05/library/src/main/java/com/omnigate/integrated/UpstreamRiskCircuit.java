@@ -58,14 +58,19 @@ final class UpstreamRiskCircuit {
     }
     UpstreamRiskCircuit(String channel, int localMaxInFlight,
                         AuditSink sink,StateStore store) {
-        if(!ProviderRiskScopes.validChannel(channel) ||
-            localMaxInFlight<1)
+        if(!validRiskChannel(channel)||localMaxInFlight<1)
             throw new IllegalArgumentException("fixed channel or concurrency");
         this.channel=channel;
         this.localMaxInFlight=localMaxInFlight;
         this.sink=sink;
         this.store=store;
         this.restored=store==null;
+    }
+
+    private static boolean validRiskChannel(String ch){
+        return "native".equals(ch)||"deepseek".equals(ch)||
+            "chatgpt".equals(ch)||"grok".equals(ch)||"glm".equals(ch)||
+            "claude".equals(ch)||"relay".equals(ch);
     }
 
     private void restoreIfNeeded(){

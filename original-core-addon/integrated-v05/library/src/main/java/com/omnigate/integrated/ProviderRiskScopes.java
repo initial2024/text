@@ -1,7 +1,6 @@
 package com.omnigate.integrated;
 
 import java.util.Locale;
-import org.json.JSONObject;
 
 /**
  * Fixed provider identity derived from the actual user-selected native
@@ -40,18 +39,11 @@ final class ProviderRiskScopes {
             this.allowed=allowed;this.channel=channel;this.reason=reason;
         }
     }
-    static Selection select(String activeModel,byte[] body){
+    static Selection select(String activeModel,String requestedModel){
         String selected=fromModel(activeModel);
         if(selected.isEmpty())
             return new Selection(false,"","provider_selection_unverified");
-        String requested="";
-        try{
-            JSONObject obj=new JSONObject(
-                new String(body,java.nio.charset.StandardCharsets.UTF_8));
-            requested=fromModel(obj.optString("model",""));
-        }catch(Exception malformed){
-            return new Selection(false,"","request_model_unrecognized");
-        }
+        String requested=fromModel(requestedModel);
         if(requested.isEmpty())
             return new Selection(false,"","request_model_unrecognized");
         if(!selected.equals(requested))

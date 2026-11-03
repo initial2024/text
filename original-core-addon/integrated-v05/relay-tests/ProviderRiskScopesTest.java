@@ -6,9 +6,7 @@ public final class ProviderRiskScopesTest {
         checks++;if(!truth)throw new AssertionError("provider scope "+checks);
     }
     static ProviderRiskScopes.Selection test(String active,String model){
-        return ProviderRiskScopes.select(active,
-            ("{\"model\":\""+model+"\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
-            .getBytes(StandardCharsets.UTF_8));
+        return ProviderRiskScopes.select(active,model);
     }
     public static void main(String[] args){
         String[][] cases={
