@@ -9,7 +9,18 @@ final class AccountBudgetAdvisor {
     // A deliberately small, illustrative local starting point, not derived
     // from any platform account ceiling. Always label it unverified.
     static final int UNVERIFIED_WEB_START=8;
+    static final int UNVERIFIED_HOURLY_START=2;
+    static final int MAX_LOCAL_HOURLY=1000;
     private AccountBudgetAdvisor(){}
+    static int recommendFromUserEnteredHourlyReference(int hourlyLimit){
+        if(hourlyLimit<2||hourlyLimit>100000)
+            throw new IllegalArgumentException("hourly_limit_out_of_range");
+        return (int)Math.min(MAX_LOCAL_HOURLY,
+            ((long)hourlyLimit*PERCENT)/100L);
+    }
+    static int conservativeUnverifiedHourlyStart(){
+        return UNVERIFIED_HOURLY_START;
+    }
     static int recommendFromUserEnteredDailyReference(int dailyLimit){
         if(dailyLimit<2||dailyLimit>100000)
             throw new IllegalArgumentException("daily_limit_out_of_range");

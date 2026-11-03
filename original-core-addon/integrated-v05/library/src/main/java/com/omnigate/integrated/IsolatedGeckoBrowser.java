@@ -156,14 +156,17 @@ final class IsolatedGeckoBrowser {
     }
     private void refreshLocalBudget(){
         int limit=AccountBrowserStore.voluntaryBudget(host,provider);
+        int hourlyLimit=AccountBrowserStore.hourlyBudget(host,provider);
         boolean enabled=AccountBrowserStore.autoBudgetSwitch(host,provider);
         int current=selected>=0?selected:AccountBrowserStore.selected(host,provider);
-        int[] today=AccountBrowserStore.allUsesToday(
-            host,provider,System.currentTimeMillis());
+        long now=System.currentTimeMillis();
+        int[] today=AccountBrowserStore.allUsesToday(host,provider,now);
+        int[] hourly=AccountBrowserStore.allUsesLastHour(host,provider,now);
         StringBuilder counts=new StringBuilder();
         for(int i=0;i<today.length;i++){
             if(i>0)counts.append("  ");
-            counts.append("账号").append(i+1).append(":").append(today[i]);
+            counts.append("账号").append(i+1).append(":")
+                .append(hourly[i]).append("/小时 · ").append(today[i]).append("/UTC日");
         }
         int reference=AccountBrowserStore.userDailyReference(host,provider);
         String recommendation=reference>=2
@@ -172,10 +175,17 @@ final class IsolatedGeckoBrowser {
               "次/槽（人工填写，未自动核验）")
             :("保守起点建议 "+AccountBudgetAdvisor.conservativeUnverifiedStart()+
               "次/槽/日（纯本地经验，非官方限制）");
+        int hourRef=AccountBrowserStore.userHourlyReference(host,provider);
+        String hourAdvice=hourRef>=2
+            ?("所填每小时参考额度的80%建议 "+
+                AccountBudgetAdvisor.recommendFromUserEnteredHourlyReference(hourRef)+"次/小时")
+            :("未核实网页限制：本地建议 "+
+                AccountBudgetAdvisor.conservativeUnverifiedHourlyStart()+"次/滚动60分钟");
         localBudgetState.setText(
-            "本地计数 · UTC日 | 已设预算："+(limit>0?limit+"次/槽":"未设定")+
-            "\n"+recommendation+"\n"+counts+
-            "（只计你手动确认完成的轮次）");
+            "个人次数预算 · 滚动60分钟 "+(hourlyLimit>0?hourlyLimit+"次":"未设定")+
+            " | UTC日 "+(limit>0?limit+"次":"未设定")+
+            "\n"+hourAdvice+"；"+recommendation+"\n"+counts+
+            "\n仅计算你手动确认的轮次；网页 Token 用量不可可靠计量。");
         autoToggle.setText(enabled?"自动切换：已启用":"自动切换：关闭");
     }
     private void configureBudget(){
@@ -195,6 +205,13 @@ final class IsolatedGeckoBrowser {
         int reference=AccountBrowserStore.userDailyReference(host,provider);
         if(reference>0)daily.setText(Integer.toString(reference));
         content.addView(daily);
+        EditText hourlyRef=new EditText(host);
+        hourlyRef.setInputType(InputType.TYPE_CLASS_NUMBER);
+        hourlyRef.setSingleLine(true);
+        hourlyRef.setHint("官方账号页每小时次数额度（可留空）");
+        int savedHourRef=AccountBrowserStore.userHourlyReference(host,provider);
+        if(savedHourRef>0)hourlyRef.setText(Integer.toString(savedHourRef));
+        content.addView(hourlyRef);
         TextView examples=new TextView(host);
         examples.setText("参考额度 60 次/日 → 推荐 48 次/日（80%）；"+
             "未提供日额度 → 保守经验建议 8 次/日，不代表安全阈值。");
@@ -206,8 +223,15 @@ final class IsolatedGeckoBrowser {
         int prior=AccountBrowserStore.voluntaryBudget(host,provider);
         if(prior>0)input.setText(Integer.toString(prior));
         content.addView(input);
+        EditText hourlyInput=new EditText(host);
+        hourlyInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        hourlyInput.setSingleLine(true);
+        hourlyInput.setHint("自定义滚动60分钟 1–1000 次/槽");
+        int priorHour=AccountBrowserStore.hourlyBudget(host,provider);
+        if(priorHour>0)hourlyInput.setText(Integer.toString(priorHour));
+        content.addView(hourlyInput);
         new AlertDialog.Builder(host)
-            .setTitle("每账号预算 · 80% 推荐")
+            .setTitle("次数预算 · 滚动60分钟 / 每日")
             .setView(content)
             .setNegativeButton("取消",null)
             .setNeutralButton("应用推荐",(d,which)->{
@@ -224,26 +248,50 @@ final class IsolatedGeckoBrowser {
                         // point rather than silently trusting an old limit.
                         suggested=AccountBudgetAdvisor.conservativeUnverifiedStart();
                     }
+                    int hourSuggested=AccountBudgetAdvisor.conservativeUnverifiedHourlyStart();
+                    String hourRaw=hourlyRef.getText().toString().trim();
+                    if(!hourRaw.isEmpty()){
+                        int explicitHour=Integer.parseInt(hourRaw);
+                        hourSuggested=AccountBudgetAdvisor
+                            .recommendFromUserEnteredHourlyReference(explicitHour);
+                        AccountBrowserStore.setUserHourlyReference(host,provider,explicitHour);
+                    }
                     AccountBrowserStore.setVoluntaryBudget(host,provider,suggested);
+                    AccountBrowserStore.setHourlyBudget(host,provider,hourSuggested);
                     refreshLocalBudget();
-                    state.setText("已应用本地建议 "+suggested+
-                        " 次/日；不是已核实的平台安全次数");
+                    state.setText("已应用本地建议："+hourSuggested+
+                        " 次/滚动60分钟，"+suggested+" 次/UTC日；不保证平台安全");
                 }catch(RuntimeException invalid){
                     state.setText("未修改预算：请填写 2–100000 的真实单日参考额度");
                 }
             })
             .setPositiveButton("保存自定义",(d,which)->{
                 try{
-                    int custom=Integer.parseInt(input.getText().toString().trim());
-                    AccountBrowserStore.setVoluntaryBudget(host,provider,custom);
+                    String dayRaw=input.getText().toString().trim();
+                    String hourRaw=hourlyInput.getText().toString().trim();
+                    if(dayRaw.isEmpty()&&hourRaw.isEmpty())
+                        throw new IllegalArgumentException("empty_budget");
+                    int custom=dayRaw.isEmpty()?0:Integer.parseInt(dayRaw);
+                    int customHour=hourRaw.isEmpty()?0:Integer.parseInt(hourRaw);
+                    if(!dayRaw.isEmpty()&&(custom<1||custom>100))
+                        throw new IllegalArgumentException("daily_budget");
+                    if(!hourRaw.isEmpty()&&(customHour<1||customHour>1000))
+                        throw new IllegalArgumentException("hour_budget");
                     String raw=daily.getText().toString().trim();
-                    if(!raw.isEmpty()){
-                        int explicit=Integer.parseInt(raw);
-                        AccountBrowserStore.setUserDailyReference(host,provider,explicit);
-                    }
+                    String refHour=hourlyRef.getText().toString().trim();
+                    int dayRef=raw.isEmpty()?0:Integer.parseInt(raw);
+                    int hRef=refHour.isEmpty()?0:Integer.parseInt(refHour);
+                    if(!raw.isEmpty()&&(dayRef<2||dayRef>100000))
+                        throw new IllegalArgumentException("day_reference");
+                    if(!refHour.isEmpty()&&(hRef<2||hRef>100000))
+                        throw new IllegalArgumentException("hour_reference");
+                    if(!dayRaw.isEmpty())AccountBrowserStore.setVoluntaryBudget(host,provider,custom);
+                    if(!hourRaw.isEmpty())AccountBrowserStore.setHourlyBudget(host,provider,customHour);
+                    if(!raw.isEmpty())AccountBrowserStore.setUserDailyReference(host,provider,dayRef);
+                    if(!refHour.isEmpty())AccountBrowserStore.setUserHourlyReference(host,provider,hRef);
                     refreshLocalBudget();
                 }catch(RuntimeException invalid){
-                    state.setText("预算无效：自定义需 1–100；参考额度需 2–100000");
+                    state.setText("预算无效：日 1–100、滚动小时 1–1000；参考额度 2–100000");
                 }
             }).show();
     }
@@ -255,7 +303,8 @@ final class IsolatedGeckoBrowser {
                 refreshLocalBudget();
                 return;
             }
-            if(AccountBrowserStore.voluntaryBudget(host,provider)<1){
+            if(AccountBrowserStore.voluntaryBudget(host,provider)<1 &&
+                AccountBrowserStore.hourlyBudget(host,provider)<1){
                 state.setText("先自行设置每账号本地预算，再开启自动切换");
                 return;
             }
@@ -295,9 +344,11 @@ final class IsolatedGeckoBrowser {
             int finishedSlot=selected;
             AccountBrowserStore.recordUserFinishedTurn(host,provider,finishedSlot,now);
             int[] counts=AccountBrowserStore.allUsesToday(host,provider,now);
-            VoluntaryAccountBudget.Decision decision=VoluntaryAccountBudget.evaluate(
+            int[] hour=AccountBrowserStore.allUsesLastHour(host,provider,now);
+            VoluntaryAccountBudget.Decision decision=VoluntaryAccountBudget.evaluateWithHour(
                 true,true,AccountBrowserStore.autoBudgetSwitch(host,provider),
-                AccountBrowserStore.voluntaryBudget(host,provider),finishedSlot,counts);
+                AccountBrowserStore.voluntaryBudget(host,provider),
+                AccountBrowserStore.hourlyBudget(host,provider),finishedSlot,counts,hour);
             refreshLocalBudget();
             if(decision.action==VoluntaryAccountBudget.Action.SWITCH_BROWSER){
                 // Recheck after recording; a newly opened platform hold wins.

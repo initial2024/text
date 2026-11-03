@@ -81,12 +81,37 @@ final class AccountBrowserStore {
         if(!prefs(c).edit().putInt(provider+".reference_daily_turns",value).commit())
             throw new IllegalStateException("reference_daily_persist_failed");
     }
+    /** User-owned local guard, not a claim about any web platform's rate limit. */
+    static synchronized int hourlyBudget(Context c,String provider){
+        count(c,provider);
+        int n=prefs(c).getInt(provider+".user_hourly_budget",0);
+        if(n<0||n>1000)throw new IllegalStateException("hourly_budget_invalid");
+        return n;
+    }
+    static synchronized void setHourlyBudget(Context c,String provider,int n){
+        count(c,provider);
+        if(n<1||n>1000)throw new IllegalArgumentException("hourly_budget");
+        if(!prefs(c).edit().putInt(provider+".user_hourly_budget",n).commit())
+            throw new IllegalStateException("hourly_budget_persist_failed");
+    }
+    static synchronized int userHourlyReference(Context c,String provider){
+        count(c,provider);
+        int n=prefs(c).getInt(provider+".reference_hourly_turns",0);
+        if(n<0||n>100000)throw new IllegalStateException("reference_hourly_invalid");
+        return n;
+    }
+    static synchronized void setUserHourlyReference(Context c,String provider,int n){
+        count(c,provider);
+        if(n<2||n>100000)throw new IllegalArgumentException("reference_hourly");
+        if(!prefs(c).edit().putInt(provider+".reference_hourly_turns",n).commit())
+            throw new IllegalStateException("reference_hourly_persist_failed");
+    }
     static synchronized boolean autoBudgetSwitch(Context c,String provider){
         count(c,provider);
         return prefs(c).getBoolean(provider+".user_auto_switch",false);
     }
     static synchronized void setAutoBudgetSwitch(Context c,String provider,boolean enabled){
-        if(enabled&&voluntaryBudget(c,provider)<1)
+        if(enabled&&voluntaryBudget(c,provider)<1&&hourlyBudget(c,provider)<1)
             throw new IllegalStateException("budget_not_set");
         if(!prefs(c).edit().putBoolean(provider+".user_auto_switch",enabled).commit())
             throw new IllegalStateException("auto_setting_persist_failed");
@@ -108,15 +133,30 @@ final class AccountBrowserStore {
      * Called ONLY after the user explicitly marks a turn completed/idle.
      * It does not inspect provider cookies or infer platform request counts.
      */
+    /** Sliding sixty-minute window of MANUALLY confirmed completed turns. */
+    static synchronized int usesLastHour(Context c,String provider,int slot,long nowMs){
+        contextId(c,provider,slot);
+        return SlidingHourAcknowledgements.count(
+            prefs(c).getString(provider+"."+slot+".manual_hour_events",""),nowMs);
+    }
+    static synchronized int[] allUsesLastHour(Context c,String provider,long nowMs){
+        int[] used=new int[count(c,provider)];
+        for(int i=0;i<used.length;i++)used[i]=usesLastHour(c,provider,i,nowMs);
+        return used;
+    }
     static synchronized int recordUserFinishedTurn(
             Context c,String provider,int slot,long nowMs) {
         int before=usesToday(c,provider,slot,nowMs);
         if(before==Integer.MAX_VALUE)
             throw new IllegalStateException("usage_counter_overflow");
         String prefix=provider+"."+slot+".user_budget_";
+        String hourlyKey=provider+"."+slot+".manual_hour_events";
+        String events=SlidingHourAcknowledgements.append(
+            prefs(c).getString(hourlyKey,""),nowMs);
         if(!prefs(c).edit()
             .putLong(prefix+"utc_day",utcDay(nowMs))
-            .putInt(prefix+"completed",before+1).commit())
+            .putInt(prefix+"completed",before+1)
+            .putString(hourlyKey,events).commit())
             throw new IllegalStateException("usage_persist_failed");
         return before+1;
     }
