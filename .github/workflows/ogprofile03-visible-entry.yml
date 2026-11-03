@@ -39,8 +39,8 @@ jobs:
           chooser=browser[browser.index('.setTitle("一键切换 · 平台 / 账号")'):
                          browser.index('.setNegativeButton("取消",null).show()')]
           assert '.setMessage(' not in chooser
-          assert 'AccountQuickSwitchRows.build(counts,selected)' in picker
-          assert '平台限流或鉴权异常时不得换号继续请求' in browser
+          assert 'AccountQuickSwitchRows.build(counts,selected)' in browser
+          assert '官方平台风险门禁未放行' in browser
           assert 'getMethod("contextId",String.class)' in browser
           assert 'new GeckoRuntime(' not in browser
           assert 'openOriginal(' in home
