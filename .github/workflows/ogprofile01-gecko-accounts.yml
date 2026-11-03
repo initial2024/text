@@ -47,7 +47,7 @@ jobs:
           assert 'Context.MODE_PRIVATE' in store and '.commit()' in store
           assert 'MAX_SLOTS' in store
           assert 'IsolatedGeckoBrowser.show' in ui
-          assert '不会更换原版 WebDriver' in ui or '此入口不更改原版' in s
+          assert '不接管原版 8787 模型运行' in s
           assert '风控时不会自动轮换账号' in s
           assert 'AccountQuickSwitchRows.build(counts,selected)' in s
           print('OGPROFILE01_GECKO_STORAGE_PARTITIONING_WIRED=PASS_STATIC')

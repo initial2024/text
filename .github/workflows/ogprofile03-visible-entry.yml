@@ -34,8 +34,11 @@ jobs:
           assert 'static void showPicker(Activity host)' in browser
           assert '.setItems(labels,(dialog,which)->{' in browser
           assert 'show(host,rows[which].provider,rows[which].slot)' in browser
-          picker=browser[browser.index('static void showPicker(Activity host)'):browser.index('static void show(Activity host,String provider)')]
-          assert '.setMessage(' not in picker
+          # Only the CHOICE dialog must not call setMessage(). The separate
+          # error dialog is allowed to show an explanatory message.
+          chooser=browser[browser.index('.setTitle("一键切换 · 平台 / 账号")'):
+                         browser.index('.setNegativeButton("取消",null).show()')]
+          assert '.setMessage(' not in chooser
           assert 'AccountQuickSwitchRows.build(counts,selected)' in picker
           assert '平台限流或鉴权异常时不得换号继续请求' in browser
           assert 'getMethod("contextId",String.class)' in browser
