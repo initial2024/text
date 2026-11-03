@@ -12,6 +12,19 @@ final class SlidingHourAcknowledgements {
     static int count(String prior,long now){
         return clean(prior,now,null);
     }
+    /** Reset wait based on oldest still-active acknowledged event. */
+    static long retryAfterSeconds(String prior,long now){
+        clean(prior,now,null);
+        if(prior==null||prior.isEmpty())return 0;
+        long oldest=Long.MAX_VALUE;
+        for(String item:prior.split(",")){
+            long at=Long.parseLong(item);
+            if(now-at<WINDOW_MS&&at<oldest)oldest=at;
+        }
+        if(oldest==Long.MAX_VALUE)return 0;
+        long duration=WINDOW_MS-(now-oldest);
+        return duration<=0?0:((duration+999L)/1000L);
+    }
     static String append(String prior,long now){
         StringBuilder out=new StringBuilder();
         int count=clean(prior,now,out);

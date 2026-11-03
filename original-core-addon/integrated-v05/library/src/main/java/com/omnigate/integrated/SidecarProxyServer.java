@@ -293,6 +293,7 @@ public final class SidecarProxyServer {
 
     private void handle(Socket socket) {
         UpstreamRiskCircuit activeRisk=null;
+        String localHourChannel=null;
         boolean riskAdmitted=false;
         boolean globalNativeAdmitted=false;
         try (Socket client = socket;
@@ -438,7 +439,11 @@ public final class SidecarProxyServer {
                         return;
                     }
                     activeRisk=riskForProvider(selection.channel);
-                }else activeRisk=CLAUDE_CHAT_RISK;
+                    localHourChannel=selection.channel;
+                }else {
+                    activeRisk=CLAUDE_CHAT_RISK;
+                    localHourChannel="claude";
+                }
                 UpstreamRiskCircuit.Decision admit=activeRisk.enter(riskNow);
                 if(!admit.allowed){
                     status("上游请求已熔断 · "+admit.code+" · 未提交原模型");
@@ -460,6 +465,7 @@ public final class SidecarProxyServer {
                         .put("message","Claude API calls are local-only"));
                     return;
                 }
+                if(!admitLocalHourlySubmission(out,localHourChannel))return;
                 ClaudeDirectAdapter.Result answer=ClaudeDirectAdapter.invoke(
                     request.body,cleanHeader(request.headers.get("authorization")),
                     activeRisk);
@@ -582,6 +588,7 @@ public final class SidecarProxyServer {
                                     "sent; retry with a fresh text-only context.")));
                         return;
                     }
+                    if(!admitLocalHourlySubmission(out,localHourChannel))return;
                     AttachmentApiBridge.Result result=
                         AttachmentApiBridge.execute(prepared);
                     if(result.http==200 && prepared.clientRequestedStream) {
@@ -668,6 +675,7 @@ public final class SidecarProxyServer {
                     return;
                 }
             }
+            if(riskAdmitted && !admitLocalHourlySubmission(out,localHourChannel))return;
             proxyToFrozenCore(request, out, titleRequest, activeRisk);
         } catch (Throwable e) {
             ProxyTrace trace=CURRENT_TRACE.get();
@@ -699,6 +707,33 @@ public final class SidecarProxyServer {
         }
     }
 
+    /**
+     * No platform claims: local per-hour count is reserved immediately before
+     * outbound submission, after authentication/model/owner/media validation.
+     * Inexact Token totals are never fabricated for webpage-backed adapters.
+     */
+    private boolean admitLocalHourlySubmission(
+            BufferedOutputStream out,String channel)
+            throws IOException,org.json.JSONException {
+        try{
+            LocalHourlyApiQuota.Decision decision=LocalHourlyApiQuota.admit(
+                GatewayApp.applicationContext(),channel,System.currentTimeMillis());
+            if(decision.allowed)return true;
+            writeJson(out,429,new JSONObject().put("error",new JSONObject()
+                .put("type","omnigate_local_hour_budget")
+                .put("code",decision.code)
+                .put("message","User-configured local rolling-hour request cap; "+
+                    "does not reset an official provider hold")
+                .put("retry_after_seconds",decision.retrySeconds)));
+            return false;
+        }catch(RuntimeException unavailable){
+            writeJson(out,503,new JSONObject().put("error",new JSONObject()
+                .put("type","omnigate_local_hour_budget")
+                .put("code","local_hour_budget_unavailable")
+                .put("message","Local budget storage unavailable; request not submitted")));
+            return false;
+        }
+    }
     private void proxyToFrozenCore(Request request, BufferedOutputStream clientOut,
             boolean titleRequest,UpstreamRiskCircuit activeRisk)
             throws IOException, org.json.JSONException {

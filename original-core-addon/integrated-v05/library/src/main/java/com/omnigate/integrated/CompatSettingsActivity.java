@@ -196,6 +196,65 @@ public final class CompatSettingsActivity extends Activity {
         });
     }
 
+    /** Defaults remain disabled; this is a personal guard, NOT a platform cap. */
+    private void showApiHourlyPicker(){
+        final String[] providers={"deepseek","glm","chatgpt","grok","claude"};
+        final String[] names={"DeepSeek 网页适配","GLM 网页适配","ChatGPT 网页适配",
+            "Grok 网页适配","Claude 官方 API"};
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("本地 API · 滚动每小时请求预算")
+            .setItems(names,(dialog,which)->showApiHourlyEditor(providers[which],names[which]))
+            .setNegativeButton("取消",null).show();
+    }
+    private void showApiHourlyEditor(String provider,String display){
+        LinearLayout content=vertical();
+        content.setPadding(dp(18),dp(8),dp(18),0);
+        TextView guide=text("只限制此应用经 8787 实际提交的请求，"+
+            "不代表该平台每小时安全额度。默认关闭(0)，与官方 Token/RPM/TPM 限流独立。"+
+            "设置后开始累计滚动60分钟请求，失败尝试可能占用本地次数。",12,0xFF53627F,false);
+        margin(content,guide,8);
+        EditText official=new EditText(this);
+        official.setInputType(InputType.TYPE_CLASS_NUMBER);
+        official.setSingleLine(true);
+        official.setHint("官方明确公布的每小时请求额度（可空）");
+        margin(content,official,6);
+        EditText custom=new EditText(this);
+        custom.setInputType(InputType.TYPE_CLASS_NUMBER);
+        custom.setSingleLine(true);
+        custom.setHint("本地小时请求上限 0–500（0=关闭）");
+        int prior=LocalHourlyApiQuota.limit(this,provider);
+        custom.setText(Integer.toString(prior));
+        margin(content,custom,7);
+        TextView used=text("本地记录："+LocalHourlyApiQuota.used(this,provider,
+            System.currentTimeMillis())+" 次/最近60分钟",12,0xFF56627D,true);
+        margin(content,used,4);
+        new android.app.AlertDialog.Builder(this)
+            .setTitle(display+" · 个人请求预算")
+            .setView(content)
+            .setNegativeButton("取消",null)
+            .setNeutralButton("应用80%建议",(d,w)->{
+                try{
+                    int ref=Integer.parseInt(official.getText().toString().trim());
+                    if(ref<2||ref>100000)throw new IllegalArgumentException("reference");
+                    int suggested=(int)Math.min(LocalHourlyApiQuota.MAX_LIMIT,ref*80L/100L);
+                    LocalHourlyApiQuota.setLimit(this,provider,suggested);
+                    toast(display+" 本地请求预算："+suggested+" 次/小时");
+                }catch(RuntimeException invalid){
+                    toast("需要你确认并输入官方每小时请求额度；不能从每日或 RPM 猜测");
+                }
+            })
+            .setPositiveButton("保存自定义",(d,w)->{
+                try{
+                    int value=Integer.parseInt(custom.getText().toString().trim());
+                    LocalHourlyApiQuota.setLimit(this,provider,value);
+                    toast(display+(value==0?" 本地小时上限已关闭":
+                        " 本地小时上限："+value+" 次"));
+                }catch(RuntimeException invalid){
+                    toast("无效额度：填写 0–500 次/滚动60分钟");
+                }
+            }).show();
+    }
+
     private void toast(String msg) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
@@ -224,7 +283,7 @@ public final class CompatSettingsActivity extends Activity {
         hero.setPadding(dp(19), dp(17), dp(19), dp(18));
         margin(page, hero, 14);
         margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
-        margin(hero, text("API 控制台   /   v0.7.0", 13, 0xFFE5E7FF, false), 7);
+        margin(hero, text("API · 账号 · 额度控制台", 13, 0xFFE5E7FF, false), 7);
         margin(hero, text("自动恢复本地 8787 · Relay 按已有授权重连 · 原版模型不自动重启", 12, 0xFFD6E9FF, false), 0);
 
         // Visible immediately when entering Settings, without scrolling
@@ -233,6 +292,11 @@ public final class CompatSettingsActivity extends Activity {
         accountEntry.setOnClickListener(v->IsolatedGeckoBrowser.showPicker(this));
         margin(page,text("DeepSeek / GLM / ChatGPT / Grok｜登录独立存储；"+
             "不会切换原版 8787 模型执行账号",12,0xFF637086,false),8);
+        Button localHourEntry=button(page,"API 本地每小时请求上限（分别设置）",false);
+        localHourEntry.setOnClickListener(v->showApiHourlyPicker());
+        margin(page,text("官方 API RPM/TPM 响应头达到 80% 时按官方重置时间暂停；"+
+            "这里另设本地滚动60分钟请求次数。网页 Token 无可信统计，不能替代官方额度。"+
+            "关闭本地上限不会清除官方熔断。",12,0xFF637086,false),8);
 
         LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
         localBadge = statusBadge(connection, "○ 8787 检查中");
