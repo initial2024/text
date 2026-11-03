@@ -75,6 +75,9 @@ public final class CloudflareRelayClient {
         this.listener = listener;
         this.client = new OkHttpClient.Builder()
                 .connectTimeout(15, TimeUnit.SECONDS)
+                // Prevent OkHttp from silently making transport retries
+                // outside our explicit, bounded WebSocket reconnect policy.
+                .retryOnConnectionFailure(false)
                 .readTimeout(0, TimeUnit.MILLISECONDS)
                 .writeTimeout(60, TimeUnit.SECONDS)
                 .pingInterval(20, TimeUnit.SECONDS)
@@ -362,9 +365,13 @@ public final class CloudflareRelayClient {
                     || "PATCH".equals(method))) {
                 conn.setDoOutput(true);
                 byte[] bytes = Base64.decode(body, Base64.DEFAULT);
-                conn.getOutputStream().write(bytes);
-                conn.getOutputStream().flush();
-                conn.getOutputStream().close();
+                // Stream one body on the already admitted local request.
+                // Do not let an implicit buffered POST replay the model turn.
+                conn.setFixedLengthStreamingMode(bytes.length);
+                try(java.io.OutputStream out=conn.getOutputStream()){
+                    out.write(bytes);
+                    out.flush();
+                }
             }
 
             int code = conn.getResponseCode();
