@@ -37,7 +37,7 @@ final class MainAccountTargetStore {
         return new Target(provider,slot,context);
     }
     static synchronized Target request(Context c,String provider,int slot){
-        if(!AccountBrowserSlots.supported(provider))
+        if(!AccountBrowserSlots.nativeExecutorSupported(provider))
             throw new IllegalArgumentException("provider");
         String context=AccountBrowserStore.contextId(c,provider,slot);
         if(!pref(c).edit().putString("provider",provider)
