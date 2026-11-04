@@ -68,7 +68,7 @@ final class IsolatedGeckoBrowser {
         g.setCornerRadius(dp(c,radius));
         return g;
     }
-    private static void closeActiveBrowser(){
+    static void closeActiveBrowser(){
         IsolatedGeckoBrowser prior=activeBrowser;
         activeBrowser=null;
         if(prior!=null){
@@ -123,6 +123,18 @@ final class IsolatedGeckoBrowser {
                     LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(host,48));
                     lp.bottomMargin=dp(host,7);options.addView(entry,lp);
                     entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});
+                    if("claude".equals(provider)){
+                        Button floatOpen=new Button(host);
+                        floatOpen.setAllCaps(false);
+                        floatOpen.setText("↗ 账号 "+(index+1)+" · Claude 悬浮窗");
+                        floatOpen.setTextSize(12);floatOpen.setTextColor(ink);
+                        floatOpen.setBackground(surface(0xFF253858,10,host));
+                        LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(host,38));
+                        op.bottomMargin=dp(host,6);options.addView(floatOpen,op);
+                        floatOpen.setOnClickListener(v->{
+                            picker.dismiss();ClaudeFloatingOverlay.show(host,index);
+                        });
+                    }
                 }
                 Button guest=new Button(host);
                 guest.setAllCaps(false);
@@ -172,6 +184,7 @@ final class IsolatedGeckoBrowser {
         openOwnedBrowser(host,provider,-1);
     }
     private static void openOwnedBrowser(Activity host,String provider,int slot){
+        ClaudeFloatingOverlay.close();
         closeActiveBrowser();
         IsolatedGeckoBrowser next=new IsolatedGeckoBrowser(host,provider,slot);
         activeBrowser=next;
@@ -365,6 +378,13 @@ final class IsolatedGeckoBrowser {
         footer.addView(fullscreen,new LinearLayout.LayoutParams(0,-2,1.8f));
         footer.addView(close,new LinearLayout.LayoutParams(0,-2,1f));
         root.addView(footer);
+        if("claude".equals(provider) && !guestWindow){
+            Button floatOpen=button("↗ 当前 Claude 账号使用悬浮窗");
+            floatOpen.setOnClickListener(v->{
+                if(selected>=0)ClaudeFloatingOverlay.show(host,selected);
+            });
+            root.addView(floatOpen,new LinearLayout.LayoutParams(-1,dp(host,42)));
+        }
         root.setFitsSystemWindows(false);
         root.setOnApplyWindowInsetsListener((view,insets)->{
             applyBrowserInsets(insets);
@@ -521,7 +541,9 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,2,1,"后退");
         menu.getMenu().add(0,3,2,"刷新");
         menu.getMenu().add(0,4,3,"用系统浏览器打开（独立登录）");
-        menu.getMenu().add(0,5,4,"退出全屏");
+        if("claude".equals(provider)&&!guestWindow)
+            menu.getMenu().add(0,6,4,"Claude · 当前账号悬浮窗");
+        menu.getMenu().add(0,5,5,"退出全屏");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showAddressDialog();return true;
@@ -529,6 +551,10 @@ final class IsolatedGeckoBrowser {
                 case 3:callSession("reload");return true;
                 case 4:confirmExternalBrowser();return true;
                 case 5:setFullscreen(false);return true;
+                case 6:
+                    if(!guestWindow&&"claude".equals(provider)&&selected>=0)
+                        ClaudeFloatingOverlay.show(host,selected);
+                    return true;
                 default:return false;
             }
         });
