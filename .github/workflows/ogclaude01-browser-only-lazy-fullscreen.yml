@@ -57,6 +57,22 @@ jobs:
           assert 'fullscreenAddress' not in browser
           assert 'setFullscreen(false);return true' in browser
           assert 'if(!movingEdgeControl)v.performClick()' in browser
+          # P191-inspired single-owner auxiliary browser + one-shot Gecko private context.
+          assert 'private static IsolatedGeckoBrowser activeBrowser;' in browser
+          assert 'private static void closeActiveBrowser()' in browser
+          assert 'if(prior.dialog.isShowing())prior.dialog.dismiss()' in browser
+          assert 'if(activeBrowser==this)activeBrowser=null' in browser
+          assert 'guest.setOnClickListener(v->{picker.dismiss();showPrivateGuest(host,provider);});' in browser
+          assert 'String id=guestWindow?AccountBrowserSlots.newContextId():' in browser
+          assert 'builderClass.getMethod("usePrivateMode",boolean.class).invoke(builder,true)' in browser
+          assert 'builderClass.getMethod("useTrackingProtection",boolean.class)' in browser
+          assert '.getMethod("clearDataForSessionContext",String.class)' in browser
+          assert 'if(!guestWindow)AccountBrowserStore.select(host,provider,index);' in browser
+          assert 'if(guestWindow)return;' in browser
+          assert 'if(guestWindow!=(index==-1))' in browser
+          assert 'if(guestId!=null && closed)' in browser
+          assert 'clearData(long.class)' not in browser
+          assert 'userAgentOverride' not in browser.split('private void open(int index)',1)[1].split('private void callSession(',1)[0]
           assert 'View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY' in browser
           assert 'Dialog(host,android.R.style.Theme_Material_NoActionBar)' in browser
           assert 'WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE' in browser
