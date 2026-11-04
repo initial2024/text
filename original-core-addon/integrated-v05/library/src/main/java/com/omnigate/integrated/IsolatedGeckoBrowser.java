@@ -14,6 +14,7 @@ import android.view.WindowManager;
 import android.graphics.Insets;
 import android.view.DisplayCutout;
 import android.widget.Button;
+import android.widget.PopupMenu;
 import android.widget.EditText;
 import android.text.InputType;
 import android.widget.FrameLayout;
@@ -36,10 +37,13 @@ final class IsolatedGeckoBrowser {
     private final FrameLayout display;
     private final LinearLayout root;
     private final Button fullscreenExit;
-    private final Button fullscreenAddress;
     private final EditText addressInput;
     private String currentUrl;
     private boolean fullscreenMode;
+    private float fullscreenEdgeRatio=0.42f;
+    private float dragStartRatio,dragStartY;
+    private boolean movingEdgeControl;
+    private int lastCutoutTop,lastCutoutRight;
     private int originalCutoutMode=-1;
     private final java.util.IdentityHashMap<View,Integer> originalChromeVisibility=
         new java.util.IdentityHashMap<>();
@@ -245,33 +249,55 @@ final class IsolatedGeckoBrowser {
             root.addView(mainTarget,targetParams);
         display=new FrameLayout(host);
         root.addView(display,new LinearLayout.LayoutParams(-1,0,1));
-        fullscreenExit=button("⤢");
-        fullscreenExit.setContentDescription("退出全屏");
-        fullscreenExit.setTextSize(18);
+        // One movable, low-obstruction edge handle. No buttons over the
+        // website's top navigation; Back also exits fullscreen.
+        fullscreenExit=button("⋮");
+        fullscreenExit.setContentDescription("全屏工具菜单，可上下拖动");
+        fullscreenExit.setTextSize(17);
         fullscreenExit.setPadding(0,0,0,0);
         fullscreenExit.setMinWidth(0);fullscreenExit.setMinimumWidth(0);
         fullscreenExit.setMinHeight(0);fullscreenExit.setMinimumHeight(0);
-        fullscreenExit.setBackground(surface(0xCC14213F,18,host));
+        fullscreenExit.setBackground(surface(0x9914213F,12,host));
+        fullscreenExit.setAlpha(0.64f);
         fullscreenExit.setVisibility(View.GONE);
-        FrameLayout.LayoutParams exitParams=new FrameLayout.LayoutParams(
-            dp(host,36),dp(host,36),
+        FrameLayout.LayoutParams edgeParams=new FrameLayout.LayoutParams(
+            dp(host,38),dp(host,48),
             android.view.Gravity.TOP|android.view.Gravity.RIGHT);
-        exitParams.rightMargin=dp(host,8);exitParams.topMargin=dp(host,8);
-        display.addView(fullscreenExit,exitParams);
-        fullscreenExit.setOnClickListener(v->setFullscreen(false));
-        fullscreenAddress=button("网址");
-        fullscreenAddress.setContentDescription("打开其他网址");
-        fullscreenAddress.setTextSize(11);
-        fullscreenAddress.setPadding(0,0,0,0);
-        fullscreenAddress.setMinHeight(0);fullscreenAddress.setMinimumHeight(0);
-        fullscreenAddress.setBackground(surface(0xCC14213F,18,host));
-        fullscreenAddress.setVisibility(View.GONE);
-        FrameLayout.LayoutParams addressParams=new FrameLayout.LayoutParams(
-            dp(host,48),dp(host,36),
-            android.view.Gravity.TOP|android.view.Gravity.RIGHT);
-        addressParams.rightMargin=dp(host,50);addressParams.topMargin=dp(host,8);
-        display.addView(fullscreenAddress,addressParams);
-        fullscreenAddress.setOnClickListener(v->showAddressDialog());
+        display.addView(fullscreenExit,edgeParams);
+        fullscreenExit.setOnClickListener(v->showFullscreenActions());
+        fullscreenExit.setOnTouchListener((v,event)->{
+            switch(event.getActionMasked()){
+                case android.view.MotionEvent.ACTION_DOWN:
+                    dragStartY=event.getRawY();
+                    dragStartRatio=fullscreenEdgeRatio;
+                    movingEdgeControl=false;
+                    fullscreenExit.setAlpha(1f);
+                    return true;
+                case android.view.MotionEvent.ACTION_MOVE:
+                    float delta=event.getRawY()-dragStartY;
+                    if(Math.abs(delta)>dp(host,7))movingEdgeControl=true;
+                    if(movingEdgeControl){
+                        int height=Math.max(dp(host,100),display.getHeight());
+                        fullscreenEdgeRatio=Math.max(0.09f,
+                            Math.min(0.86f,dragStartRatio+delta/height));
+                        positionFullscreenControls(lastCutoutTop,lastCutoutRight);
+                    }
+                    return true;
+                case android.view.MotionEvent.ACTION_UP:
+                    fullscreenExit.setAlpha(0.64f);
+                    if(!movingEdgeControl)v.performClick();
+                    return true;
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    fullscreenExit.setAlpha(0.64f);
+                    return true;
+                default:return false;
+            }
+        });
+        display.addOnLayoutChangeListener((v,left,top,right,bottom,
+                oldLeft,oldTop,oldRight,oldBottom)->{
+            if(fullscreenMode && (bottom-top)!=(oldBottom-oldTop))
+                positionFullscreenControls(lastCutoutTop,lastCutoutRight);
+        });
         LinearLayout footer=new LinearLayout(host);
         footer.setOrientation(LinearLayout.HORIZONTAL);
         Button add=button("新账号槽位");
@@ -343,7 +369,6 @@ final class IsolatedGeckoBrowser {
             originalChromeVisibility.clear();
         }
         fullscreenExit.setVisibility(enabled?View.VISIBLE:View.GONE);
-        fullscreenAddress.setVisibility(enabled?View.VISIBLE:View.GONE);
         applyFullscreenWindow(enabled);
     }
     private void applyFullscreenWindow(boolean enabled){
@@ -428,20 +453,65 @@ final class IsolatedGeckoBrowser {
         positionFullscreenControls(cutTop,cutRight);
     }
     private void positionFullscreenControls(int cutTop,int cutRight){
-        int top=dp(host,8)+cutTop;
-        int right=dp(host,8)+cutRight;
-        FrameLayout.LayoutParams exit=(FrameLayout.LayoutParams)
+        lastCutoutTop=cutTop;lastCutoutRight=cutRight;
+        int height=Math.max(dp(host,120),display.getHeight());
+        int upper=dp(host,8)+cutTop;
+        int lower=Math.max(upper,height-dp(host,56));
+        int top=Math.max(upper,Math.min(lower,Math.round(height*fullscreenEdgeRatio)));
+        int right=dp(host,2)+cutRight;
+        FrameLayout.LayoutParams edge=(FrameLayout.LayoutParams)
             fullscreenExit.getLayoutParams();
-        if(exit.topMargin!=top || exit.rightMargin!=right){
-            exit.topMargin=top;exit.rightMargin=right;
-            fullscreenExit.setLayoutParams(exit);
+        if(edge.topMargin!=top || edge.rightMargin!=right){
+            edge.topMargin=top;edge.rightMargin=right;
+            fullscreenExit.setLayoutParams(edge);
         }
-        FrameLayout.LayoutParams url=(FrameLayout.LayoutParams)
-            fullscreenAddress.getLayoutParams();
-        if(url.topMargin!=top || url.rightMargin!=right+dp(host,42)){
-            url.topMargin=top;url.rightMargin=right+dp(host,42);
-            fullscreenAddress.setLayoutParams(url);
-        }
+    }
+
+    private void showFullscreenActions(){
+        if(!fullscreenMode)return;
+        PopupMenu menu=new PopupMenu(host,fullscreenExit);
+        menu.setGravity(android.view.Gravity.END);
+        menu.getMenu().add(0,1,0,"输入网址 / 验证链接");
+        menu.getMenu().add(0,2,1,"后退");
+        menu.getMenu().add(0,3,2,"刷新");
+        menu.getMenu().add(0,4,3,"用系统浏览器打开（独立登录）");
+        menu.getMenu().add(0,5,4,"退出全屏");
+        menu.setOnMenuItemClickListener(item->{
+            switch(item.getItemId()){
+                case 1:showAddressDialog();return true;
+                case 2:callSession("goBack");return true;
+                case 3:callSession("reload");return true;
+                case 4:confirmExternalBrowser();return true;
+                case 5:setFullscreen(false);return true;
+                default:return false;
+            }
+        });
+        menu.setOnDismissListener(popup->{
+            Window w=dialog.getWindow();
+            if(fullscreenMode && w!=null)w.getDecorView().post(()->{
+                if(fullscreenMode)applyFullscreenWindow(true);
+            });
+        });
+        menu.show();
+    }
+
+    private void confirmExternalBrowser(){
+        String link=currentUrl==null?AccountBrowserSlots.home(provider):currentUrl;
+        if(!(link.startsWith("https://") || link.startsWith("http://")))return;
+        new AlertDialog.Builder(host).setTitle("切换至系统浏览器")
+            .setMessage("将手动打开当前网页。系统浏览器与 OmniGate 隔离账号不共享 Cookie，可能需要重新登录。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("打开",(d,which)->{
+                try{
+                    android.content.Intent intent=new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,android.net.Uri.parse(link));
+                    intent.addCategory(android.content.Intent.CATEGORY_BROWSABLE);
+                    host.startActivity(intent);
+                }catch(RuntimeException unavailable){
+                    new AlertDialog.Builder(host).setMessage("未找到可打开此网址的系统浏览器。")
+                        .setPositiveButton("确定",null).show();
+                }
+            }).show();
     }
 
     /** Full-screen controls never create a second session or call an API. */
