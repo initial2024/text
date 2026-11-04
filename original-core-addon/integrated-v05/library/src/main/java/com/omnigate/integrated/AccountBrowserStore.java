@@ -32,6 +32,24 @@ final class AccountBrowserStore {
             throw new IllegalStateException("context_persistence_failed");
         return created;
     }
+    /**
+     * Retire only the selected slot after the matching Gecko context has
+     * been cleared. Keep its stable slot index and user-provided label.
+     */
+    static synchronized void rotateContext(Context c,String provider,
+            int slot,String expectedOldId){
+        String key=provider+"."+slot;
+        String actual=contextId(c,provider,slot);
+        if(!actual.equals(expectedOldId))
+            throw new IllegalStateException("concurrent_context_change");
+        String replacement=AccountBrowserSlots.newContextId();
+        String usage=key+".user_budget_";
+        if(!prefs(c).edit().putString(key,replacement)
+                .remove(usage+"utc_day").remove(usage+"completed")
+                .remove(key+".manual_hour_events").commit())
+            throw new IllegalStateException("context_rotation_failed");
+    }
+
     static synchronized int create(Context c,String provider){
         int n=count(c,provider);
         if(n>=AccountBrowserSlots.MAX_SLOTS)
