@@ -477,30 +477,36 @@ final class IsolatedGeckoBrowser {
             return;
         }
         if(!SidecarProxyServer.voluntaryBrowserSwitchPermitted(provider)){
-            state.setText("平台熔断中，不允许更改执行目标来绕过限制");
+            state.setText("平台熔断中，不允许通过更改账号绕过限制");
             return;
         }
         final int requestedSlot=selected;
         new AlertDialog.Builder(host)
-            .setTitle("把此账号设为主执行目标？")
-            .setMessage("将登记 "+provider+" · 账号 "+(requestedSlot+1)+
-                " 作为未来 8787 原生 WebDriver 的目标隔离上下文。"+
-                "当前辅助 GeckoSession 不能直接替换原版驱动；在原版实际"+
-                "WebDriver 未绑定并核验之前，模型发送会返回 409，不会错发到旧账号。"+
-                "本操作不复制 Cookie、不重启或切断正在生成的任务。")
+            .setTitle("切换原版模型至此账号？")
+            .setMessage("将先检查当前原版模型与悬浮服务是否空闲，然后按原来的" +
+                "受控交接实现重建目标会话。交接失败不会仅登记目标并造成 409；" +
+                "正在生成、上传或平台风控中不会切换，也不会自动重发。")
             .setNegativeButton("取消",null)
-            .setPositiveButton("登记目标并保护发送",(d,w)->{
+            .setPositiveButton("确认空闲并切换主模型",(d,w)->{
+                // The user-owned signed v1.1.5 binary contains the exact
+                // idle-checked NativeModelSwitch$QuickClick handoff. Reuse
+                // it rather than accidentally reverting the native owner
+                // transition while updating the auxiliary login picker.
+                // No private binary or signing material is published here.
                 try{
-                    MainAccountTargetStore.request(host,provider,requestedSlot);
-                    state.setText("主执行目标已登记；正在核验实际原版 WebDriver…");
-                    new Thread(()->{
-                        String checked=MainAccountRequestGuard.state(host);
-                        host.runOnUiThread(()->{
-                            if(dialog.isShowing()&&!host.isDestroyed())state.setText(checked);
-                        });
-                    },"omnigate-main-target-inspect").start();
-                }catch(RuntimeException error){
-                    state.setText("执行目标登记失败："+error.getClass().getSimpleName());
+                    Class<?> cls=Class.forName(
+                        "com.omnigate.integrated.NativeModelSwitch$QuickClick");
+                    java.lang.reflect.Constructor<?> constructor=
+                        cls.getDeclaredConstructor(Activity.class,Dialog.class,
+                            String.class,int.class);
+                    constructor.setAccessible(true);
+                    Object action=constructor.newInstance(host,dialog,provider,requestedSlot);
+                    if(!(action instanceof android.content.DialogInterface.OnClickListener))
+                        throw new IllegalStateException("native_handoff_contract_mismatch");
+                    state.setText("正在核验当前任务空闲并交接主执行模型…");
+                    ((android.content.DialogInterface.OnClickListener)action).onClick(d,w);
+                }catch(Throwable unavailable){
+                    state.setText("主执行切换接线不可用：已保留原账号；没有登记新目标或发送请求");
                 }
             }).show();
     }
