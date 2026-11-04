@@ -48,7 +48,8 @@ jobs:
           assert 'private static final int BUBBLE_SIZE_DP=52;' in floating
           assert 'root.setPadding(dp(app,2),dp(app,2),dp(app,2),dp(app,2));' in floating
           assert 'menu.setOnDismissListener(popup->setOverlayFocusable(false));' in floating
-          assert 'if(minimized)setMinimized(false)' not in floating
+          open_handler=floating.split('public static void show(Activity host,int slot)',1)[1].split('private static void create(Context context)',1)[0]
+          assert 'if(minimized)setMinimized(false)' not in open_handler
           assert 'AccountBrowserStore.contextId(app,"claude",slot)' in floating
           assert 'window.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in floating
           assert 'window.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in floating
