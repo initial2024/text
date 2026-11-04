@@ -153,9 +153,9 @@ public final class ClaudeFloatingOverlay {
         account=button(app,"账号 ▾");
         title.addView(account,new LinearLayout.LayoutParams(dp(app,76),dp(app,42)));
         account.setOnClickListener(v->showAccounts());
-        fullscreenControl=button(app,"⛶");
+        fullscreenControl=button(app,"全屏");
         fullscreenControl.setContentDescription("返回全屏，保留当前 Claude 网页");
-        title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,42),dp(app,42)));
+        title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,56),dp(app,42)));
         fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
         fold=button(app,"—");
         title.addView(fold,new LinearLayout.LayoutParams(dp(app,42),dp(app,42)));
@@ -252,7 +252,13 @@ public final class ClaudeFloatingOverlay {
             menu.getMenu().add(0,i+1,i,"Claude 账号 "+(i+1)+(i==selected?" ✓":""));
         if(n<AccountBrowserSlots.MAX_SLOTS)
             menu.getMenu().add(0,100,100,"新增独立 Claude 账号");
+        menu.getMenu().add(0,101,101,
+            fullscreenWindow?"还原窗口（不刷新网页）":"全屏显示（不刷新网页）");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==101){
+                setFullscreenWindow(!fullscreenWindow);
+                return true;
+            }
             try{
                 int chosen=item.getItemId()==100
                     ?AccountBrowserStore.create(app,"claude")
@@ -380,7 +386,7 @@ public final class ClaudeFloatingOverlay {
             window.y=Math.max(0,Math.min(maxY,window.y));
         }
         if(fullscreenControl!=null){
-            fullscreenControl.setText(fullscreenWindow?"⤢":"⛶");
+            fullscreenControl.setText(fullscreenWindow?"还原":"全屏");
             fullscreenControl.setContentDescription(fullscreenWindow
                 ?"还原 Claude 悬浮窗，保留网页"
                 :"返回全屏，保留当前 Claude 网页");
