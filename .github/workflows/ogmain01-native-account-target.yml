@@ -94,8 +94,12 @@ jobs:
           assert 'diagnoseCurrentPage()' not in handoff
           assert 'handoffPending.set(false)' in handoff
           print('OGMAIN10_HANDOFF_USES_VERIFIED_API_OWNER=PASS_STATIC')
-          assert 'MainAccountTargetStore.request(host,provider,requestedSlot)' in ui
-          assert '不会错发到旧账号' in ui
+          assert 'NativeModelSwitch$QuickClick' in ui
+          assert 'constructor.newInstance(host,dialog,provider,requestedSlot)' in ui
+          assert 'MainAccountTargetStore.request(host,provider,requestedSlot)' not in ui
+          assert 'if(!AccountBrowserSlots.nativeExecutorSupported(provider))' in ui
+          assert '没有登记新目标或发送请求' in ui
+          print('OGCLAUDE_NATIVE_MAIN_OWNER_SWITCH_COMPAT_PRESERVED=PASS_STATIC')
           assert 'MainAccountTargetStore.cancel(this)' in (p/'OmniGateHomeActivity.java').read_text()
           assert 'contextForNewNativeSession(' in store
           print('OGMAIN01_MAIN_ACCOUNT_FENCE_WIRED=PASS_STATIC')
