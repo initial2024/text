@@ -64,6 +64,15 @@ jobs:
           assert 'View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN' in browser
           assert 'display.addView((View)visual,0' in browser
           assert 'fullscreenExit.setContentDescription("退出全屏")' in browser
+          # Gecko-native identity without UA/WebGL/sensor/client-hint spoofing.
+          assert 'builderClass.getMethod("userAgentMode",int.class).invoke(builder,0)' in browser
+          assert 'builderClass.getMethod("viewportMode",int.class).invoke(builder,0)' in browser
+          assert 'getDefaultUserAgent' in browser
+          assert 'getUserAgentOverride' in browser
+          assert 'setNeutralButton("浏览器检查"' in browser
+          assert 'builderClass.getMethod("userAgentOverride"' not in browser
+          assert 'evaluateJavascript' not in browser
+          assert 'setJavaScriptEnabled' not in browser
           assert 'display.addView((View)visual,0' in browser
           assert 'if(AccountBrowserSlots.nativeExecutorSupported(provider))' in browser
           assert 'if(!AccountBrowserSlots.nativeExecutorSupported(provider))' in browser
