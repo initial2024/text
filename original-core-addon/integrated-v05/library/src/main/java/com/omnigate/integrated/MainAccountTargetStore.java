@@ -29,7 +29,7 @@ final class MainAccountTargetStore {
         String provider=p.getString("provider","");
         int slot=p.getInt("slot",-1);
         String context=p.getString("context","");
-        if(!AccountBrowserSlots.supported(provider)||
+        if(!AccountBrowserSlots.nativeExecutorSupported(provider)||
             slot<0||slot>=AccountBrowserStore.count(c,provider)||
             !AccountBrowserSlots.validContextId(context)||
             !context.equals(AccountBrowserStore.contextId(c,provider,slot)))
