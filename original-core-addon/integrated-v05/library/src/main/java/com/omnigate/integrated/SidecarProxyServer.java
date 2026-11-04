@@ -133,6 +133,8 @@ public final class SidecarProxyServer {
     private static final ThreadLocal<ProxyTrace> CURRENT_TRACE=new ThreadLocal<>();
     private static final ThreadLocal<TrackedOutput> CURRENT_OUTPUT=new ThreadLocal<>();
     private static volatile ProxyTrace LAST_TRACE;
+    // Tracks the existing native single-flight owner; never stores prompts.
+    private static volatile ProxyTrace ACTIVE_NATIVE_TRACE;
 
     /** Debug metadata only: no prompts, file names, tokens or response text. */
     private static final class ProxyTrace {
@@ -331,6 +333,15 @@ public final class SidecarProxyServer {
                         .put("lastAttachmentClientShape", AttachmentApiBridge.lastAttachmentShape())
                         .put("lastAttachmentClientPhase", AttachmentApiBridge.lastAttachmentPhase())
                         .put("lastProxyRequest",lastProxyTrace())
+                        .put("nativeConcurrencyInFlight",NATIVE_CHAT_RISK.inFlight())
+                        .put("nativeConcurrencyOwnerRequestId",
+                            ACTIVE_NATIVE_TRACE==null?-1:ACTIVE_NATIVE_TRACE.id)
+                        .put("nativeConcurrencyOwnerStage",
+                            ACTIVE_NATIVE_TRACE==null?"none":ACTIVE_NATIVE_TRACE.stage)
+                        .put("nativeConcurrencyOwnerAgeMs",
+                            ACTIVE_NATIVE_TRACE==null?-1:
+                            Math.max(0,android.os.SystemClock.elapsedRealtime()-
+                                ACTIVE_NATIVE_TRACE.started))
                         .put("originalServerRunning", OriginalCoreBridge.nativeOwnerRunning())
                         .put("originalLifecycle", OriginalCoreBridge.nativeLifecycleState())
                         .put("observedRuntimeRoute",
@@ -405,6 +416,22 @@ public final class SidecarProxyServer {
                 return;
             }
 
+            // Background naming metadata must not occupy the only native
+            // model slot and starve the user's real chat (seen on DeepSeek).
+            // The classifier checks SYSTEM/DEVELOPER instructions only.
+            // No synthesized title and no automatic model resend.
+            if("POST".equals(request.method) &&
+                "/v1/chat/completions".equals(request.path) &&
+                TitleCompat.isBackgroundTitleRequest(request.body)){
+                traceAdmissionRejection("background_auto_title_skipped");
+                writeJson(out,422,new JSONObject().put("error",new JSONObject()
+                    .put("type","omnigate_background_title")
+                    .put("code","browser_background_title_disabled")
+                    .put("message","Automatic chat-title generation is not forwarded "+
+                        "to a webpage session; primary chat is unaffected.")));
+                return;
+            }
+
             // Only a real model-submission request consumes an upstream slot.
             // Health/probe and invalid local authentication do not touch the
             // platform risk counter. Claude and original browser are isolated.
@@ -421,9 +448,11 @@ public final class SidecarProxyServer {
                     // bypass a historical platform restriction.
                     UpstreamRiskCircuit.Decision legacy=NATIVE_CHAT_RISK.enter(riskNow);
                     if(!legacy.allowed){
+                        traceAdmissionRejection("native_"+legacy.code);
                         writeRiskDenied(out,legacy);return;
                     }
                     globalNativeAdmitted=true;
+                    ACTIVE_NATIVE_TRACE=CURRENT_TRACE.get();
                     // Parse only the documented model key, not the prompt
                     // contents. Unknown model or provider selection fail closed.
                     String requestedModel="";
@@ -448,6 +477,7 @@ public final class SidecarProxyServer {
                 }
                 UpstreamRiskCircuit.Decision admit=activeRisk.enter(riskNow);
                 if(!admit.allowed){
+                    traceAdmissionRejection("provider_"+admit.code);
                     status("上游请求已熔断 · "+admit.code+" · 未提交原模型");
                     writeRiskDenied(out,admit);
                     return;
@@ -701,7 +731,11 @@ public final class SidecarProxyServer {
             }catch(Throwable ignored){}
         } finally {
             if(riskAdmitted && activeRisk!=null)activeRisk.exit();
-            if(globalNativeAdmitted)NATIVE_CHAT_RISK.exit();
+            if(globalNativeAdmitted){
+                NATIVE_CHAT_RISK.exit();
+                if(ACTIVE_NATIVE_TRACE==CURRENT_TRACE.get())
+                    ACTIVE_NATIVE_TRACE=null;
+            }
             ProxyTrace trace=CURRENT_TRACE.get();
             if(trace!=null && "response_started".equals(trace.stage))
                 trace.stage="response_returned";
