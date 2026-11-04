@@ -28,11 +28,14 @@ jobs:
           test -n "$ZIPALIGN"
           cp "$APKSIGNER" output/apksigner
           cp "$ZIPALIGN" output/zipalign
+          AAPT2=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -type f -name aapt2 | sort -V | tail -1)
+          test -n "$AAPT2"
+          cp "$AAPT2" output/aapt2
           cp "$(dirname "$APKSIGNER")/lib/apksigner.jar" output/apksigner.jar
           LIBCXX=$(find "$(dirname "$ZIPALIGN")" -name 'libc++.so' -type f | head -1)
           test -n "$LIBCXX"
           cp "$LIBCXX" output/libc++.so
-          chmod +x output/apksigner output/zipalign
+          chmod +x output/apksigner output/zipalign output/aapt2
           java -jar output/baksmali-fat.jar --version
           java -jar output/smali-fat.jar --version
           ls -lh output/
