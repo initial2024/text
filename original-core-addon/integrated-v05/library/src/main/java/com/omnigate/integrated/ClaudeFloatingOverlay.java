@@ -32,7 +32,11 @@ public final class ClaudeFloatingOverlay {
     private static LinearLayout root,body;
     private static FrameLayout viewport;
     private static TextView caption;
-    private static Button account,fold,closeControl;
+    private static Button account,fold,closeControl,fullscreenControl;
+    // Full-window is a geometry change of the SAME GeckoView and GeckoSession.
+    // Never reload the URL or close the session for a size/mode transition.
+    private static boolean fullscreenWindow;
+    private static int compactX,compactY;
     private static boolean inputFocusHeld;
     private static final int BUBBLE_SIZE_DP=52;
     private static Object session,geckoView;
@@ -75,9 +79,9 @@ public final class ClaudeFloatingOverlay {
         IsolatedGeckoBrowser.closeActiveBrowser();
         try{
             if(!showing())create(host.getApplicationContext());
-            // Keep the small non-focusable bubble on top of other apps.
-            // Expanding the page must be an explicit user tap.
-            openAccount(slot);
+            // Reopening the same floating account must not reset the
+            // current URL, chat scroll, draft or login session.
+            if(selected!=slot || session==null)openAccount(slot);
         }catch(Throwable error){
             close();
             Toast.makeText(host,"Claude 悬浮窗不可用："+error.getClass().getSimpleName()+
@@ -136,6 +140,7 @@ public final class ClaudeFloatingOverlay {
                     drag[0]=event.getRawX();drag[1]=event.getRawY();
                     pos[0]=window.x;pos[1]=window.y;return true;
                 case MotionEvent.ACTION_MOVE:
+                    if(fullscreenWindow)return true;
                     int maxX=Math.max(0,app.getResources().getDisplayMetrics().widthPixels-window.width);
                     int maxY=Math.max(0,app.getResources().getDisplayMetrics().heightPixels-dp(app,80));
                     window.x=Math.max(0,Math.min(maxX,pos[0]+Math.round(event.getRawX()-drag[0])));
@@ -148,6 +153,10 @@ public final class ClaudeFloatingOverlay {
         account=button(app,"账号 ▾");
         title.addView(account,new LinearLayout.LayoutParams(dp(app,76),dp(app,42)));
         account.setOnClickListener(v->showAccounts());
+        fullscreenControl=button(app,"⛶");
+        fullscreenControl.setContentDescription("返回全屏，保留当前 Claude 网页");
+        title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,42),dp(app,42)));
+        fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
         fold=button(app,"—");
         title.addView(fold,new LinearLayout.LayoutParams(dp(app,42),dp(app,42)));
         fold.setContentDescription("收起或展开 Claude 悬浮窗");
@@ -321,6 +330,64 @@ public final class ClaudeFloatingOverlay {
         try{session.getClass().getMethod(op).invoke(session);}
         catch(Exception ignored){}
     }
+    /**
+     * Expand/restores the *same* WindowManager view tree. Never detaches
+     * GeckoView, creates another GeckoSession or calls loadUri().
+     * System bars are owned by Android and may remain visible for overlays.
+     */
+    private static void setFullscreenWindow(boolean enabled){
+        if(root==null||manager==null||window==null)return;
+        if(minimized)setMinimized(false);
+        if(fullscreenWindow==enabled)return;
+        if(enabled){
+            compactX=window.x;
+            compactY=window.y;
+        }
+        fullscreenWindow=enabled;
+        // Keep the overlay passive until explicit text input; otherwise
+        // unrelated applications can lose their keyboard focus.
+        setOverlayFocusable(false);
+        applyWindowGeometry();
+    }
+
+    private static void applyWindowGeometry(){
+        if(root==null||manager==null||window==null)return;
+        if(minimized){
+            window.width=dp(app,BUBBLE_SIZE_DP);
+            window.height=dp(app,BUBBLE_SIZE_DP);
+        }else if(fullscreenWindow){
+            window.width=WindowManager.LayoutParams.MATCH_PARENT;
+            window.height=WindowManager.LayoutParams.MATCH_PARENT;
+            window.x=0;
+            window.y=0;
+        }else{
+            window.width=Math.min(
+                Math.round(app.getResources().getDisplayMetrics().widthPixels*.78f),
+                dp(app,340));
+            window.height=Math.max(dp(app,285),
+                Math.round(app.getResources().getDisplayMetrics().heightPixels*.50f));
+            window.x=compactX;
+            window.y=compactY;
+        }
+        if(window.width>0){
+            int maxX=Math.max(0,
+                app.getResources().getDisplayMetrics().widthPixels-window.width);
+            window.x=Math.max(0,Math.min(maxX,window.x));
+        }
+        if(window.height>0){
+            int maxY=Math.max(0,
+                app.getResources().getDisplayMetrics().heightPixels-window.height);
+            window.y=Math.max(0,Math.min(maxY,window.y));
+        }
+        if(fullscreenControl!=null){
+            fullscreenControl.setText(fullscreenWindow?"⤢":"⛶");
+            fullscreenControl.setContentDescription(fullscreenWindow
+                ?"还原 Claude 悬浮窗，保留网页"
+                :"返回全屏，保留当前 Claude 网页");
+        }
+        manager.updateViewLayout(root,window);
+    }
+
     private static void setMinimized(boolean value){
         if(root==null||manager==null)return;
         minimized=value;
@@ -330,18 +397,16 @@ public final class ClaudeFloatingOverlay {
         body.setVisibility(value?View.GONE:View.VISIBLE);
         caption.setVisibility(value?View.GONE:View.VISIBLE);
         account.setVisibility(value?View.GONE:View.VISIBLE);
+        fullscreenControl.setVisibility(value?View.GONE:View.VISIBLE);
         closeControl.setVisibility(value?View.GONE:View.VISIBLE);
-        window.height=value?dp(app,BUBBLE_SIZE_DP):
-            Math.max(dp(app,285),Math.round(app.getResources().getDisplayMetrics().heightPixels*.50f));
-        window.width=value?dp(app,BUBBLE_SIZE_DP):
-            Math.min(Math.round(app.getResources().getDisplayMetrics().widthPixels*.78f),dp(app,340));
-        int maxX=Math.max(0,app.getResources().getDisplayMetrics().widthPixels-window.width);
-        int maxY=Math.max(0,app.getResources().getDisplayMetrics().heightPixels-window.height);
-        window.x=Math.max(0,Math.min(maxX,window.x));
-        window.y=Math.max(0,Math.min(maxY,window.y));
+        // Remember the last compact placement only when leaving compact.
+        if(value&&!fullscreenWindow && window.width>0){
+            compactX=window.x;
+            compactY=window.y;
+        }
         fold.setText(value?"C":"—");
         fold.setContentDescription(value?"展开 Claude 网页悬浮窗":"收起 Claude 网页悬浮窗");
-        manager.updateViewLayout(root,window);
+        applyWindowGeometry();
     }
     private static void releaseSession(){
         Object old=session,visual=geckoView;
@@ -364,7 +429,8 @@ public final class ClaudeFloatingOverlay {
             catch(RuntimeException ignored){}
         }
         root=null;body=null;viewport=null;caption=null;account=null;fold=null;
-        closeControl=null;window=null;manager=null;app=null;
-        selected=-1;minimized=false;inputFocusHeld=false;
+        closeControl=null;fullscreenControl=null;window=null;manager=null;app=null;
+        selected=-1;minimized=false;fullscreenWindow=false;inputFocusHeld=false;
+        compactX=0;compactY=0;
     }
 }
