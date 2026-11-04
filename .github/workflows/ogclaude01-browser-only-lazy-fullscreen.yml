@@ -1,0 +1,65 @@
+name: OGCLAUDE browser-only lazy login + fullscreen
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/MainAccountTargetStore.java'
+      - 'original-core-addon/integrated-v05/relay-tests/ClaudeBrowserOnlyTest.java'
+      - '.github/workflows/ogclaude01-browser-only-lazy-fullscreen.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Pure Java Claude browser-only model isolation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java" "$R/relay-tests/ClaudeBrowserOnlyTest.java"
+          java -cp "$OUT" com.omnigate.integrated.ClaudeBrowserOnlyTest
+      - name: Static manual-only and full-screen Gecko contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          browser=(p/'IsolatedGeckoBrowser.java').read_text()
+          slots=(p/'AccountBrowserSlots.java').read_text()
+          main=(p/'MainAccountTargetStore.java').read_text()
+          risk=(p/'ProviderRiskScopes.java').read_text()
+          assert browser.count('getMethod("loadUri",String.class)') == 1
+          picker=browser.split('static void showPicker(Activity host)',1)[1].split('static void show(Activity host,String provider)',1)[0]
+          assert 'loadUri' not in picker and 'existingRuntime' not in picker and 'new GeckoSession' not in picker
+          assert 'entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});' in picker
+          assert 'dialog.setOnDismissListener(v->{' in browser
+          assert 'releaseSession();' in browser
+          assert 'getMethod("close").invoke(prior)' in browser
+          assert 'private void setFullscreen(boolean enabled)' in browser
+          assert 'fullscreenExit.setOnClickListener(v->setFullscreen(false))' in browser
+          assert 'View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY' in browser
+          assert 'display.addView((View)visual,0' in browser
+          assert 'if(AccountBrowserSlots.nativeExecutorSupported(provider))' in browser
+          assert 'if(!AccountBrowserSlots.nativeExecutorSupported(provider))' in browser
+          assert 'if(AccountBrowserSlots.browserOnly(provider))' in browser
+          assert 'private void switchTo(int index)' in browser
+          switching=browser.split('private void switchTo(int index)',1)[1].split('private static Object existingRuntime()',1)[0]
+          assert 'open(index);' in switching and 'new AlertDialog' not in switching
+          assert main.count('AccountBrowserSlots.nativeExecutorSupported(provider)') >= 2
+          assert '"claude".equals(provider)' in slots
+          assert '"claude"' not in risk.split('static final String[] WEB=',1)[1].split(';',1)[0]
+          assert '"claude"' in risk.split('static final String[] ALL=',1)[1].split(';',1)[0]
+          print('OGCLAUDE_LAZY_ONLY_SELECTED_PROVIDER_LOADS_AND_FULLSCREEN=PASS')
+          PY
