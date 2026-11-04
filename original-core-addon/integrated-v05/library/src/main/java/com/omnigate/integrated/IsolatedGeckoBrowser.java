@@ -454,6 +454,7 @@ final class IsolatedGeckoBrowser {
         AlertDialog prompt=new AlertDialog.Builder(host).setTitle("在当前浏览器中打开网址")
             .setMessage("仅支持 HTTP/HTTPS。验证码需自行查看和填写。")
             .setView(entry).setNegativeButton("取消",null)
+            .setNeutralButton("浏览器检查",(d,w)->showBrowserEnvironment())
             .setPositiveButton("打开",(d,w)->navigateTo(entry.getText().toString())).create();
         prompt.setOnDismissListener(v->{
             Window w=dialog.getWindow();
@@ -463,6 +464,55 @@ final class IsolatedGeckoBrowser {
                 });
         });
         prompt.show();
+    }
+    /**
+     * Local-only compatibility audit: no JavaScript injection and no
+     * fabricated device, rendering or automation fingerprint.
+     */
+    private void showBrowserEnvironment(){
+        String defaultUa="不可读取";
+        try{
+            Class<?> gecko=Class.forName("org.mozilla.geckoview.GeckoSession");
+            Object value=gecko.getMethod("getDefaultUserAgent").invoke(null);
+            if(value instanceof String)defaultUa=(String)value;
+        }catch(Throwable ignored){
+            // Do not fabricate a fallback UA on older Gecko versions.
+        }
+        String overrideState="无法检查（会话未打开或引擎不支持查询）";
+        String modeState="无法检查";
+        if(session!=null){
+            try{
+                Object settings=session.getClass().getMethod("getSettings").invoke(session);
+                Object override=settings.getClass().getMethod("getUserAgentOverride").invoke(settings);
+                overrideState=override==null?"未覆盖（使用 Gecko 原生 UA）":"检测到会话级 UA 覆盖";
+                Object uaMode=settings.getClass().getMethod("getUserAgentMode").invoke(settings);
+                Object vpMode=settings.getClass().getMethod("getViewportMode").invoke(settings);
+                modeState="UA "+("0".equals(String.valueOf(uaMode))?"移动端":"非默认")+
+                    " · 视口 "+("0".equals(String.valueOf(vpMode))?"移动端":"非默认");
+            }catch(Throwable ignored){
+                // Unknown state is not evidence of a spoofed environment.
+            }
+        }
+        String message="Gecko 引擎默认 UA：\n"+defaultUa+
+            "\n\n本会话 UA 覆盖："+overrideState+
+            "\n会话模式："+modeState+
+            "\n本机系统：Android "+android.os.Build.VERSION.RELEASE+
+            "（SDK "+android.os.Build.VERSION.SDK_INT+"）"+
+            "\n本机语言："+java.util.Locale.getDefault().toLanguageTag()+
+            "\n本机时区："+java.util.TimeZone.getDefault().getID()+
+            "\n\n以上是本机或 Gecko 报告值，不代表网页必然能访问全部硬件信息。"+
+            "Client Hints 可以缺失；本工具不注入伪造的 WebGL、传感器、Canvas 或自动化标志。"+
+            "实际网页观察值需要在当前标签中测试。";
+        AlertDialog diagnostics=new AlertDialog.Builder(host)
+            .setTitle("浏览器兼容性检查（仅本地）")
+            .setMessage(message).setPositiveButton("关闭",null).create();
+        diagnostics.setOnDismissListener(v->{
+            Window w=dialog.getWindow();
+            if(fullscreenMode && w!=null)w.getDecorView().post(()->{
+                if(fullscreenMode)applyFullscreenWindow(true);
+            });
+        });
+        diagnostics.show();
     }
     private void navigateTo(String typed){
         if(session==null){state.setText("未打开账号浏览器，不进行后台导航");return;}
@@ -861,6 +911,9 @@ final class IsolatedGeckoBrowser {
             Object builder=builderClass.getConstructor().newInstance();
             // Never use the null/default shared-storage session context.
             builderClass.getMethod("contextId",String.class).invoke(builder,id);
+            // Match actual Gecko mobile browser behavior without any spoof.
+            builderClass.getMethod("userAgentMode",int.class).invoke(builder,0);
+            builderClass.getMethod("viewportMode",int.class).invoke(builder,0);
             Object settings=builderClass.getMethod("build").invoke(builder);
             Class<?> settingsClass=Class.forName(
                 "org.mozilla.geckoview.GeckoSessionSettings");
