@@ -290,7 +290,7 @@ public final class CompatSettingsActivity extends Activity {
         // through API/Relay controls or expanding hidden Advanced options.
         Button accountEntry=button(page,"账号切换 / 多账号备份（独立浏览器）",true);
         accountEntry.setOnClickListener(v->IsolatedGeckoBrowser.showPicker(this));
-        margin(page,text("DeepSeek / GLM / ChatGPT / Grok｜登录独立存储；"+
+        margin(page,text("DeepSeek / GLM / ChatGPT / Grok / Claude｜网页登录独立存储；"+
             "不会切换原版 8787 模型执行账号",12,0xFF637086,false),8);
         Button localHourEntry=button(page,"API 本地每小时请求上限（分别设置）",false);
         localHourEntry.setOnClickListener(v->showApiHourlyPicker());
@@ -464,28 +464,16 @@ public final class CompatSettingsActivity extends Activity {
             }
         });
         Button isolatedAccountSwitch=button(connection,
-            "独立账号槽位：DeepSeek / GLM / ChatGPT / Grok",false);
+            "独立账号槽位：DeepSeek / GLM / ChatGPT / Grok / Claude",false);
         isolatedAccountSwitch.setOnClickListener(v->
             IsolatedGeckoBrowser.showPicker(this));
 
-        // Claude is NOT in the frozen original AiProvider enum and has no
-        // native ApiServer/Gecko adapter. Never advertise it as a 8787 model.
-        Button claudeWeb=button(connection,"Claude 网页（独立打开，暂不支持 API 转发）",false);
-        claudeWeb.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
-            .setTitle("Claude · 网页入口")
-            .setMessage("将使用系统浏览器打开 https://claude.ai/。"+
-                "原版内核目前未实现 Claude 的 WebDriver、上传和回复采集适配，"+
-                "所以它暂不能作为 Minis 的 claude-web API 模型。"+
-                "不复用或读取你的 ChatGPT 登录信息。")
-            .setNegativeButton("取消",null)
-            .setPositiveButton("打开 Claude 官网",(d,w)->{
-                try{
-                    Intent web=new Intent(Intent.ACTION_VIEW,Uri.parse("https://claude.ai/"));
-                    startActivity(web);
-                }catch(RuntimeException ex){
-                    toast("浏览器打开失败："+ex.getClass().getSimpleName());
-                }
-            }).show());
+        // Claude browser accounts are manual-only Gecko contexts.
+        // A system browser would defeat the app's isolated multi-account UX;
+        // do not offer an 8787 Claude-Web model here.
+        Button claudeWeb=button(connection,
+            "Claude 网页登录 · 手动选择隔离账号（不支持 API）",false);
+        claudeWeb.setOnClickListener(v->IsolatedGeckoBrowser.show(this,"claude"));
 
         LinearLayout api = panel(page, "客户端连接", "Minis、DSH 等客户端填写以下信息");
         margin(api, text(LOCAL_URL, 14, 0xFF323B83, true), 10);
