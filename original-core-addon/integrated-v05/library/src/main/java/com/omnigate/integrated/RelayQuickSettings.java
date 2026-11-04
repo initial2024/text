@@ -85,8 +85,8 @@ public final class RelayQuickSettings {
                         String typed=key.getText().toString().trim();
                         if(!typed.isEmpty() && (typed.length()<24||typed.length()>256))
                             throw new IllegalArgumentException("relay_key_length");
-                        if(enabled.isChecked()&&(origin.isEmpty()&&GatewayApp.relayBaseUrl().isEmpty()||
-                            typed.isEmpty()&&GatewayApp.relayKey().length()<24))
+                        if(enabled.isChecked() && (origin.isEmpty() ||
+                            (typed.isEmpty()&&GatewayApp.relayKey().length()<24)))
                             throw new IllegalArgumentException("relay_configuration_missing");
                         String previous=GatewayApp.relayBaseUrl();
                         GatewayApp.setRelayBaseUrl(origin);
