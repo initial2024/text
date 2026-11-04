@@ -716,8 +716,11 @@ final class IsolatedGeckoBrowser {
             w.getDecorView().requestApplyInsets();
         }
         renderTabs();
-        refreshLocalBudget();
-        switchTo(startingSlot);
+        if(guestWindow)open(-1);
+        else{
+            refreshLocalBudget();
+            switchTo(startingSlot);
+        }
     }
     private void refreshLocalBudget(){
         if(AccountBrowserSlots.browserOnly(provider)){
