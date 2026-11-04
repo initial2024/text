@@ -38,6 +38,20 @@ jobs:
           from pathlib import Path
           p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
           browser=(p/'IsolatedGeckoBrowser.java').read_text()
+          floating=(p/'ClaudeFloatingOverlay.java').read_text()
+          assert 'FLAG_NOT_FOCUSABLE' in floating
+          assert 'FLAG_WATCH_OUTSIDE_TOUCH' in floating
+          assert 'MotionEvent.ACTION_OUTSIDE' in floating
+          assert 'setOverlayFocusable(false)' in floating
+          assert 'setOverlayFocusable(true)' in floating
+          assert 'setMinimized(true); // Open as a small, non-IME-stealing bubble.' in floating
+          assert 'private static final int BUBBLE_SIZE_DP=52;' in floating
+          assert 'root.setPadding(dp(app,2),dp(app,2),dp(app,2),dp(app,2));' in floating
+          assert 'menu.setOnDismissListener(popup->setOverlayFocusable(false));' in floating
+          assert 'if(minimized)setMinimized(false)' not in floating
+          assert 'AccountBrowserStore.contextId(app,"claude",slot)' in floating
+          assert 'window.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in floating
+          assert 'window.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in floating
           settings=(p/'CompatSettingsActivity.java').read_text()
           slots=(p/'AccountBrowserSlots.java').read_text()
           main=(p/'MainAccountTargetStore.java').read_text()
