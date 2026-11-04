@@ -252,6 +252,43 @@ public final class OriginalCoreBridge {
         return driver;
     }
 
+    /**
+     * Accept exactly the verified native API owner, MainActivity OR
+     * OverlayService, but never a disconnected/ambiguous 1604 listener.
+     */
+    static boolean isExactActiveApiOwner(){
+        JSONObject owner=diagnoseActiveNativeOwner();
+        String kind=owner.optString("ownerKind","");
+        return owner.optBoolean("verified",false) &&
+            ("main".equals(kind)||"overlay".equals(kind));
+    }
+
+    /** Context must match the live, original native socket owner. */
+    static boolean verifiedActiveDriverUsesContext(String provider,String contextId){
+        if(!AccountBrowserSlots.supported(provider)||
+            !AccountBrowserSlots.validContextId(contextId))return false;
+        try{
+            JSONObject owner=diagnoseActiveNativeOwner();
+            if(!owner.optBoolean("verified",false))return false;
+            String kind=owner.optString("ownerKind","");
+            if("main".equals(kind))
+                return verifiedMainDriverUsesContext(provider,contextId);
+            if(!"overlay".equals(kind))return false;
+            android.app.Service service=OmniGateComponentFactory.capturedOverlay();
+            if(service==null)return false;
+            Object driver=verifiedApiDriver();
+            if(!NativeGeckoContextInspector.exactOverlayMatch(
+                service,driver,provider,contextId))return false;
+            JSONObject after=diagnoseActiveNativeOwner();
+            return after.optBoolean("verified",false)&&
+                "overlay".equals(after.optString("ownerKind",""))&&
+                OmniGateComponentFactory.capturedOverlay()==service&&
+                verifiedApiDriver()==driver;
+        }catch(Throwable unavailable){
+            return false;
+        }
+    }
+
     /** Only a socket owned by the exact live native MAIN WebDriver qualifies. */
     static boolean isExactMainApiOwner(){
         JSONObject current=diagnoseActiveNativeOwner();
