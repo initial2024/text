@@ -29,6 +29,11 @@ final class IsolatedGeckoBrowser {
     private final Dialog dialog;
     private final LinearLayout tabs;
     private final FrameLayout display;
+    private final LinearLayout root;
+    private final Button fullscreenExit;
+    private boolean fullscreenMode;
+    private final java.util.IdentityHashMap<View,Integer> originalChromeVisibility=
+        new java.util.IdentityHashMap<>();
     private final TextView state;
     private final TextView localBudgetState;
     private final Button autoToggle;
@@ -59,7 +64,7 @@ final class IsolatedGeckoBrowser {
             title.setTypeface(null,android.graphics.Typeface.BOLD);
             shell.addView(title);
             TextView subtitle=new TextView(host);
-            subtitle.setText("点选平台和账号，即可打开独立登录空间。不会改变原版 8787 主执行账号。");
+            subtitle.setText("只在点击账号时打开网页，不预加载其他平台；Claude 仅网页登录，不接入 API。");
             subtitle.setTextSize(12);subtitle.setTextColor(muted);
             subtitle.setPadding(0,dp(host,6),0,dp(host,12));
             shell.addView(subtitle);
@@ -94,7 +99,7 @@ final class IsolatedGeckoBrowser {
             }
             shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
             TextView notice=new TextView(host);
-            notice.setText("独立 Cookie / localStorage · 风控熔断优先 · 不会自动重发");
+            notice.setText("隔离 Cookie / localStorage · 关闭即停止此网页会话 · 不自动打开其他平台");
             notice.setTextSize(11);notice.setTextColor(muted);
             notice.setPadding(0,dp(host,9),0,dp(host,8));shell.addView(notice);
             Button close=new Button(host);
@@ -128,13 +133,15 @@ final class IsolatedGeckoBrowser {
     private IsolatedGeckoBrowser(Activity host,String provider,int slot){
         this.host=host;this.provider=provider;this.startingSlot=slot;
         dialog=new Dialog(host);
-        LinearLayout root=new LinearLayout(host);
+        root=new LinearLayout(host);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(host,12),dp(host,12),dp(host,12),dp(host,8));
         root.setBackgroundColor(0xFF0B1024);
         TextView info=new TextView(host);
         info.setText("OmniGate  /  "+provider.toUpperCase(java.util.Locale.ROOT)+
-            "\n隔离账号空间 · 与原版 8787 主执行登录独立");
+            (AccountBrowserSlots.browserOnly(provider)
+                ? "\n仅浏览器登录 · 不支持 API · 不会后台预加载"
+                : "\n隔离账号空间 · 与原版 8787 主执行登录独立"));
         info.setTextSize(16);
         info.setTypeface(null,android.graphics.Typeface.BOLD);
         info.setPadding(dp(host,8),dp(host,5),dp(host,8),dp(host,9));
@@ -148,8 +155,11 @@ final class IsolatedGeckoBrowser {
         state.setTextSize(12);state.setPadding(dp(host,7),dp(host,6),dp(host,7),dp(host,6));
         root.addView(state);
         TextView instructions=new TextView(host);
-        instructions.setText("次数仅来自手动确认；风控时停止切换，不会自动发消息。"+
-            "网页 Token 无可信统计来源。");
+        instructions.setText(AccountBrowserSlots.browserOnly(provider)
+            ? "仅在你点击此账号时连接 claude.ai；切换或关闭即结束当前 Gecko 会话。" +
+              "不调用模型 API、不自动发送、不中途轮换账号。"
+            : "次数仅来自手动确认；风控时停止切换，不会自动发消息。" +
+              "网页 Token 无可信统计来源。");
         instructions.setTextColor(0xFFAFB9DE);
         instructions.setTextSize(11);
         root.addView(instructions);
@@ -157,6 +167,8 @@ final class IsolatedGeckoBrowser {
         localBudgetState.setTextColor(0xFFCAD3F2);
         localBudgetState.setTextSize(11);
         root.addView(localBudgetState);
+        if(AccountBrowserSlots.browserOnly(provider))
+            localBudgetState.setVisibility(View.GONE);
         LinearLayout budgetActions=new LinearLayout(host);
         budgetActions.setOrientation(LinearLayout.HORIZONTAL);
         Button configure=button("设置额度");
@@ -169,13 +181,25 @@ final class IsolatedGeckoBrowser {
         budgetActions.addView(autoToggle,new LinearLayout.LayoutParams(0,-2,1f));
         budgetActions.addView(completed,new LinearLayout.LayoutParams(0,-2,1f));
         root.addView(budgetActions);
+        if(AccountBrowserSlots.browserOnly(provider))
+            budgetActions.setVisibility(View.GONE);
         Button mainTarget=button("设为主执行目标 · 核验接线");
         mainTarget.setOnClickListener(v->requestNativeTarget());
         LinearLayout.LayoutParams targetParams=new LinearLayout.LayoutParams(-1,dp(host,45));
         targetParams.topMargin=dp(host,7);
-        root.addView(mainTarget,targetParams);
+        if(AccountBrowserSlots.nativeExecutorSupported(provider))
+            root.addView(mainTarget,targetParams);
         display=new FrameLayout(host);
         root.addView(display,new LinearLayout.LayoutParams(-1,0,1));
+        fullscreenExit=button("退出全屏");
+        fullscreenExit.setBackground(surface(0xDF14213F,12,host));
+        fullscreenExit.setVisibility(View.GONE);
+        FrameLayout.LayoutParams exitParams=new FrameLayout.LayoutParams(
+            dp(host,100),dp(host,44),
+            android.view.Gravity.TOP|android.view.Gravity.RIGHT);
+        exitParams.rightMargin=dp(host,10);exitParams.topMargin=dp(host,10);
+        display.addView(fullscreenExit,exitParams);
+        fullscreenExit.setOnClickListener(v->setFullscreen(false));
         LinearLayout footer=new LinearLayout(host);
         footer.setOrientation(LinearLayout.HORIZONTAL);
         Button add=button("新账号槽位");
@@ -189,15 +213,62 @@ final class IsolatedGeckoBrowser {
         });
         Button back=button("后退");back.setOnClickListener(v->callSession("goBack"));
         Button reload=button("刷新");reload.setOnClickListener(v->callSession("reload"));
+        Button fullscreen=button("全屏模型");
+        fullscreen.setOnClickListener(v->setFullscreen(true));
         Button close=button("关闭");close.setOnClickListener(v->dialog.dismiss());
         footer.addView(add,new LinearLayout.LayoutParams(0,-2,3f));
         footer.addView(back,new LinearLayout.LayoutParams(0,-2,1f));
         footer.addView(reload,new LinearLayout.LayoutParams(0,-2,1f));
+        footer.addView(fullscreen,new LinearLayout.LayoutParams(0,-2,1.8f));
         footer.addView(close,new LinearLayout.LayoutParams(0,-2,1f));
         root.addView(footer);
         dialog.setContentView(root);
-        dialog.setOnDismissListener(v->releaseSession());
+        dialog.setOnDismissListener(v->{
+            if(fullscreenMode)setFullscreen(false);
+            releaseSession();
+        });
+        dialog.setOnKeyListener((d,key,event)->{
+            if(fullscreenMode && key==android.view.KeyEvent.KEYCODE_BACK){
+                if(event.getAction()==android.view.KeyEvent.ACTION_UP)
+                    setFullscreen(false);
+                return true;
+            }
+            return false;
+        });
     }
+    /** A full-screen user-selected browser, not a second background model. */
+    private void setFullscreen(boolean enabled){
+        if(fullscreenMode==enabled)return;
+        fullscreenMode=enabled;
+        if(enabled){
+            originalChromeVisibility.clear();
+            for(int i=0;i<root.getChildCount();i++){
+                View child=root.getChildAt(i);
+                if(child==display)continue;
+                originalChromeVisibility.put(child,child.getVisibility());
+                child.setVisibility(View.GONE);
+            }
+        }else{
+            for(java.util.Map.Entry<View,Integer> previous:
+                originalChromeVisibility.entrySet())
+                previous.getKey().setVisibility(previous.getValue());
+            originalChromeVisibility.clear();
+        }
+        fullscreenExit.setVisibility(enabled?View.VISIBLE:View.GONE);
+        int padding=enabled?0:dp(host,12);
+        root.setPadding(padding,padding,padding,enabled?0:dp(host,8));
+        Window w=dialog.getWindow();
+        if(w!=null){
+            if(enabled)w.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            else w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            w.getDecorView().setSystemUiVisibility(enabled?
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY:View.SYSTEM_UI_FLAG_VISIBLE);
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT);
+        }
+    }
+
     private Button button(String name){
         Button b=new Button(host);b.setAllCaps(false);b.setText(name);b.setTextSize(12);
         b.setTextColor(0xFFF1F4FF);
@@ -215,6 +286,10 @@ final class IsolatedGeckoBrowser {
         switchTo(startingSlot);
     }
     private void refreshLocalBudget(){
+        if(AccountBrowserSlots.browserOnly(provider)){
+            localBudgetState.setText("Claude 仅浏览器：登录信息保存在所选的 Gecko 隔离存储中；不读取或调用 API。");
+            return;
+        }
         int limit=AccountBrowserStore.voluntaryBudget(host,provider);
         int hourlyLimit=AccountBrowserStore.hourlyBudget(host,provider);
         boolean enabled=AccountBrowserStore.autoBudgetSwitch(host,provider);
@@ -357,6 +432,10 @@ final class IsolatedGeckoBrowser {
             }).show();
     }
     private void toggleAutomaticBudget(){
+        if(AccountBrowserSlots.browserOnly(provider)){
+            state.setText("Claude 浏览器账号必须由你手动点击切换，不会自动轮换");
+            return;
+        }
         try{
             boolean enabled=AccountBrowserStore.autoBudgetSwitch(host,provider);
             if(enabled){
@@ -389,6 +468,10 @@ final class IsolatedGeckoBrowser {
         }
     }
     private void requestNativeTarget(){
+        if(!AccountBrowserSlots.nativeExecutorSupported(provider)){
+            state.setText("此平台仅支持隔离浏览器登录，禁止设置为 8787 API 主执行目标");
+            return;
+        }
         if(selected<0||session==null){
             state.setText("隔离浏览器尚未打开；未登记执行目标");
             return;
@@ -422,6 +505,10 @@ final class IsolatedGeckoBrowser {
             }).show();
     }
     private void finishedTurn(){
+        if(AccountBrowserSlots.browserOnly(provider)){
+            state.setText("Claude 仅手动网页登录；没有 API 额度或自动轮换操作");
+            return;
+        }
         if(selected<0||session==null){
             state.setText("没有可计数的独立浏览器会话");
             return;
@@ -475,12 +562,10 @@ final class IsolatedGeckoBrowser {
     }
     private void switchTo(int index){
         if(selected==index)return;
-        if(selected<0){open(index);return;}
-        new AlertDialog.Builder(host).setTitle("切换隔离网页账号")
-            .setMessage("会关闭当前备用浏览器页面；正在生成的网页回复可能中断。"+
-                "不会修改原版登录状态，也不会自动重发模型请求。")
-            .setNegativeButton("取消",null)
-            .setPositiveButton("切换",(d,w)->open(index)).show();
+        // Explicit tab click is the entire switch authorization. The OLD
+        // GeckoSession is closed before the NEW selected login page loads.
+        // Neither the picker nor the app startup preloads a provider.
+        open(index);
     }
     private static Object existingRuntime() throws Exception{
         Class<?> runtime=Class.forName("org.mozilla.geckoview.GeckoRuntime");
@@ -519,13 +604,15 @@ final class IsolatedGeckoBrowser {
             if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
             geckoView=visual;
             viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
-            display.addView((View)visual,new FrameLayout.LayoutParams(-1,-1));
+            display.addView((View)visual,0,new FrameLayout.LayoutParams(-1,-1));
             sessionClass.getMethod("loadUri",String.class)
                 .invoke(created,AccountBrowserSlots.home(provider));
             AccountBrowserStore.select(host,provider,index);
             selected=index;
             refreshLocalBudget();
-            state.setText("账号 "+(index+1)+"：隔离浏览器已打开（不影响原版 API）");
+            state.setText(AccountBrowserSlots.browserOnly(provider)
+                ? "Claude 账号 "+(index+1)+" 已按需打开 · 不支持 API；关闭即停止此网页会话"
+                : "账号 "+(index+1)+"：隔离浏览器已打开（不影响原版 API）");
         }catch(Throwable failed){
             releaseSession();
             state.setText("无法启动隔离浏览器："+failed.getClass().getSimpleName()+
@@ -548,6 +635,7 @@ final class IsolatedGeckoBrowser {
             try{prior.getClass().getMethod("close").invoke(prior);}
             catch(Throwable ignored){}
         }
-        display.removeAllViews();
+        // Do not remove the full-screen Exit control, only the old page.
+        if(view instanceof View)display.removeView((View)view);
     }
 }
