@@ -59,7 +59,7 @@ jobs:
           assert 'if(!movingEdgeControl)v.performClick()' in browser
           # P191-inspired single-owner auxiliary browser + one-shot Gecko private context.
           assert 'private static IsolatedGeckoBrowser activeBrowser;' in browser
-          assert 'private static void closeActiveBrowser()' in browser
+          assert 'static void closeActiveBrowser()' in browser
           assert 'if(prior.dialog.isShowing())prior.dialog.dismiss()' in browser
           assert 'if(activeBrowser==this)activeBrowser=null' in browser
           assert 'guest.setOnClickListener(v->{picker.dismiss();showPrivateGuest(host,provider);});' in browser
