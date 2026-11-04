@@ -29,9 +29,14 @@ import android.widget.TextView;
  * injects a prompt, copies cookies or creates a second GeckoRuntime.
  */
 final class IsolatedGeckoBrowser {
+    // Same-owner rule borrowed from DSH browser ownership: no two auxiliary
+    // Gecko sessions run silently in parallel, even across providers.
+    private static IsolatedGeckoBrowser activeBrowser;
     private final Activity host;
     private final String provider;
     private final int startingSlot;
+    private final boolean guestWindow;
+    private String guestContextId;
     private final Dialog dialog;
     private final LinearLayout tabs;
     private final FrameLayout display;
@@ -63,7 +68,17 @@ final class IsolatedGeckoBrowser {
         g.setCornerRadius(dp(c,radius));
         return g;
     }
+    private static void closeActiveBrowser(){
+        IsolatedGeckoBrowser prior=activeBrowser;
+        activeBrowser=null;
+        if(prior!=null){
+            if(prior.dialog.isShowing())prior.dialog.dismiss();
+            else prior.releaseSession();
+        }
+    }
     static void showPicker(Activity host){
+        // Opening the picker also ends any prior auxiliary GeckoSession.
+        closeActiveBrowser();
         try{
             final int ink=0xFFF5F6FF,muted=0xFFB4BEDF,accent=0xFF6C5BFB;
             Dialog picker=new Dialog(host);
@@ -109,10 +124,18 @@ final class IsolatedGeckoBrowser {
                     lp.bottomMargin=dp(host,7);options.addView(entry,lp);
                     entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});
                 }
+                Button guest=new Button(host);
+                guest.setAllCaps(false);
+                guest.setText("临时访客 · 不保留登录");
+                guest.setTextColor(ink);guest.setTextSize(13);
+                guest.setBackground(surface(0xFF26314E,12,host));
+                LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,dp(host,42));
+                gp.bottomMargin=dp(host,9);options.addView(guest,gp);
+                guest.setOnClickListener(v->{picker.dismiss();showPrivateGuest(host,provider);});
             }
             shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
             TextView notice=new TextView(host);
-            notice.setText("隔离 Cookie / localStorage · 关闭即停止此网页会话 · 不自动打开其他平台");
+            notice.setText("固定账号保留各自登录；临时访客不保存登录，仍可能被网站指纹关联。");
             notice.setTextSize(11);notice.setTextColor(muted);
             notice.setPadding(0,dp(host,9),0,dp(host,8));shell.addView(notice);
             Button close=new Button(host);
@@ -141,10 +164,27 @@ final class IsolatedGeckoBrowser {
             throw new IllegalArgumentException("provider");
         if(slot<0||slot>=AccountBrowserStore.count(host,provider))
             throw new IllegalArgumentException("slot");
-        new IsolatedGeckoBrowser(host,provider,slot).show();
+        openOwnedBrowser(host,provider,slot);
+    }
+    private static void showPrivateGuest(Activity host,String provider){
+        if(!AccountBrowserSlots.supported(provider))
+            throw new IllegalArgumentException("provider");
+        openOwnedBrowser(host,provider,-1);
+    }
+    private static void openOwnedBrowser(Activity host,String provider,int slot){
+        closeActiveBrowser();
+        IsolatedGeckoBrowser next=new IsolatedGeckoBrowser(host,provider,slot);
+        activeBrowser=next;
+        try{next.show();}
+        catch(RuntimeException failure){
+            if(activeBrowser==next)activeBrowser=null;
+            next.releaseSession();
+            throw failure;
+        }
     }
     private IsolatedGeckoBrowser(Activity host,String provider,int slot){
         this.host=host;this.provider=provider;this.startingSlot=slot;
+        this.guestWindow=slot==-1;
         // Not a floating alert window: use a genuine edge-to-edge screen
         // surface so the GeckoView can occupy all pixels in immersive mode.
         dialog=new Dialog(host,android.R.style.Theme_Material_NoActionBar){
@@ -164,7 +204,8 @@ final class IsolatedGeckoBrowser {
         root.setBackgroundColor(0xFF0B1024);
         TextView info=new TextView(host);
         info.setText("OmniGate  /  "+provider.toUpperCase(java.util.Locale.ROOT)+
-            (AccountBrowserSlots.browserOnly(provider)
+            (guestWindow?"\n临时访客 · 关闭后清除该空间的站点存储 · 可能仍被网页指纹识别":
+            AccountBrowserSlots.browserOnly(provider)
                 ? "\n仅浏览器登录 · 不支持 API · 不会后台预加载"
                 : "\n隔离账号空间 · 与原版 8787 主执行登录独立"));
         info.setTextSize(16);
@@ -176,6 +217,7 @@ final class IsolatedGeckoBrowser {
         tabs=new LinearLayout(host);tabs.setOrientation(LinearLayout.HORIZONTAL);
         scroll.addView(tabs);
         root.addView(scroll);
+        if(guestWindow)scroll.setVisibility(View.GONE);
         // Browsing always stays inside the manually selected GeckoSession.
         LinearLayout addressBar=new LinearLayout(host);
         addressBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -213,7 +255,9 @@ final class IsolatedGeckoBrowser {
         state.setTextSize(12);state.setPadding(dp(host,7),dp(host,6),dp(host,7),dp(host,6));
         root.addView(state);
         TextView instructions=new TextView(host);
-        instructions.setText(AccountBrowserSlots.browserOnly(provider)
+        instructions.setText(guestWindow
+            ? "临时访客：独立随机空间 + Gecko 私密模式 + 跟踪保护。关闭后清除该空间；不保证网站无法识别设备。"
+            : AccountBrowserSlots.browserOnly(provider)
             ? "仅在你点击此账号时连接 claude.ai；切换或关闭即结束当前 Gecko 会话。" +
               "不调用模型 API、不自动发送、不中途轮换账号。"
             : "次数仅来自手动确认；风控时停止切换，不会自动发消息。" +
@@ -225,7 +269,7 @@ final class IsolatedGeckoBrowser {
         localBudgetState.setTextColor(0xFFCAD3F2);
         localBudgetState.setTextSize(11);
         root.addView(localBudgetState);
-        if(AccountBrowserSlots.browserOnly(provider))
+        if(AccountBrowserSlots.browserOnly(provider)||guestWindow)
             localBudgetState.setVisibility(View.GONE);
         LinearLayout budgetActions=new LinearLayout(host);
         budgetActions.setOrientation(LinearLayout.HORIZONTAL);
@@ -239,13 +283,13 @@ final class IsolatedGeckoBrowser {
         budgetActions.addView(autoToggle,new LinearLayout.LayoutParams(0,-2,1f));
         budgetActions.addView(completed,new LinearLayout.LayoutParams(0,-2,1f));
         root.addView(budgetActions);
-        if(AccountBrowserSlots.browserOnly(provider))
+        if(AccountBrowserSlots.browserOnly(provider)||guestWindow)
             budgetActions.setVisibility(View.GONE);
         Button mainTarget=button("设为主执行目标 · 核验接线");
         mainTarget.setOnClickListener(v->requestNativeTarget());
         LinearLayout.LayoutParams targetParams=new LinearLayout.LayoutParams(-1,dp(host,45));
         targetParams.topMargin=dp(host,7);
-        if(AccountBrowserSlots.nativeExecutorSupported(provider))
+        if(AccountBrowserSlots.nativeExecutorSupported(provider)&&!guestWindow)
             root.addView(mainTarget,targetParams);
         display=new FrameLayout(host);
         root.addView(display,new LinearLayout.LayoutParams(-1,0,1));
@@ -314,7 +358,8 @@ final class IsolatedGeckoBrowser {
         Button fullscreen=button("全屏模型");
         fullscreen.setOnClickListener(v->setFullscreen(true));
         Button close=button("关闭");close.setOnClickListener(v->dialog.dismiss());
-        footer.addView(add,new LinearLayout.LayoutParams(0,-2,3f));
+        if(!guestWindow)
+            footer.addView(add,new LinearLayout.LayoutParams(0,-2,3f));
         footer.addView(back,new LinearLayout.LayoutParams(0,-2,1f));
         footer.addView(reload,new LinearLayout.LayoutParams(0,-2,1f));
         footer.addView(fullscreen,new LinearLayout.LayoutParams(0,-2,1.8f));
@@ -337,6 +382,7 @@ final class IsolatedGeckoBrowser {
         dialog.setOnDismissListener(v->{
             if(fullscreenMode)setFullscreen(false);
             releaseSession();
+            if(activeBrowser==this)activeBrowser=null;
         });
         dialog.setOnKeyListener((d,key,event)->{
             if(fullscreenMode && key==android.view.KeyEvent.KEYCODE_BACK){
@@ -946,6 +992,7 @@ final class IsolatedGeckoBrowser {
     }
     private void renderTabs(){
         tabs.removeAllViews();
+        if(guestWindow)return;
         int count=AccountBrowserStore.count(host,provider);
         for(int i=0;i<count;i++){
             final int index=i;
@@ -955,6 +1002,7 @@ final class IsolatedGeckoBrowser {
         }
     }
     private void switchTo(int index){
+        if(guestWindow)return;
         if(selected==index)return;
         // Explicit tab click is the entire switch authorization. The OLD
         // GeckoSession is closed before the NEW selected login page loads.
@@ -972,7 +1020,13 @@ final class IsolatedGeckoBrowser {
     private void open(int index){
         releaseSession();
         try{
-            String id=AccountBrowserStore.contextId(host,provider,index);
+            if(guestWindow!=(index==-1))
+                throw new IllegalArgumentException("session_mode_mismatch");
+            // Guest IDs are never persisted in AccountBrowserStore. A new
+            // guest visit always gets a fresh context even on the same phone.
+            String id=guestWindow?AccountBrowserSlots.newContextId():
+                AccountBrowserStore.contextId(host,provider,index);
+            if(guestWindow)guestContextId=id;
             if(!AccountBrowserSlots.validContextId(id))
                 throw new IllegalStateException("gecko_context_id_invalid");
             Object runtime=existingRuntime();
@@ -981,6 +1035,13 @@ final class IsolatedGeckoBrowser {
             Object builder=builderClass.getConstructor().newInstance();
             // Never use the null/default shared-storage session context.
             builderClass.getMethod("contextId",String.class).invoke(builder,id);
+            if(guestWindow){
+                // Fail closed if this Gecko build cannot provide private mode;
+                // never silently fall back to a persisted login context.
+                builderClass.getMethod("usePrivateMode",boolean.class).invoke(builder,true);
+                builderClass.getMethod("useTrackingProtection",boolean.class)
+                    .invoke(builder,true);
+            }
             // Match actual Gecko mobile browser behavior without any spoof.
             builderClass.getMethod("userAgentMode",int.class).invoke(builder,0);
             builderClass.getMethod("viewportMode",int.class).invoke(builder,0);
@@ -1004,10 +1065,12 @@ final class IsolatedGeckoBrowser {
             display.addView((View)visual,0,new FrameLayout.LayoutParams(-1,-1));
             followCurrentLocation(created,sessionClass);
             navigateTo(AccountBrowserSlots.home(provider));
-            AccountBrowserStore.select(host,provider,index);
-            selected=index;
-            refreshLocalBudget();
-            state.setText(AccountBrowserSlots.browserOnly(provider)
+            if(!guestWindow)AccountBrowserStore.select(host,provider,index);
+            selected=guestWindow?-1:index;
+            if(!guestWindow)refreshLocalBudget();
+            state.setText(guestWindow
+                ? "临时访客已打开：关闭后清除此空间站点数据；未保存账号登录"
+                : AccountBrowserSlots.browserOnly(provider)
                 ? "Claude 账号 "+(index+1)+" 已按需打开 · 不支持 API；关闭即停止此网页会话"
                 : "账号 "+(index+1)+"：隔离浏览器已打开（不影响原版 API）");
         }catch(Throwable failed){
@@ -1023,16 +1086,34 @@ final class IsolatedGeckoBrowser {
     }
     private void releaseSession(){
         Object prior=session,view=geckoView;
-        session=null;geckoView=null;selected=-1;currentUrl=null;
+        String guestId=guestContextId;
+        session=null;geckoView=null;selected=-1;currentUrl=null;guestContextId=null;
         if(view!=null){
             try{view.getClass().getMethod("releaseSession").invoke(view);}
             catch(Throwable ignored){}
         }
+        boolean closed=prior==null;
         if(prior!=null){
-            try{prior.getClass().getMethod("close").invoke(prior);}
-            catch(Throwable ignored){}
+            try{
+                prior.getClass().getMethod("close").invoke(prior);
+                closed=true;
+            }catch(Throwable failure){
+                android.util.Log.w("OmniGateBrowser","guest_session_close_failed");
+            }
         }
-        // Do not remove the full-screen Exit control, only the old page.
+        if(guestId!=null && closed){
+            // Per-context only: NEVER clear the main Gecko profile or any
+            // stored provider account. Close session before clearing data.
+            try{
+                Object runtime=existingRuntime();
+                Object storage=runtime.getClass()
+                    .getMethod("getStorageController").invoke(runtime);
+                storage.getClass().getMethod("clearDataForSessionContext",String.class)
+                    .invoke(storage,guestId);
+            }catch(Throwable unavailable){
+                android.util.Log.w("OmniGateBrowser","guest_context_clear_unavailable");
+            }
+        }
         if(view instanceof View)display.removeView((View)view);
     }
 }
