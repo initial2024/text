@@ -31,6 +31,9 @@ final class IsolatedGeckoBrowser {
     private final FrameLayout display;
     private final LinearLayout root;
     private final Button fullscreenExit;
+    private final Button fullscreenAddress;
+    private final EditText addressInput;
+    private String currentUrl;
     private boolean fullscreenMode;
     private final java.util.IdentityHashMap<View,Integer> originalChromeVisibility=
         new java.util.IdentityHashMap<>();
@@ -151,6 +154,39 @@ final class IsolatedGeckoBrowser {
         tabs=new LinearLayout(host);tabs.setOrientation(LinearLayout.HORIZONTAL);
         scroll.addView(tabs);
         root.addView(scroll);
+        // Browsing always stays inside the manually selected GeckoSession.
+        LinearLayout addressBar=new LinearLayout(host);
+        addressBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        addressBar.setPadding(0,dp(host,5),0,dp(host,5));
+        addressInput=new EditText(host);
+        addressInput.setSingleLine(true);
+        addressInput.setTextSize(12);
+        addressInput.setTextColor(0xFFF3F4FF);
+        addressInput.setHintTextColor(0xFF9CA6C8);
+        addressInput.setHint("网址 / 粘贴验证链接");
+        addressInput.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
+        addressInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_GO);
+        addressInput.setPadding(dp(host,10),0,dp(host,7),0);
+        addressInput.setBackground(surface(0xFF1B2443,10,host));
+        addressInput.setOnEditorActionListener((v,action,event)->{
+            if(action==android.view.inputmethod.EditorInfo.IME_ACTION_GO ||
+                (event!=null && event.getKeyCode()==android.view.KeyEvent.KEYCODE_ENTER &&
+                 event.getAction()==android.view.KeyEvent.ACTION_DOWN)){
+                navigateTo(addressInput.getText().toString());return true;
+            }
+            return false;
+        });
+        addressBar.addView(addressInput,new LinearLayout.LayoutParams(0,dp(host,44),1f));
+        Button go=button("前往");
+        go.setOnClickListener(v->navigateTo(addressInput.getText().toString()));
+        addressBar.addView(go,new LinearLayout.LayoutParams(dp(host,50),dp(host,44)));
+        Button forward=button("前进");
+        forward.setOnClickListener(v->callSession("goForward"));
+        addressBar.addView(forward,new LinearLayout.LayoutParams(dp(host,50),dp(host,44)));
+        Button home=button("主页");
+        home.setOnClickListener(v->navigateTo(AccountBrowserSlots.home(provider)));
+        addressBar.addView(home,new LinearLayout.LayoutParams(dp(host,50),dp(host,44)));
+        root.addView(addressBar);
         state=new TextView(host);state.setTextColor(0xFF86E8EE);
         state.setTextSize(12);state.setPadding(dp(host,7),dp(host,6),dp(host,7),dp(host,6));
         root.addView(state);
@@ -191,15 +227,33 @@ final class IsolatedGeckoBrowser {
             root.addView(mainTarget,targetParams);
         display=new FrameLayout(host);
         root.addView(display,new LinearLayout.LayoutParams(-1,0,1));
-        fullscreenExit=button("退出全屏");
-        fullscreenExit.setBackground(surface(0xDF14213F,12,host));
+        fullscreenExit=button("⤢");
+        fullscreenExit.setContentDescription("退出全屏");
+        fullscreenExit.setTextSize(18);
+        fullscreenExit.setPadding(0,0,0,0);
+        fullscreenExit.setMinWidth(0);fullscreenExit.setMinimumWidth(0);
+        fullscreenExit.setMinHeight(0);fullscreenExit.setMinimumHeight(0);
+        fullscreenExit.setBackground(surface(0xCC14213F,18,host));
         fullscreenExit.setVisibility(View.GONE);
         FrameLayout.LayoutParams exitParams=new FrameLayout.LayoutParams(
-            dp(host,100),dp(host,44),
+            dp(host,36),dp(host,36),
             android.view.Gravity.TOP|android.view.Gravity.RIGHT);
-        exitParams.rightMargin=dp(host,10);exitParams.topMargin=dp(host,10);
+        exitParams.rightMargin=dp(host,8);exitParams.topMargin=dp(host,8);
         display.addView(fullscreenExit,exitParams);
         fullscreenExit.setOnClickListener(v->setFullscreen(false));
+        fullscreenAddress=button("网址");
+        fullscreenAddress.setContentDescription("打开其他网址");
+        fullscreenAddress.setTextSize(11);
+        fullscreenAddress.setPadding(0,0,0,0);
+        fullscreenAddress.setMinHeight(0);fullscreenAddress.setMinimumHeight(0);
+        fullscreenAddress.setBackground(surface(0xCC14213F,18,host));
+        fullscreenAddress.setVisibility(View.GONE);
+        FrameLayout.LayoutParams addressParams=new FrameLayout.LayoutParams(
+            dp(host,48),dp(host,36),
+            android.view.Gravity.TOP|android.view.Gravity.RIGHT);
+        addressParams.rightMargin=dp(host,50);addressParams.topMargin=dp(host,8);
+        display.addView(fullscreenAddress,addressParams);
+        fullscreenAddress.setOnClickListener(v->showAddressDialog());
         LinearLayout footer=new LinearLayout(host);
         footer.setOrientation(LinearLayout.HORIZONTAL);
         Button add=button("新账号槽位");
@@ -255,6 +309,7 @@ final class IsolatedGeckoBrowser {
             originalChromeVisibility.clear();
         }
         fullscreenExit.setVisibility(enabled?View.VISIBLE:View.GONE);
+        fullscreenAddress.setVisibility(enabled?View.VISIBLE:View.GONE);
         int padding=enabled?0:dp(host,12);
         root.setPadding(padding,padding,padding,enabled?0:dp(host,8));
         Window w=dialog.getWindow();
@@ -269,6 +324,82 @@ final class IsolatedGeckoBrowser {
         }
     }
 
+    /** Full-screen controls never create a second session or call an API. */
+    private void showAddressDialog(){
+        EditText entry=new EditText(host);
+        entry.setSingleLine(true);
+        entry.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
+        entry.setText(currentUrl==null?AccountBrowserSlots.home(provider):currentUrl);
+        entry.selectAll();
+        new AlertDialog.Builder(host).setTitle("在当前浏览器中打开网址")
+            .setMessage("仅支持 HTTP/HTTPS。验证码需自行查看和填写。")
+            .setView(entry).setNegativeButton("取消",null)
+            .setPositiveButton("打开",(d,w)->navigateTo(entry.getText().toString())).show();
+    }
+    private void navigateTo(String typed){
+        if(session==null){state.setText("未打开账号浏览器，不进行后台导航");return;}
+        String raw=typed==null?"":typed.trim();
+        String url=raw;
+        if(!raw.regionMatches(true,0,"https://",0,8) &&
+           !raw.regionMatches(true,0,"http://",0,7))
+            url="https://"+raw;
+        try{
+            if(raw.isEmpty() || raw.length()>4096 || raw.startsWith("//") ||
+               raw.indexOf('\\')>=0 || raw.contains("://") &&
+                 !(raw.regionMatches(true,0,"https://",0,8) ||
+                   raw.regionMatches(true,0,"http://",0,7)))
+                throw new IllegalArgumentException("unsupported_scheme");
+            java.net.URI parsed=new java.net.URI(url);
+            String scheme=parsed.getScheme(),site=parsed.getHost();
+            if(site==null || site.isEmpty() || parsed.getRawUserInfo()!=null ||
+               parsed.getPort()>65535 ||
+               !("https".equalsIgnoreCase(scheme)||"http".equalsIgnoreCase(scheme)))
+                throw new IllegalArgumentException("not_web_address");
+            url=parsed.toString();
+        }catch(Exception invalid){
+            new AlertDialog.Builder(host).setTitle("网址无效")
+                .setMessage("请输入 HTTP/HTTPS 网站地址；不允许脚本、文件或应用链接。")
+                .setPositiveButton("确定",null).show();
+            return;
+        }
+        try{
+            session.getClass().getMethod("loadUri",String.class).invoke(session,url);
+            currentUrl=url;
+            addressInput.setText(url);
+            if(url.startsWith("http://"))
+                state.setText("HTTP 未加密，勿在此网站输入密码或验证码");
+        }catch(Throwable failure){
+            new AlertDialog.Builder(host).setTitle("导航失败")
+                .setMessage("无法在当前隔离浏览器中打开网页："+failure.getClass().getSimpleName())
+                .setPositiveButton("确定",null).show();
+        }
+    }
+    private void followCurrentLocation(Object ownedSession,Class<?> sessionClass){
+        try{
+            Class<?> nav=Class.forName("org.mozilla.geckoview.GeckoSession$NavigationDelegate");
+            Object listener=java.lang.reflect.Proxy.newProxyInstance(
+                nav.getClassLoader(),new Class<?>[]{nav},(proxy,method,args)->{
+                    if("hashCode".equals(method.getName()))return System.identityHashCode(proxy);
+                    if("equals".equals(method.getName()))return proxy==args[0];
+                    if("toString".equals(method.getName()))return "OmniGateManualNavigation";
+                    if("onLocationChange".equals(method.getName()) &&
+                        args!=null && args.length>1 && args[1] instanceof String){
+                        String current=(String)args[1];
+                        host.runOnUiThread(()->{
+                            if(session==ownedSession &&
+                              (current.startsWith("http://")||current.startsWith("https://"))){
+                                currentUrl=current;
+                                if(!addressInput.hasFocus())addressInput.setText(current);
+                            }
+                        });
+                    }
+                    return null;
+                });
+            sessionClass.getMethod("setNavigationDelegate",nav).invoke(ownedSession,listener);
+        }catch(Throwable unsupported){
+            // The address bar still navigates on older Gecko builds.
+        }
+    }
     private Button button(String name){
         Button b=new Button(host);b.setAllCaps(false);b.setText(name);b.setTextSize(12);
         b.setTextColor(0xFFF1F4FF);
@@ -611,8 +742,8 @@ final class IsolatedGeckoBrowser {
             geckoView=visual;
             viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
             display.addView((View)visual,0,new FrameLayout.LayoutParams(-1,-1));
-            sessionClass.getMethod("loadUri",String.class)
-                .invoke(created,AccountBrowserSlots.home(provider));
+            followCurrentLocation(created,sessionClass);
+            navigateTo(AccountBrowserSlots.home(provider));
             AccountBrowserStore.select(host,provider,index);
             selected=index;
             refreshLocalBudget();
@@ -632,7 +763,7 @@ final class IsolatedGeckoBrowser {
     }
     private void releaseSession(){
         Object prior=session,view=geckoView;
-        session=null;geckoView=null;selected=-1;
+        session=null;geckoView=null;selected=-1;currentUrl=null;
         if(view!=null){
             try{view.getClass().getMethod("releaseSession").invoke(view);}
             catch(Throwable ignored){}
