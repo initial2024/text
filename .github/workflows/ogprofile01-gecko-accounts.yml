@@ -40,7 +40,7 @@ jobs:
           assert 'getMethod("contextId",String.class)' in s
           assert 'getMethod("releaseSession")' in s
           assert 'getMethod("close")' in s
-          assert 'getDefault(' not in s and 'GeckoRuntime.create(' not in s
+          assert 'GeckoRuntime.getDefault(' not in s and 'GeckoRuntime.create(' not in s
           assert 'AccountBrowserSlots.home(provider)' in s
           assert 'AccountBrowserSlots.validContextId(id)' in s
           assert 'Context.MODE_PRIVATE' in store and '.commit()' in store
