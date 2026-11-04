@@ -261,7 +261,7 @@ public final class CloudflareRelayClient {
                 JSONObject json = new JSONObject(body);
                 if (json.optBoolean("ok")
                         && json.optBoolean("deviceConnected")) {
-                    statusIfCurrent(generation, owner, "公网可用 · gw-33e850180248.claua.de");
+                    statusIfCurrent(generation, owner, "公网可用 · Relay 连接已验证");
                 } else {
                     statusIfCurrent(generation, owner, "Relay 已连，但公网尚未识别设备");
                 }
