@@ -105,7 +105,7 @@ public final class ClaudeFloatingOverlay {
         window.softInputMode=WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
         root=new LinearLayout(app);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(app,5),dp(app,5),dp(app,5),dp(app,5));
+        root.setPadding(dp(app,2),dp(app,2),dp(app,2),dp(app,2));
         root.setBackgroundColor(0xFF11192E);
         // Tapping any other app always releases the IME focus previously
         // acquired for the Claude address field or Gecko text input.
@@ -324,17 +324,9 @@ public final class ClaudeFloatingOverlay {
     private static void setMinimized(boolean value){
         if(root==null||manager==null)return;
         minimized=value;
-        if(value){
-            // Releasing the overlay focus allows the underlying app to use
-            // its own keyboard. The GeckoSession and login remain alive.
-            inputFocusHeld=true;
-            setOverlayFocusable(false);
-        }else{
-            // Expanded browser starts passive; text fields acquire focus
-            // only following an intentional touch inside the overlay.
-            inputFocusHeld=true;
-            setOverlayFocusable(false);
-        }
+        // Minimized always returns IME ownership to the underlying app.
+        // Expanded starts passive and only acquires focus on direct input.
+        setOverlayFocusable(false);
         body.setVisibility(value?View.GONE:View.VISIBLE);
         caption.setVisibility(value?View.GONE:View.VISIBLE);
         account.setVisibility(value?View.GONE:View.VISIBLE);
