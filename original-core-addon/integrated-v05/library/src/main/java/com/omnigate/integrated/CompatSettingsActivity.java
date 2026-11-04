@@ -52,7 +52,7 @@ public final class CompatSettingsActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private TextView serviceState, healthState, uploadState, replyState, publicStatus;
-    private EditText upstreamKey, publicKey, relayKey, prompt;
+    private EditText upstreamKey, publicKey, relayKey, relayBaseUrl, prompt;
     private Spinner models;
     private TextView localBadge, upstreamBadge, upstreamGuide;
     private Uri selectedUri;
@@ -591,6 +591,8 @@ public final class CompatSettingsActivity extends Activity {
         publicKey = field(settings,"公网 API Key（供 Minis 使用）",
             GatewayApp.apiKey(),true);
         addKeyControls(settings,publicKey,"public");
+        relayBaseUrl=field(settings,"公网 Relay HTTPS 地址（本机自行配置）",
+            GatewayApp.relayBaseUrl(),false);
         relayKey = field(settings,"Relay 配对 Key（连接 Cloudflare）",
             GatewayApp.relayKey(),true);
         addKeyControls(settings,relayKey,"relay");
@@ -630,14 +632,14 @@ public final class CompatSettingsActivity extends Activity {
                 }).show())
             .show());
 
-        margin(settings,text("沿用原穿透地址："+
-            GatewayApp.OWN_PUBLIC_BASE+"/v1",12,0xFF323B83,true),8);
-        Button copyPublic = button(settings,"复制原公网 Base URL",false);
+        margin(settings,text("本机已配置公网地址（不内置）："+
+            GatewayApp.effectivePublicUrl()+"/v1",12,0xFF323B83,true),8);
+        Button copyPublic = button(settings,"复制本机配置的公网 Base URL",false);
         copyPublic.setOnClickListener(v -> {
             ClipboardManager cb=(ClipboardManager)getSystemService(
                 Context.CLIPBOARD_SERVICE);
             if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText(
-                "OmniGate HTTPS API",GatewayApp.OWN_PUBLIC_BASE+"/v1"));
+                "OmniGate HTTPS API",GatewayApp.effectivePublicUrl()+"/v1"));
         });
         publicStatus=text(
             GatewayApp.tunnelEnabled()
@@ -652,8 +654,8 @@ public final class CompatSettingsActivity extends Activity {
                 publicStatus.setText("请先明确开启公网开关；尚未连接");
                 return;
             }
-            if(GatewayApp.relayKey().length()<24){
-                publicStatus.setText("配对 Key 不完整；未连接");
+            if(GatewayApp.relayKey().length()<24 || GatewayApp.relayBaseUrl().isEmpty()){
+                publicStatus.setText("HTTPS 地址或配对 Key 未配置；未连接");
                 return;
             }
             if(RelayRuntime.isConnected()){
@@ -673,13 +675,13 @@ public final class CompatSettingsActivity extends Activity {
                 refreshRelayStatus();
                 return;
             }
-            if(GatewayApp.relayKey().length()<24){
-                publicStatus.setText("需要先保存正确的 Relay 配对 Key；未连接");
+            if(GatewayApp.relayKey().length()<24 || GatewayApp.relayBaseUrl().isEmpty()){
+                publicStatus.setText("需要先保存 HTTPS 地址及配对 Key；未连接");
                 return;
             }
             new android.app.AlertDialog.Builder(this)
                 .setTitle("开启现有 OmniGate 公网穿透？")
-                .setMessage("沿用 "+GatewayApp.OWN_PUBLIC_BASE+
+                .setMessage("使用 "+GatewayApp.effectivePublicUrl()+
                     "/v1。此操作会在当前应用进程内建立唯一 Relay WebSocket，"+
                     "不依赖前台服务启动成功。公网必须使用独立 API Key，"+
                     "后台可能被 Android 回收，不保证一直在线。")
@@ -856,11 +858,15 @@ public final class CompatSettingsActivity extends Activity {
                 return;
             }
             String previousRelayKey=GatewayApp.relayKey();
+            String previousRelayUrl=GatewayApp.relayBaseUrl();
+            String base=GatewayApp.normalizeRelayBase(relayBaseUrl.getText().toString());
+            GatewayApp.setRelayBaseUrl(base);
             GatewayApp.setUpstreamApiKey(upstream);
             GatewayApp.setApiKey(publicApi);
             GatewayApp.setRelayKey(relay);
             if(GatewayApp.tunnelEnabled() &&
-                !previousRelayKey.equals(GatewayApp.relayKey())) {
+                (!previousRelayKey.equals(GatewayApp.relayKey()) ||
+                !previousRelayUrl.equals(GatewayApp.relayBaseUrl()))) {
                 RelayRuntime.restart();
             }
             refreshRelayStatus();
