@@ -46,6 +46,14 @@ jobs:
           assert 'MainAccountRequestGuard.evaluate(' in src
           assert src.index('MainAccountRequestGuard.evaluate(') < src.index('LocalHourlyApiQuota.admit(')
           assert 'main_execution_context_not_bound' in src
+          admission=src.split('private boolean admitLocalHourlySubmission(',1)[1].split('private void proxyToFrozenCore(',1)[0]
+          assert 'main_target_validation_unavailable' in admission
+          assert 'local_hour_budget_unavailable' in admission
+          assert admission.index('MainAccountRequestGuard.evaluate(') < admission.index('LocalHourlyApiQuota.admit(')
+          assert admission.count('}catch(RuntimeException')+admission.count('}catch (RuntimeException')+admission.count('} catch(RuntimeException')+admission.count('} catch (RuntimeException') >= 2
+          assert 'admissionRejection' in src and '.put("admissionRejection",admissionRejection)' in src
+          assert 'traceAdmissionRejection("native_api_not_listening")' in src
+          print('OGMAIN11_PREUPSTREAM_503_CAUSE_DIAGNOSTICS=PASS_STATIC')
           assert 'verifiedMainDriverUsesContext(' in main
           assert 'driver==verifiedApiDriver()' in main
           assert 'getContextId' in inspector and 'getSettings' in inspector
