@@ -3,7 +3,7 @@ package com.omnigate.integrated;
 import android.content.Context;
 
 /**
- * The original immutable WebDriver does NOT inherit an auxiliary Gecko slot.
+ * Only a verified original MainActivity/OverlayService API owner may send.\n * The original immutable WebDriver does NOT inherit an auxiliary Gecko slot.
  * A chosen primary target blocks all other webpage-adapter model submissions
  * until exact context+provider+socket-owner proof. Claude's own API bypasses
  * this *native* browser context check, not any Claude risk/throttle circuit.
@@ -18,10 +18,10 @@ final class MainAccountRequestGuard {
             return MainAccountRoutePolicy.decide(false,null,channel,false,false);
         if(!t.provider.equals(channel))
             return MainAccountRoutePolicy.decide(true,t.provider,channel,false,false);
-        boolean verified=OriginalCoreBridge.verifiedMainDriverUsesContext(
+        boolean verified=OriginalCoreBridge.verifiedActiveDriverUsesContext(
             t.provider,t.contextId);
         return MainAccountRoutePolicy.decide(true,t.provider,channel,
-            OriginalCoreBridge.isExactMainApiOwner(),verified);
+            OriginalCoreBridge.isExactActiveApiOwner(),verified);
     }
     static String state(Context c){
         try{
