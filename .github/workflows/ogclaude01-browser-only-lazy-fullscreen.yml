@@ -52,6 +52,18 @@ jobs:
           assert 'private void setFullscreen(boolean enabled)' in browser
           assert 'fullscreenExit.setOnClickListener(v->setFullscreen(false))' in browser
           assert 'View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY' in browser
+          assert 'Dialog(host,android.R.style.Theme_Material_NoActionBar)' in browser
+          assert 'WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE' in browser
+          assert 'controller.hide(WindowInsets.Type.systemBars())' in browser
+          assert 'controller.show(WindowInsets.Type.systemBars())' in browser
+          assert 'w.setDecorFitsSystemWindows(false)' in browser
+          assert 'LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS' in browser
+          assert 'root.setOnApplyWindowInsetsListener' in browser
+          assert 'private void applyBrowserInsets(WindowInsets insets)' in browser
+          assert 'root.setPadding(0,0,0,0)' in browser
+          assert 'View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN' in browser
+          assert 'display.addView((View)visual,0' in browser
+          assert 'fullscreenExit.setContentDescription("退出全屏")' in browser
           assert 'display.addView((View)visual,0' in browser
           assert 'if(AccountBrowserSlots.nativeExecutorSupported(provider))' in browser
           assert 'if(!AccountBrowserSlots.nativeExecutorSupported(provider))' in browser

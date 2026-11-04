@@ -8,6 +8,11 @@ import android.graphics.Color;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
+import android.graphics.Insets;
+import android.view.DisplayCutout;
 import android.widget.Button;
 import android.widget.EditText;
 import android.text.InputType;
@@ -35,6 +40,7 @@ final class IsolatedGeckoBrowser {
     private final EditText addressInput;
     private String currentUrl;
     private boolean fullscreenMode;
+    private int originalCutoutMode=-1;
     private final java.util.IdentityHashMap<View,Integer> originalChromeVisibility=
         new java.util.IdentityHashMap<>();
     private final TextView state;
@@ -135,7 +141,19 @@ final class IsolatedGeckoBrowser {
     }
     private IsolatedGeckoBrowser(Activity host,String provider,int slot){
         this.host=host;this.provider=provider;this.startingSlot=slot;
-        dialog=new Dialog(host);
+        // Not a floating alert window: use a genuine edge-to-edge screen
+        // surface so the GeckoView can occupy all pixels in immersive mode.
+        dialog=new Dialog(host,android.R.style.Theme_Material_NoActionBar){
+            @Override public void onWindowFocusChanged(boolean focused){
+                super.onWindowFocusChanged(focused);
+                if(focused && fullscreenMode){
+                    Window window=getWindow();
+                    if(window!=null)window.getDecorView().post(()->{
+                        if(fullscreenMode)applyFullscreenWindow(true);
+                    });
+                }
+            }
+        };
         root=new LinearLayout(host);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(host,12),dp(host,12),dp(host,12),dp(host,8));
@@ -276,7 +294,20 @@ final class IsolatedGeckoBrowser {
         footer.addView(fullscreen,new LinearLayout.LayoutParams(0,-2,1.8f));
         footer.addView(close,new LinearLayout.LayoutParams(0,-2,1f));
         root.addView(footer);
+        root.setFitsSystemWindows(false);
+        root.setOnApplyWindowInsetsListener((view,insets)->{
+            applyBrowserInsets(insets);
+            return insets;
+        });
         dialog.setContentView(root);
+        Window browserWindow=dialog.getWindow();
+        if(browserWindow!=null){
+            browserWindow.setBackgroundDrawable(
+                new android.graphics.drawable.ColorDrawable(0xFF0B1024));
+            browserWindow.getDecorView().setPadding(0,0,0,0);
+            browserWindow.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            browserWindow.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
+        }
         dialog.setOnDismissListener(v->{
             if(fullscreenMode)setFullscreen(false);
             releaseSession();
@@ -290,7 +321,10 @@ final class IsolatedGeckoBrowser {
             return false;
         });
     }
-    /** A full-screen user-selected browser, not a second background model. */
+    /**
+     * Full-screen means a non-floating, edge-to-edge Window, not simply
+     * hiding OmniGate buttons inside a dialog-sized viewport.
+     */
     private void setFullscreen(boolean enabled){
         if(fullscreenMode==enabled)return;
         fullscreenMode=enabled;
@@ -310,17 +344,103 @@ final class IsolatedGeckoBrowser {
         }
         fullscreenExit.setVisibility(enabled?View.VISIBLE:View.GONE);
         fullscreenAddress.setVisibility(enabled?View.VISIBLE:View.GONE);
-        int padding=enabled?0:dp(host,12);
-        root.setPadding(padding,padding,padding,enabled?0:dp(host,8));
+        applyFullscreenWindow(enabled);
+    }
+    private void applyFullscreenWindow(boolean enabled){
         Window w=dialog.getWindow();
-        if(w!=null){
-            if(enabled)w.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            else w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
-            w.getDecorView().setSystemUiVisibility(enabled?
+        if(w==null)return;
+        // This is our own Window; no flags or bars on the host Activity change.
+        w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT);
+        w.getDecorView().setPadding(0,0,0,0);
+        if(android.os.Build.VERSION.SDK_INT>=28){
+            WindowManager.LayoutParams attributes=w.getAttributes();
+            if(enabled){
+                if(originalCutoutMode<0)
+                    originalCutoutMode=attributes.layoutInDisplayCutoutMode;
+                attributes.layoutInDisplayCutoutMode=
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+            }else if(originalCutoutMode>=0){
+                attributes.layoutInDisplayCutoutMode=originalCutoutMode;
+                originalCutoutMode=-1;
+            }
+            w.setAttributes(attributes);
+        }
+        if(android.os.Build.VERSION.SDK_INT>=30){
+            // Android 15+ enforces edge-to-edge; explicitly handle insets below.
+            w.setDecorFitsSystemWindows(false);
+            WindowInsetsController controller=w.getInsetsController();
+            if(controller!=null){
+                controller.setSystemBarsBehavior(
+                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                if(enabled)controller.hide(WindowInsets.Type.systemBars());
+                else controller.show(WindowInsets.Type.systemBars());
+            }
+        }else{
+            int layout=View.SYSTEM_UI_FLAG_LAYOUT_STABLE|
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+            int hidden=View.SYSTEM_UI_FLAG_FULLSCREEN|
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY:View.SYSTEM_UI_FLAG_VISIBLE);
-            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT);
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+            w.getDecorView().setSystemUiVisibility(layout|(enabled?hidden:0));
+            if(enabled)w.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+            else w.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        }
+        // Recompute normal-mode safe areas after restoring system bars.
+        w.getDecorView().requestApplyInsets();
+        root.requestLayout();
+    }
+    private void applyBrowserInsets(WindowInsets insets){
+        int barLeft=0,barTop=0,barRight=0,barBottom=0;
+        int cutLeft=0,cutTop=0,cutRight=0,cutBottom=0;
+        if(android.os.Build.VERSION.SDK_INT>=30){
+            Insets bars=insets.getInsets(WindowInsets.Type.systemBars());
+            Insets cut=insets.getInsets(WindowInsets.Type.displayCutout());
+            barLeft=bars.left;barTop=bars.top;
+            barRight=bars.right;barBottom=bars.bottom;
+            cutLeft=cut.left;cutTop=cut.top;
+            cutRight=cut.right;cutBottom=cut.bottom;
+        }else{
+            barLeft=insets.getSystemWindowInsetLeft();
+            barTop=insets.getSystemWindowInsetTop();
+            barRight=insets.getSystemWindowInsetRight();
+            barBottom=insets.getSystemWindowInsetBottom();
+            if(android.os.Build.VERSION.SDK_INT>=28){
+                DisplayCutout cut=insets.getDisplayCutout();
+                if(cut!=null){
+                    cutLeft=cut.getSafeInsetLeft();cutTop=cut.getSafeInsetTop();
+                    cutRight=cut.getSafeInsetRight();cutBottom=cut.getSafeInsetBottom();
+                }
+            }
+        }
+        if(fullscreenMode){
+            // Website content fills the entire display; only the tiny controls
+            // stay out of the display cutout, not the whole Gecko viewport.
+            root.setPadding(0,0,0,0);
+        }else{
+            root.setPadding(
+                dp(host,12)+Math.max(barLeft,cutLeft),
+                dp(host,12)+Math.max(barTop,cutTop),
+                dp(host,12)+Math.max(barRight,cutRight),
+                dp(host,8)+Math.max(barBottom,cutBottom));
+        }
+        positionFullscreenControls(cutTop,cutRight);
+    }
+    private void positionFullscreenControls(int cutTop,int cutRight){
+        int top=dp(host,8)+cutTop;
+        int right=dp(host,8)+cutRight;
+        FrameLayout.LayoutParams exit=(FrameLayout.LayoutParams)
+            fullscreenExit.getLayoutParams();
+        if(exit.topMargin!=top || exit.rightMargin!=right){
+            exit.topMargin=top;exit.rightMargin=right;
+            fullscreenExit.setLayoutParams(exit);
+        }
+        FrameLayout.LayoutParams url=(FrameLayout.LayoutParams)
+            fullscreenAddress.getLayoutParams();
+        if(url.topMargin!=top || url.rightMargin!=right+dp(host,42)){
+            url.topMargin=top;url.rightMargin=right+dp(host,42);
+            fullscreenAddress.setLayoutParams(url);
         }
     }
 
@@ -331,10 +451,18 @@ final class IsolatedGeckoBrowser {
         entry.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
         entry.setText(currentUrl==null?AccountBrowserSlots.home(provider):currentUrl);
         entry.selectAll();
-        new AlertDialog.Builder(host).setTitle("在当前浏览器中打开网址")
+        AlertDialog prompt=new AlertDialog.Builder(host).setTitle("在当前浏览器中打开网址")
             .setMessage("仅支持 HTTP/HTTPS。验证码需自行查看和填写。")
             .setView(entry).setNegativeButton("取消",null)
-            .setPositiveButton("打开",(d,w)->navigateTo(entry.getText().toString())).show();
+            .setPositiveButton("打开",(d,w)->navigateTo(entry.getText().toString())).create();
+        prompt.setOnDismissListener(v->{
+            Window w=dialog.getWindow();
+            if(fullscreenMode && w!=null)
+                w.getDecorView().post(()->{
+                    if(fullscreenMode)applyFullscreenWindow(true);
+                });
+        });
+        prompt.show();
     }
     private void navigateTo(String typed){
         if(session==null){state.setText("未打开账号浏览器，不进行后台导航");return;}
@@ -410,8 +538,17 @@ final class IsolatedGeckoBrowser {
     private void show(){
         dialog.show();
         Window w=dialog.getWindow();
-        if(w!=null)w.setLayout(
-            ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT);
+        if(w!=null){
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT);
+            if(android.os.Build.VERSION.SDK_INT>=30)
+                w.setDecorFitsSystemWindows(false);
+            else w.getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE|
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            w.getDecorView().requestApplyInsets();
+        }
         renderTabs();
         refreshLocalBudget();
         switchTo(startingSlot);
