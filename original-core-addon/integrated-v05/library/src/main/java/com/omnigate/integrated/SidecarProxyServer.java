@@ -159,6 +159,7 @@ public final class SidecarProxyServer {
         volatile long nativeSseDoneMs=-1;
         volatile int nativeSseControlEvents=0;
         volatile int nativeSseUnparsedEvents=0;
+        volatile String admissionRejection="none";
         volatile String nativeEmptyRecovery="not_applicable";
         volatile int nativeRecoveredContentFrames=0;
         volatile long nativeFirstRecoveredContentMs=-1;
@@ -167,6 +168,7 @@ public final class SidecarProxyServer {
                 .put("upstreamKind",upstreamKind)
                 .put("responseMode",responseMode).put("error",error)
                 .put("upstreamHttp",upstreamCode).put("downstreamHttp",downstreamCode)
+                .put("admissionRejection",admissionRejection)
                 .put("clientRequestedStream",clientStream)
                 .put("earlyLiveDeltaFrames",earlyLiveDeltaFrames)
                 .put("firstEarlyLiveDeltaMs",firstEarlyLiveDeltaMs)
@@ -489,6 +491,7 @@ public final class SidecarProxyServer {
                 return;
             }
             if (!isUpstreamReachable()) {
+                traceAdmissionRejection("native_api_not_listening");
                 writeJson(out, 503, new JSONObject()
                     .put("error", "native_api_unavailable")
                     .put("message", "Original AI Gateway native API is not listening")
@@ -712,27 +715,49 @@ public final class SidecarProxyServer {
      * outbound submission, after authentication/model/owner/media validation.
      * Inexact Token totals are never fabricated for webpage-backed adapters.
      */
+    /** Constant-only reject reason: intentionally excludes user text and secrets. */
+    private static void traceAdmissionRejection(String code){
+        ProxyTrace current=CURRENT_TRACE.get();
+        if(current!=null)current.admissionRejection=code;
+    }
+
     private boolean admitLocalHourlySubmission(
             BufferedOutputStream out,String channel)
             throws IOException,org.json.JSONException {
-        try{
-            // Guard immediately before the first possible outbound model
-            // submission. Merely choosing an auxiliary Gecko slot is NOT
-            // permission to send on the original WebDriver session.
-            MainAccountRoutePolicy.Decision route=MainAccountRequestGuard.evaluate(
+        // These are separate failure domains. A broken account binding
+        // is NEVER a local budget failure and must NEVER be auto-retried.
+        final MainAccountRoutePolicy.Decision route;
+        try {
+            route=MainAccountRequestGuard.evaluate(
                 GatewayApp.applicationContext(),channel);
-            if(!route.allowed){
-                writeJson(out,409,new JSONObject().put("error",new JSONObject()
-                    .put("type","omnigate_main_account_guard")
-                    .put("code","main_execution_context_not_bound")
-                    .put("detail",route.outcome.name())
-                    .put("message","Chosen isolated browser profile is not the verified "+
-                        "native 8787 execution session; nothing was submitted")));
-                return false;
-            }
+        }catch(RuntimeException invalidBinding){
+            traceAdmissionRejection("main_target_validation_unavailable");
+            writeJson(out,409,new JSONObject().put("error",new JSONObject()
+                .put("type","omnigate_main_account_guard")
+                .put("code","main_target_validation_unavailable")
+                .put("detail","TARGET_STATE_UNAVAILABLE")
+                .put("message","Local primary-account binding cannot be verified; "+
+                    "request not submitted. Check selected account and native owner.")));
+            return false;
+        }
+        if(!route.allowed){
+            traceAdmissionRejection("main_account_"+route.outcome.name());
+            JSONObject owner=OriginalCoreBridge.diagnoseActiveNativeOwner();
+            writeJson(out,409,new JSONObject().put("error",new JSONObject()
+                .put("type","omnigate_main_account_guard")
+                .put("code","main_execution_context_not_bound")
+                .put("detail",route.outcome.name())
+                .put("owner_route",owner.optString("route","unknown"))
+                .put("handoff_status",OriginalCoreBridge.handoffStatus())
+                .put("message","Chosen isolated browser profile is not the verified "+
+                    "native 8787 execution session; nothing was submitted")));
+            return false;
+        }
+        try {
             LocalHourlyApiQuota.Decision decision=LocalHourlyApiQuota.admit(
                 GatewayApp.applicationContext(),channel,System.currentTimeMillis());
             if(decision.allowed)return true;
+            traceAdmissionRejection("local_hour_request_limit");
             writeJson(out,429,new JSONObject().put("error",new JSONObject()
                 .put("type","omnigate_local_hour_budget")
                 .put("code",decision.code)
@@ -741,6 +766,7 @@ public final class SidecarProxyServer {
                 .put("retry_after_seconds",decision.retrySeconds)));
             return false;
         }catch(RuntimeException unavailable){
+            traceAdmissionRejection("local_hour_budget_storage_unavailable");
             writeJson(out,503,new JSONObject().put("error",new JSONObject()
                 .put("type","omnigate_local_hour_budget")
                 .put("code","local_hour_budget_unavailable")
@@ -748,6 +774,7 @@ public final class SidecarProxyServer {
             return false;
         }
     }
+
     private void proxyToFrozenCore(Request request, BufferedOutputStream clientOut,
             boolean titleRequest,UpstreamRiskCircuit activeRisk)
             throws IOException, org.json.JSONException {
