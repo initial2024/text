@@ -751,24 +751,29 @@ public final class OriginalCoreBridge {
             }
             return handoffState;
         }
-        // The overlay may own port 1601 OR the previous migrated 1602.
-        // Do not assume a missing 1601 listener means it is safe to stop
-        // the overlay's private runtime. User consent is still required.
-        if(originalHostAlive()){
-            try {
-                JSONObject current=inspectNativeAnswerForUserRequest();
-                JSONObject page=diagnoseCurrentPage();
-                if(current.optBoolean("generating",true) ||
-                    page.optBoolean("generationRaw",false) ||
-                    page.optBoolean("autoRolloverActive",false)){
-                    handoffState="拒绝接管：主网页仍可能正在生成";
-                    return handoffState;
-                }
-            }catch(Throwable e){
-                handoffState="拒绝接管：主界面状态未能核验("+
-                    e.getClass().getSimpleName()+")";
+        // A live OverlayService can hold the original API while the
+        // MainActivity has a stale, disconnected WebDriver. Inspect ONLY
+        // the verified socket owner's native response and Gecko page.
+        JSONObject owner=diagnoseActiveNativeOwner();
+        if(!owner.optBoolean("verified",false) ||
+            !"overlay".equals(owner.optString("ownerKind",""))){
+            handoffState="拒绝接管：悬浮模型不是唯一已验证的原 API 监听者";
+            return handoffState;
+        }
+        try{
+            JSONObject current=inspectVerifiedApiAnswer();
+            JSONObject page=diagnoseVerifiedApiPage();
+            if(!current.has("generating") || !page.has("generationRaw") ||
+                current.optBoolean("generating",true) ||
+                page.optBoolean("generationRaw",true) ||
+                page.optBoolean("autoRolloverActive",false)){
+                handoffState="拒绝接管：真正持有 API 的悬浮网页仍在生成或状态未知";
                 return handoffState;
             }
+        }catch(Throwable unknown){
+            handoffState="拒绝接管：悬浮窗生成状态不能核验("+
+                unknown.getClass().getSimpleName()+")";
+            return handoffState;
         }
         handoffOldPort=configuredPort();
         if(handoffOldPort<1024 || handoffOldPort==SidecarProxyServer.LISTEN_PORT) {
@@ -789,6 +794,13 @@ public final class OriginalCoreBridge {
                 ()->completeMainOwnerHandoff(live),650);
         }
         try {
+            JSONObject confirm=diagnoseActiveNativeOwner();
+            if(!confirm.optBoolean("verified",false) ||
+                !"overlay".equals(confirm.optString("ownerKind",""))){
+                handoffPending.set(false);
+                handoffState="接管已取消：操作前原生 API 归属发生变化";
+                return handoffState;
+            }
             Intent intent=new Intent();
             intent.setClassName(caller.getPackageName(),
                 "com.deepseek2.app.ui.OverlayService");
