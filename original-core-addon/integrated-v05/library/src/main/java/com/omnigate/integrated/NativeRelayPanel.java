@@ -93,7 +93,9 @@ public final class NativeRelayPanel {
 
         TextView title=text(a,"OmniGate · 我的公网穿透",18,Color.WHITE);
         title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);brand.addView(title);
-        TextView addr=text(a,GatewayApp.OWN_PUBLIC_BASE+"/v1",
+        TextView addr=text(a,GatewayApp.relayBaseUrl().isEmpty()
+            ? "公网地址未配置 · 点击配置"
+            : "公网地址已保存到本机",
             12,0xFF9FE7F2);addr.setPadding(0,dp(a,8),0,dp(a,9));
         addr.setTextIsSelectable(true);brand.addView(addr);
         Switch enabled=new Switch(a);
@@ -107,8 +109,7 @@ public final class NativeRelayPanel {
         Button settings=new Button(a);settings.setAllCaps(false);
         settings.setText("配置 / 状态 / API Key");
         brand.addView(settings);
-        settings.setOnClickListener(v->a.startActivity(
-            new Intent(a,CompatSettingsActivity.class)));
+        settings.setOnClickListener(v->RelayQuickSettings.show(a));
         Button legacy=new Button(a);legacy.setAllCaps(false);
         legacy.setText("展开原版第三方隧道（与上述 Relay 独立）");
         brand.addView(legacy);
@@ -124,7 +125,7 @@ public final class NativeRelayPanel {
         // Retain a reference while this new view tree belongs to this Activity.
         brand.setTag(h);
         enabled.setOnCheckedChangeListener((button,checked)->{
-            if(checked && GatewayApp.relayKey().length()<24){
+            if(checked && (GatewayApp.relayKey().length()<24 || GatewayApp.relayBaseUrl().isEmpty())){
                 button.setOnCheckedChangeListener(null);
                 button.setChecked(false);
                 Object saved=button.getTag();
@@ -136,7 +137,7 @@ public final class NativeRelayPanel {
                     .setMessage("请先在 OmniGate 高级设置中保存你之前的 Relay 配对 Key。"+
                         "不会使用原版第三方隧道的密钥。")
                     .setPositiveButton("打开设置",(dialog,which)->
-                        a.startActivity(new Intent(a,CompatSettingsActivity.class)))
+                        RelayQuickSettings.show(a))
                     .setNegativeButton("取消",null).show();
                 return;
             }
@@ -144,7 +145,7 @@ public final class NativeRelayPanel {
         });
         enabled.setTag((CompoundButton.OnCheckedChangeListener)
             (button,checked)->{
-                if(checked && GatewayApp.relayKey().length()<24) {
+                if(checked && (GatewayApp.relayKey().length()<24 || GatewayApp.relayBaseUrl().isEmpty())) {
                     button.setOnCheckedChangeListener(null);
                     button.setChecked(false);
                     Object saved=button.getTag();
@@ -154,7 +155,7 @@ public final class NativeRelayPanel {
                     new AlertDialog.Builder(a).setTitle("Relay 未配置")
                         .setMessage("请在高级设置中保存 OmniGate Relay 配对 Key。")
                         .setPositiveButton("打开设置",(dialog,which)->
-                            a.startActivity(new Intent(a,CompatSettingsActivity.class)))
+                            RelayQuickSettings.show(a))
                         .setNegativeButton("取消",null).show();
                 } else setEnabled(a,h,checked);
             });
