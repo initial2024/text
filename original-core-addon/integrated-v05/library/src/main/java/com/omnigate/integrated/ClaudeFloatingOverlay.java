@@ -32,7 +32,9 @@ public final class ClaudeFloatingOverlay {
     private static LinearLayout root,body;
     private static FrameLayout viewport;
     private static TextView caption;
-    private static Button account,fold;
+    private static Button account,fold,closeControl;
+    private static boolean inputFocusHeld;
+    private static final int BUBBLE_SIZE_DP=52;
     private static Object session,geckoView;
     private static int selected=-1;
     private static boolean minimized;
@@ -73,7 +75,8 @@ public final class ClaudeFloatingOverlay {
         IsolatedGeckoBrowser.closeActiveBrowser();
         try{
             if(!showing())create(host.getApplicationContext());
-            if(minimized)setMinimized(false);
+            // Keep the small non-focusable bubble on top of other apps.
+            // Expanding the page must be an explicit user tap.
             openAccount(slot);
         }catch(Throwable error){
             close();
@@ -88,10 +91,12 @@ public final class ClaudeFloatingOverlay {
         int screen=app.getResources().getDisplayMetrics().widthPixels;
         int height=app.getResources().getDisplayMetrics().heightPixels;
         window=new WindowManager.LayoutParams(
-            Math.min(screen-dp(app,20),dp(app,430)),
-            Math.max(dp(app,355),Math.round(height*.63f)),
+            Math.min(Math.round(screen*.78f),dp(app,340)),
+            Math.max(dp(app,285),Math.round(height*.50f)),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH|
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT);
         window.gravity=Gravity.TOP|Gravity.START;
@@ -102,6 +107,18 @@ public final class ClaudeFloatingOverlay {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(app,5),dp(app,5),dp(app,5),dp(app,5));
         root.setBackgroundColor(0xFF11192E);
+        // Tapping any other app always releases the IME focus previously
+        // acquired for the Claude address field or Gecko text input.
+        root.setOnTouchListener((v,event)->{
+            if(event.getActionMasked()==MotionEvent.ACTION_OUTSIDE){
+                setOverlayFocusable(false);
+                return true;
+            }
+            return false;
+        });
+        root.getViewTreeObserver().addOnWindowFocusChangeListener(hasFocus->{
+            if(!hasFocus && inputFocusHeld)setOverlayFocusable(false);
+        });
         LinearLayout title=new LinearLayout(app);
         title.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(title,new LinearLayout.LayoutParams(-1,dp(app,48)));
@@ -132,11 +149,42 @@ public final class ClaudeFloatingOverlay {
         title.addView(account,new LinearLayout.LayoutParams(dp(app,76),dp(app,42)));
         account.setOnClickListener(v->showAccounts());
         fold=button(app,"—");
-        title.addView(fold,new LinearLayout.LayoutParams(dp(app,40),dp(app,42)));
+        title.addView(fold,new LinearLayout.LayoutParams(dp(app,42),dp(app,42)));
+        fold.setContentDescription("收起或展开 Claude 悬浮窗");
+        // A collapsed bubble is draggable without forcing keyboard focus.
+        final float[] handleDown=new float[2];
+        final int[] handlePos=new int[2];
+        final boolean[] dragged=new boolean[1];
+        fold.setOnTouchListener((v,event)->{
+            switch(event.getActionMasked()){
+                case MotionEvent.ACTION_DOWN:
+                    handleDown[0]=event.getRawX();handleDown[1]=event.getRawY();
+                    handlePos[0]=window.x;handlePos[1]=window.y;
+                    dragged[0]=false;return true;
+                case MotionEvent.ACTION_MOVE:
+                    float dx=event.getRawX()-handleDown[0];
+                    float dy=event.getRawY()-handleDown[1];
+                    if(Math.abs(dx)>dp(app,7)||Math.abs(dy)>dp(app,7))
+                        dragged[0]=true;
+                    if(dragged[0]){
+                        int maxX=Math.max(0,app.getResources().getDisplayMetrics().widthPixels-window.width);
+                        int maxY=Math.max(0,app.getResources().getDisplayMetrics().heightPixels-window.height);
+                        window.x=Math.max(0,Math.min(maxX,handlePos[0]+Math.round(dx)));
+                        window.y=Math.max(0,Math.min(maxY,handlePos[1]+Math.round(dy)));
+                        manager.updateViewLayout(root,window);
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    if(!dragged[0])v.performClick();
+                    return true;
+                case MotionEvent.ACTION_CANCEL:return true;
+                default:return false;
+            }
+        });
         fold.setOnClickListener(v->setMinimized(!minimized));
-        Button close=button(app,"×");
-        title.addView(close,new LinearLayout.LayoutParams(dp(app,40),dp(app,42)));
-        close.setOnClickListener(v->close());
+        closeControl=button(app,"×");
+        title.addView(closeControl,new LinearLayout.LayoutParams(dp(app,38),dp(app,42)));
+        closeControl.setOnClickListener(v->close());
         body=new LinearLayout(app);body.setOrientation(LinearLayout.VERTICAL);
         root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout address=new LinearLayout(app);
@@ -147,6 +195,11 @@ public final class ClaudeFloatingOverlay {
         url.setInputType(android.text.InputType.TYPE_CLASS_TEXT|
             android.text.InputType.TYPE_TEXT_VARIATION_URI);
         address.addView(url,new LinearLayout.LayoutParams(0,-1,1));
+        url.setOnTouchListener((v,event)->{
+            if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
+                setOverlayFocusable(true);
+            return false;
+        });
         Button go=button(app,"前往");address.addView(go,
             new LinearLayout.LayoutParams(dp(app,52),dp(app,41)));
         go.setOnClickListener(v->navigate(url.getText().toString()));
@@ -161,6 +214,26 @@ public final class ClaudeFloatingOverlay {
         reload.setOnClickListener(v->callSession("reload"));
         home.setOnClickListener(v->navigate(AccountBrowserSlots.home("claude")));
         manager.addView(root,window);
+        setMinimized(true); // Open as a small, non-IME-stealing bubble.
+    }
+    private static void setOverlayFocusable(boolean enabled){
+        if(window==null||manager==null||root==null)return;
+        if(minimized)enabled=false;
+        if(inputFocusHeld==enabled)return;
+        inputFocusHeld=enabled;
+        if(enabled){
+            window.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            window.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+        }else{
+            window.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            android.view.inputmethod.InputMethodManager ime=
+                (android.view.inputmethod.InputMethodManager)
+                app.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if(ime!=null)ime.hideSoftInputFromWindow(root.getWindowToken(),0);
+            root.clearFocus();
+        }
+        try{manager.updateViewLayout(root,window);}
+        catch(RuntimeException ignored){}
     }
     private static void showAccounts(){
         if(account==null)return;
@@ -182,6 +255,7 @@ public final class ClaudeFloatingOverlay {
             }
             return true;
         });
+        menu.setOnDismissListener(popup->setOverlayFocusable(false));
         menu.show();
     }
     private static void openAccount(int slot) throws Exception{
@@ -212,6 +286,13 @@ public final class ClaudeFloatingOverlay {
         if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
         geckoView=visual;
         viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
+        ((View)visual).setOnTouchListener((v,event)->{
+            // GeckoView needs focus to open its own soft keyboard. It should
+            // not retain that focus once the user taps outside or folds away.
+            if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
+                setOverlayFocusable(true);
+            return false;
+        });
         viewport.addView((View)visual,new FrameLayout.LayoutParams(-1,-1));
         AccountBrowserStore.select(app,"claude",slot);
         selected=slot;
@@ -243,12 +324,31 @@ public final class ClaudeFloatingOverlay {
     private static void setMinimized(boolean value){
         if(root==null||manager==null)return;
         minimized=value;
+        if(value){
+            // Releasing the overlay focus allows the underlying app to use
+            // its own keyboard. The GeckoSession and login remain alive.
+            inputFocusHeld=true;
+            setOverlayFocusable(false);
+        }else{
+            // Expanded browser starts passive; text fields acquire focus
+            // only following an intentional touch inside the overlay.
+            inputFocusHeld=true;
+            setOverlayFocusable(false);
+        }
         body.setVisibility(value?View.GONE:View.VISIBLE);
-        window.height=value?dp(app,56):
-            Math.max(dp(app,355),Math.round(app.getResources().getDisplayMetrics().heightPixels*.63f));
-        window.width=value?dp(app,238):
-            Math.min(app.getResources().getDisplayMetrics().widthPixels-dp(app,20),dp(app,430));
-        fold.setText(value?"+":"—");
+        caption.setVisibility(value?View.GONE:View.VISIBLE);
+        account.setVisibility(value?View.GONE:View.VISIBLE);
+        closeControl.setVisibility(value?View.GONE:View.VISIBLE);
+        window.height=value?dp(app,BUBBLE_SIZE_DP):
+            Math.max(dp(app,285),Math.round(app.getResources().getDisplayMetrics().heightPixels*.50f));
+        window.width=value?dp(app,BUBBLE_SIZE_DP):
+            Math.min(Math.round(app.getResources().getDisplayMetrics().widthPixels*.78f),dp(app,340));
+        int maxX=Math.max(0,app.getResources().getDisplayMetrics().widthPixels-window.width);
+        int maxY=Math.max(0,app.getResources().getDisplayMetrics().heightPixels-window.height);
+        window.x=Math.max(0,Math.min(maxX,window.x));
+        window.y=Math.max(0,Math.min(maxY,window.y));
+        fold.setText(value?"C":"—");
+        fold.setContentDescription(value?"展开 Claude 网页悬浮窗":"收起 Claude 网页悬浮窗");
         manager.updateViewLayout(root,window);
     }
     private static void releaseSession(){
@@ -272,6 +372,7 @@ public final class ClaudeFloatingOverlay {
             catch(RuntimeException ignored){}
         }
         root=null;body=null;viewport=null;caption=null;account=null;fold=null;
-        window=null;manager=null;app=null;selected=-1;minimized=false;
+        closeControl=null;window=null;manager=null;app=null;
+        selected=-1;minimized=false;inputFocusHeld=false;
     }
 }
