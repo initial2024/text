@@ -32,7 +32,7 @@ public final class ClaudeFloatingOverlay {
     private static LinearLayout root,body;
     private static FrameLayout viewport;
     private static TextView caption;
-    private static Button account,fold,closeControl,fullscreenControl;
+    private static Button account,fold,closeControl,fullscreenControl,fullscreenFooter;
     // Full-window is a geometry change of the SAME GeckoView and GeckoSession.
     // Never reload the URL or close the session for a size/mode transition.
     private static boolean fullscreenWindow;
@@ -217,11 +217,14 @@ public final class ClaudeFloatingOverlay {
         LinearLayout footer=new LinearLayout(app);
         body.addView(footer,new LinearLayout.LayoutParams(-1,dp(app,42)));
         Button back=button(app,"后退"),reload=button(app,"刷新"),home=button(app,"主页");
-        for(Button b:new Button[]{back,reload,home})
+        fullscreenFooter=button(app,"全屏");
+        fullscreenFooter.setContentDescription("全屏／还原当前 Claude 网页，不刷新");
+        for(Button b:new Button[]{back,reload,home,fullscreenFooter})
             footer.addView(b,new LinearLayout.LayoutParams(0,dp(app,41),1));
         back.setOnClickListener(v->callSession("goBack"));
         reload.setOnClickListener(v->callSession("reload"));
         home.setOnClickListener(v->navigate(AccountBrowserSlots.home("claude")));
+        fullscreenFooter.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
         manager.addView(root,window);
         setMinimized(true); // Open as a small, non-IME-stealing bubble.
     }
@@ -312,7 +315,7 @@ public final class ClaudeFloatingOverlay {
         AccountBrowserStore.select(app,"claude",slot);
         selected=slot;
         account.setText("账号 "+(slot+1)+" ▾");
-        caption.setText("⠿ Claude 网页");
+        caption.setText("Claude · v1.2.4");
         navigate(AccountBrowserSlots.home("claude"));
     }
     private static void navigate(String text){
@@ -387,6 +390,8 @@ public final class ClaudeFloatingOverlay {
         }
         if(fullscreenControl!=null){
             fullscreenControl.setText(fullscreenWindow?"还原":"全屏");
+            if(fullscreenFooter!=null)
+                fullscreenFooter.setText(fullscreenWindow?"还原":"全屏");
             fullscreenControl.setContentDescription(fullscreenWindow
                 ?"还原 Claude 悬浮窗，保留网页"
                 :"返回全屏，保留当前 Claude 网页");
@@ -435,7 +440,8 @@ public final class ClaudeFloatingOverlay {
             catch(RuntimeException ignored){}
         }
         root=null;body=null;viewport=null;caption=null;account=null;fold=null;
-        closeControl=null;fullscreenControl=null;window=null;manager=null;app=null;
+        closeControl=null;fullscreenControl=null;fullscreenFooter=null;
+        window=null;manager=null;app=null;
         selected=-1;minimized=false;fullscreenWindow=false;inputFocusHeld=false;
         compactX=0;compactY=0;
     }
