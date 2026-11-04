@@ -52,6 +52,20 @@ jobs:
           assert 'AccountBrowserStore.contextId(app,"claude",slot)' in floating
           assert 'window.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in floating
           assert 'window.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in floating
+          # Full-window toggle MUST keep the existing GeckoView/GeckoSession.
+          assert 'fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow))' in floating
+          assert 'private static void setFullscreenWindow(boolean enabled)' in floating
+          assert 'private static void applyWindowGeometry()' in floating
+          assert 'window.width=WindowManager.LayoutParams.MATCH_PARENT;' in floating
+          assert 'window.height=WindowManager.LayoutParams.MATCH_PARENT;' in floating
+          assert 'if(selected!=slot || session==null)openAccount(slot);' in floating
+          fullscreen=floating.split('private static void setFullscreenWindow(boolean enabled)',1)[1].split('private static void setMinimized(boolean value)',1)[0]
+          assert 'loadUri' not in fullscreen
+          assert 'openAccount(' not in fullscreen
+          assert 'releaseSession(' not in fullscreen
+          assert 'setSession' not in fullscreen
+          assert 'manager.updateViewLayout(root,window);' in fullscreen
+          assert 'fullscreenControl.setVisibility(value?View.GONE:View.VISIBLE);' in floating
           settings=(p/'CompatSettingsActivity.java').read_text()
           slots=(p/'AccountBrowserSlots.java').read_text()
           main=(p/'MainAccountTargetStore.java').read_text()
