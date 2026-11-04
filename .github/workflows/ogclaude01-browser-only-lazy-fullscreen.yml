@@ -96,7 +96,7 @@ jobs:
           assert 'evaluateJavascript' not in browser
           assert 'setJavaScriptEnabled' not in browser
           assert 'display.addView((View)visual,0' in browser
-          assert 'if(AccountBrowserSlots.nativeExecutorSupported(provider))' in browser
+          assert 'if(AccountBrowserSlots.nativeExecutorSupported(provider)&&!guestWindow)' in browser
           assert 'if(!AccountBrowserSlots.nativeExecutorSupported(provider))' in browser
           assert 'if(AccountBrowserSlots.browserOnly(provider))' in browser
           assert 'IsolatedGeckoBrowser.show(this,"claude")' in settings
