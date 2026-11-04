@@ -55,6 +55,11 @@ jobs:
           assert 'window.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in floating
           # Full-window toggle MUST keep the existing GeckoView/GeckoSession.
           assert 'fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow))' in floating
+          assert 'fullscreenControl=button(app,"全屏");' in floating
+          assert 'fullscreenControl.setText(fullscreenWindow?"还原":"全屏");' in floating
+          assert 'menu.getMenu().add(0,101,101,' in floating
+          assert 'if(item.getItemId()==101)' in floating
+          assert 'setFullscreenWindow(!fullscreenWindow);' in floating
           assert 'private static void setFullscreenWindow(boolean enabled)' in floating
           assert 'private static void applyWindowGeometry()' in floating
           assert 'window.width=WindowManager.LayoutParams.MATCH_PARENT;' in floating
