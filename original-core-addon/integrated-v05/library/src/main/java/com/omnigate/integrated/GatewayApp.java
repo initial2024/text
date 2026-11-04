@@ -7,8 +7,8 @@ import java.util.UUID;
 
 /** Service-owned settings. Does not replace com.deepseek2.app.App. */
 public final class GatewayApp {
-    public static final String OWN_PUBLIC_BASE = "https://gw-33e850180248.claua.de";
-    public static final String OWN_RELAY_WS = "wss://gw-33e850180248.claua.de/__device";
+    // No user-owned domain or credential is embedded in the public APK.
+    // Explicitly supplied HTTPS relay endpoint is kept only on the device.
     private static volatile Context context;
     private static volatile String localApiStatus = "未启动";
     private static volatile String tunnelStatus = "未启动";
@@ -73,17 +73,54 @@ public final class GatewayApp {
         if(s.length()>256||s.contains("\n")||s.contains("\r"))throw new IllegalArgumentException("Invalid upstream key");
         prefs().edit().putString("upstream_api_key",s).apply();
     }
-    public static String customPublicUrl(){return prefs().getString("custom_public_url","");}
-    /** Never auto-verify a custom URL. This is a local configuration candidate only. */
-    public static void setCustomPublicUrl(String v,boolean verified){
-        String s=v==null?"":v.trim();
-        if(!s.isEmpty()&&!s.startsWith("https://"))throw new IllegalArgumentException("HTTPS required");
-        prefs().edit().putString("custom_public_url",s).putBoolean("custom_public_url_verified",verified).apply();
+    public static String relayBaseUrl(){
+        String v=prefs().getString("relay_base_url","");
+        if(!v.isEmpty())return v;
+        // Upgrade old user-entered settings only; do not resurrect any
+        // former compiled-in hostname or mark a new endpoint verified.
+        String previous=prefs().getString("custom_public_url","");
+        return prefs().getBoolean("custom_public_url_verified",false)
+            ? normalizeRelayBase(previous) : "";
     }
-    public static String effectivePublicUrl(){
-        if(prefs().getBoolean("custom_public_url_verified",false)){
-            String s=customPublicUrl();if(!s.isEmpty())return s;
+    public static String normalizeRelayBase(String text){
+        String value=text==null?"":text.trim();
+        if(value.isEmpty())return "";
+        if(value.length()>255)throw new IllegalArgumentException("relay_url_too_long");
+        try{
+            java.net.URI url=new java.net.URI(value);
+            if(!"https".equalsIgnoreCase(url.getScheme()) ||
+                url.getHost()==null || url.getHost().isEmpty() ||
+                url.getRawUserInfo()!=null || url.getRawQuery()!=null ||
+                url.getRawFragment()!=null || url.getPort()!=-1 ||
+                (url.getRawPath()!=null && !url.getRawPath().isEmpty()
+                && !"/".equals(url.getRawPath())))
+                throw new IllegalArgumentException("relay_https_origin_required");
+            String host=url.getHost().toLowerCase(java.util.Locale.ROOT);
+            if("localhost".equals(host)||host.endsWith(".localhost")||
+                "127.0.0.1".equals(host)||"0.0.0.0".equals(host))
+                throw new IllegalArgumentException("relay_public_host_required");
+            return "https://"+host;
+        }catch(java.net.URISyntaxException bad){
+            throw new IllegalArgumentException("relay_url_invalid");
         }
-        return OWN_PUBLIC_BASE;
     }
+    public static void setRelayBaseUrl(String text){
+        String value=normalizeRelayBase(text);
+        prefs().edit().putString("relay_base_url",value)
+            .remove("custom_public_url").remove("custom_public_url_verified")
+            .commit();
+    }
+    public static String effectivePublicUrl(){return relayBaseUrl();}
+    public static String relayWebSocketUrl(){
+        String origin=relayBaseUrl();
+        return origin.isEmpty()?"":"wss://"+origin.substring("https://".length())+"/__device";
+    }
+    /** Legacy setter retained only for source compatibility. Not auto-verified. */
+    public static String customPublicUrl(){return relayBaseUrl();}
+    public static void setCustomPublicUrl(String v,boolean verified){
+        if(verified)setRelayBaseUrl(v);
+        else prefs().edit().putString("custom_public_url",
+            normalizeRelayBase(v)).putBoolean("custom_public_url_verified",false).commit();
+    }
+
 }
