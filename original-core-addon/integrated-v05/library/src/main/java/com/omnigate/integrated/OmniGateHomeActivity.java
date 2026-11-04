@@ -1,6 +1,7 @@
 package com.omnigate.integrated;
 
 import android.app.Activity;
+import android.content.res.Configuration;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Canvas;
@@ -30,6 +31,7 @@ public final class OmniGateHomeActivity extends Activity {
     private static final int VIOLET=0xFF6951F6, CYAN=0xFF56DFE8;
     private static final int MUTED=0xFFADB4D7;
     private LinearLayout page;
+    private ScrollView pageScroll;
     private TextView localStatus, publicStatus, nativeStatus, ownerStatus, accountStatus;
     private boolean checking;
     private int dp(float x){return Math.round(getResources().getDisplayMetrics().density*x);}
@@ -88,7 +90,7 @@ public final class OmniGateHomeActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         FrameLayout root=new FrameLayout(this);root.setBackgroundColor(BG);
         setContentView(root);
-        ScrollView sc=new ScrollView(this);sc.setFillViewport(true);
+        ScrollView sc=new ScrollView(this);pageScroll=sc;sc.setFillViewport(true);
         sc.setVerticalScrollBarEnabled(false);
         root.addView(sc,new FrameLayout.LayoutParams(-1,-1));
         page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
@@ -139,10 +141,12 @@ public final class OmniGateHomeActivity extends Activity {
 
         LinearLayout network=card(page);
         add(network,txt("我的公网穿透",19,Color.WHITE,true),8);
-        add(network,txt(GatewayApp.OWN_PUBLIC_BASE+"/v1",12,CYAN,true),9);
+        add(network,txt(GatewayApp.relayBaseUrl().isEmpty()
+            ? "公网 Relay 地址：尚未配置"
+            : "公网 Relay 地址：已在本机配置（APK 不预置）",12,CYAN,true),9);
         add(network,txt("这是 OmniGate 自有地址。原版页面内的 dpdns.org 属于另一套旧隧道，不会替换或修改 Cloudflare Relay。",12,MUTED,false),13);
         button(network,"打开 Relay 与密钥设置",false,
-            ()->startActivity(new Intent(this,CompatSettingsActivity.class)));
+            ()->RelayQuickSettings.show(this));
         button(network,"重连已授权的 Cloudflare Relay",true,()->{
             if(!GatewayApp.tunnelEnabled()){
                 new AlertDialog.Builder(this)
@@ -150,7 +154,7 @@ public final class OmniGateHomeActivity extends Activity {
                     .setMessage("请在高级配置中确认开启现有 Cloudflare Relay。"+
                         "不会自动打开原版第三方隧道。")
                     .setPositiveButton("前往设置",(d,w)->
-                        startActivity(new Intent(this,CompatSettingsActivity.class)))
+                        RelayQuickSettings.show(this))
                     .setNegativeButton("取消",null).show();
                 return;
             }
@@ -170,6 +174,10 @@ public final class OmniGateHomeActivity extends Activity {
 
         add(page,txt("版本说明 · 原版和 OmniGate 兼容层相互独立；"+
             "409 表示原版会话归属仍未验证，绝不自动截停模型对话。",11,MUTED,false),0);
+        if(b!=null){
+            int y=b.getInt("omnigate_scroll_y",0);
+            sc.post(()->sc.scrollTo(0,Math.max(0,y)));
+        }
 
         // Real home-screen entrance animation, not an APK splash claim.
         header.setAlpha(0f);header.setTranslationY(dp(28));
@@ -183,6 +191,14 @@ public final class OmniGateHomeActivity extends Activity {
         original.setAlpha(0f);original.setTranslationY(dp(45));
         original.animate().alpha(1f).translationY(0).setStartDelay(330)
             .setDuration(480).start();
+    }
+    @Override protected void onSaveInstanceState(Bundle state){
+        if(pageScroll!=null)state.putInt("omnigate_scroll_y",pageScroll.getScrollY());
+        super.onSaveInstanceState(state);
+    }
+    @Override public void onConfigurationChanged(Configuration config){
+        super.onConfigurationChanged(config);
+        if(pageScroll!=null)pageScroll.requestLayout();
     }
     @Override protected void onResume(){
         super.onResume();
