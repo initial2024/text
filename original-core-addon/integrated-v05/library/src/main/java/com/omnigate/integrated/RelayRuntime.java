@@ -27,6 +27,12 @@ public final class RelayRuntime {
             return GatewayApp.tunnelStatus();
         }
         String key=GatewayApp.relayKey();
+        String relayUrl=GatewayApp.relayWebSocketUrl();
+        String publicUrl=GatewayApp.effectivePublicUrl();
+        if(relayUrl.isEmpty() || publicUrl.isEmpty()){
+            GatewayApp.setTunnelStatus("请先在设置中输入自己的 HTTPS Relay 地址");
+            return GatewayApp.tunnelStatus();
+        }
         if(key==null || key.length()<24){
             GatewayApp.setTunnelStatus("Relay 配对 Key 未配置或长度无效");
             return GatewayApp.tunnelStatus();
@@ -38,8 +44,8 @@ public final class RelayRuntime {
         if(relay!=null)return GatewayApp.tunnelStatus();
         GatewayApp.setTunnelStatus("正在连接原有 Cloudflare Relay");
         CloudflareRelayClient candidate=new CloudflareRelayClient(
-            GatewayApp.OWN_RELAY_WS,
-            GatewayApp.effectivePublicUrl(),
+            relayUrl,
+            publicUrl,
             key,
             SidecarProxyServer.LISTEN_PORT,
             GatewayApp::setTunnelStatus);
