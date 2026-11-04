@@ -16,6 +16,30 @@ final class TitleCompat {
         final byte[] body;
         Prepared(byte[] data){body=data;}
     }
+    /**
+     * High-confidence client metadata request only; the system/developer
+     * instruction must match a known background title format. User-role
+     * prompts, even if quoting that text, are not classified.
+     */
+    static boolean isBackgroundTitleRequest(byte[] body){
+        if(body==null||body.length==0||body.length>64*1024)return false;
+        try{
+            JSONObject root=new JSONObject(new String(body,StandardCharsets.UTF_8));
+            JSONArray messages=root.optJSONArray("messages");
+            if(messages==null||messages.length()<2)return false;
+            StringBuilder instructions=new StringBuilder();
+            for(int i=0;i<messages.length();i++){
+                JSONObject msg=messages.optJSONObject(i);
+                if(msg==null)return false;
+                String role=msg.optString("role","");
+                if(("system".equals(role)||"developer".equals(role)) &&
+                   msg.opt("content") instanceof String)
+                    instructions.append(msg.optString("content","")).append(' ');
+            }
+            return AutoTitleIntent.systemInstruction(instructions.toString());
+        }catch(JSONException malformed){return false;}
+    }
+
     static Prepared prepare(byte[] input) throws JSONException {
         if(input==null || input.length==0 || input.length>64*1024)return null;
         JSONObject root;
