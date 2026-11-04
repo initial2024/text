@@ -9,6 +9,9 @@ on:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/NativeGeckoContextInspector.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OriginalCoreBridge.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/TitleCompat.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AutoTitleIntent.java'
+      - 'original-core-addon/integrated-v05/relay-tests/AutoTitleIntentTest.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
       - 'original-core-addon/integrated-v05/relay-tests/MainAccountRoutePolicyTest.java'
@@ -35,6 +38,9 @@ jobs:
           javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/MainAccountRoutePolicy.java" \
             "$R/relay-tests/MainAccountRoutePolicyTest.java"
           java -cp "$OUT" com.omnigate.integrated.MainAccountRoutePolicyTest
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/AutoTitleIntent.java" \
+            "$R/relay-tests/AutoTitleIntentTest.java"
+          java -cp "$OUT" com.omnigate.integrated.AutoTitleIntentTest
           python3 - <<'PY'
           from pathlib import Path
           p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
@@ -43,6 +49,19 @@ jobs:
           ui=(p/'IsolatedGeckoBrowser.java').read_text()
           main=(p/'OriginalCoreBridge.java').read_text()
           inspector=(p/'NativeGeckoContextInspector.java').read_text()
+          title=(p/'TitleCompat.java').read_text()
+          classifier=(p/'AutoTitleIntent.java').read_text()
+          assert 'isBackgroundTitleRequest(byte[] body)' in title
+          assert 'AutoTitleIntent.systemInstruction(' in title
+          assert 'create a concise title for an ai coding-assistant session' in classifier
+          assert 'return only the title on one line' in classifier
+          assert src.index('TitleCompat.isBackgroundTitleRequest(request.body)') < src.index('NATIVE_CHAT_RISK.enter(riskNow)')
+          assert 'browser_background_title_disabled' in src
+          assert '.put("nativeConcurrencyInFlight",NATIVE_CHAT_RISK.inFlight())' in src
+          assert '.put("nativeConcurrencyOwnerRequestId"' in src
+          assert 'ACTIVE_NATIVE_TRACE=CURRENT_TRACE.get()' in src
+          assert 'if(ACTIVE_NATIVE_TRACE==CURRENT_TRACE.get())' in src
+          print('OGMAIN13_BACKGROUND_TITLE_NO_STARVATION_AND_TRACE=PASS_STATIC')
           assert 'MainAccountRequestGuard.evaluate(' in src
           assert src.index('MainAccountRequestGuard.evaluate(') < src.index('LocalHourlyApiQuota.admit(')
           assert 'main_execution_context_not_bound' in src
