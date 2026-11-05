@@ -103,7 +103,7 @@ final class GeckoPageTranslate {
             Object ok=Proxy.newProxyInstance(consumer.getClassLoader(),
                 new Class<?>[]{consumer},(proxy,m,args)->{
                     if("accept".equals(m.getName())){
-                        notify(context,from==null?"已请求恢复原文":"已完成本地翻译");
+                        notify(context,from==null?"已请求恢复原文":"已开始本地翻译");
                     }
                     return proxyMethod(proxy,m,args);
                 });
