@@ -80,7 +80,7 @@ public final class CompatSettingsActivity extends Activity {
 
     private TextView text(String value, int size, int color, boolean bold) {
         TextView v = new TextView(this);
-        v.setText(value);
+        v.setText(OmniGateAppLanguage.tr(this,value));
         v.setTextColor(color);
         v.setTextSize(size);
         if (bold) v.setTypeface(null, Typeface.BOLD);
@@ -107,7 +107,7 @@ public final class CompatSettingsActivity extends Activity {
     private Button button(LinearLayout parent, String label, boolean primary) {
         Button b = new Button(this);
         b.setAllCaps(false);
-        b.setText(label);
+        b.setText(OmniGateAppLanguage.tr(this,label));
         b.setTextSize(13);
         b.setTextColor(primary ? Color.WHITE : 0xFF3D49AE);
         b.setBackground(background(primary ? 0xFF4B43DA : 0xFFEBEEFF, 14, 0));
@@ -127,7 +127,7 @@ public final class CompatSettingsActivity extends Activity {
 
     private Button rowButton(LinearLayout row, String label, boolean primary) {
         Button b = new Button(this);
-        b.setText(label);
+        b.setText(OmniGateAppLanguage.tr(this,label));
         b.setAllCaps(false);
         b.setTextSize(13);
         b.setTextColor(primary ? Color.WHITE : 0xFF3948AB);
