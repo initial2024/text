@@ -29,6 +29,24 @@ public final class MlKitTranslationRuntime {
     private static final int MAX_TEXT=12_000;
     private static final int CHUNK=1_500;
 
+    /** Reflection-safe capability probe with no model download or page read.
+     * This detects partially merged APKs before showing the consent button.
+     * It does not prove models or resources work: device E2E remains required. */
+    public static boolean dependenciesAvailable(){
+        ClassLoader loader=MlKitTranslationRuntime.class.getClassLoader();
+        try{
+            Class.forName("com.google.mlkit.nl.translate.Translation",false,loader);
+            Class.forName("com.google.mlkit.nl.translate.Translator",false,loader);
+            Class.forName("com.google.mlkit.nl.translate.TranslatorOptions",false,loader);
+            Class.forName("com.google.mlkit.common.model.DownloadConditions",false,loader);
+            Class.forName("com.google.android.gms.tasks.Task",false,loader);
+            return true;
+        }catch(ClassNotFoundException | LinkageError missing){
+            return false;
+        }
+    }
+
+
     public static void translate(Context context,String text,String from,String to,
             boolean firstRunDownloadConsent,Consumer<String> onSuccess,
             Consumer<String> onFailure){
