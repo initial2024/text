@@ -1185,6 +1185,7 @@ final class IsolatedGeckoBrowser {
             // Register cleanup ownership before opening; any reflection or
             // display failure must close the original GeckoSession.
             session=created;
+            GeckoPageTranslate.prepareSession(created);
             sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
             Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
             Object visual=viewClass.getConstructor(Context.class).newInstance(host);
