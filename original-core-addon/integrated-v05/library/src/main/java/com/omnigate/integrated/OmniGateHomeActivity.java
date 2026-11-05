@@ -120,6 +120,8 @@ public final class OmniGateHomeActivity extends Activity {
         add(main,accountStatus,9);
         button(main,"一键切换独立账号",true,
             ()->IsolatedGeckoBrowser.showPicker(this));
+        button(main,"多账号管理 · 搜索 / 筛选 / 备注 / 清理",false,
+            ()->AccountManagerUi.show(this));
         button(main,"主执行账号 · 前往原版模型页",false,
             ()->openOriginal("com.deepseek2.app.ui.MainActivity"));
         button(main,"清除主执行目标 · 恢复原版登录路由",false,()->
