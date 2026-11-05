@@ -43,7 +43,7 @@ public final class OmniGateHomeActivity extends Activity {
         g.setCornerRadius(dp(radius));return g;
     }
     private TextView txt(String value,int size,int color,boolean bold){
-        TextView v=new TextView(this);v.setText(value);v.setTextColor(color);
+        TextView v=new TextView(this);v.setText(OmniGateAppLanguage.tr(this,value));v.setTextColor(color);
         v.setTextSize(size);if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         return v;
     }
@@ -58,7 +58,7 @@ public final class OmniGateHomeActivity extends Activity {
     }
     private Button button(LinearLayout to,String label,boolean primary,Runnable action){
         Button b=new Button(this);b.setAllCaps(false);
-        b.setText(label);b.setTextSize(14);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        b.setText(OmniGateAppLanguage.tr(this,label));b.setTextSize(14);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         b.setTextColor(Color.WHITE);
         b.setBackground(primary?gradient(VIOLET,0xFF4742CC,16):background(0xFF262B4E,16));
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(49));p.bottomMargin=dp(9);
@@ -116,6 +116,25 @@ public final class OmniGateHomeActivity extends Activity {
         nativeStatus=txt("原版模型 API：检查中…",13,0xFFBBD5FF,false);add(main,nativeStatus,5);
         ownerStatus=txt("WebDriver 归属：检查中…",12,0xFFFFD18D,false);add(main,ownerStatus,14);
         button(main,"刷新运行状态",true,()->refresh());
+        button(main,"应用界面语言 · 系统设置",false,()->{
+            if(android.os.Build.VERSION.SDK_INT<33){
+                new AlertDialog.Builder(this)
+                    .setMessage("Android 13 之前不提供系统应用语言页面")
+                    .setPositiveButton("确定",null).show();
+                return;
+            }
+            try{
+                Intent settings=new Intent(android.provider.Settings.ACTION_APP_LOCALE_SETTINGS);
+                settings.setData(android.net.Uri.parse("package:"+getPackageName()));
+                startActivity(settings);
+            }catch(RuntimeException e){
+                new AlertDialog.Builder(this)
+                    .setMessage("系统未开放当前应用的语言设置。请检查 Android 版本与应用配置。")
+                    .setPositiveButton("确定",null).show();
+            }
+        });
+        add(main,txt("应用语言由 Android 系统管理；只改变 OmniGate 原生界面语言，不能翻译模型网页。",
+            11,MUTED,false),7);
         accountStatus=txt("账号空间：读取中…",13,CYAN,true);
         add(main,accountStatus,9);
         button(main,"一键切换独立账号",true,
