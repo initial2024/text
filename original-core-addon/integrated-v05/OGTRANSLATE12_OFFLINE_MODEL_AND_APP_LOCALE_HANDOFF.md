@@ -36,3 +36,13 @@
 
 ## Why not shipped
 Current source workflow produces an offline module AAR and a dependency ledger, not complete merged DEX/resources into the v1.2.9 APK. This is deliberately **BLOCKED_PRIVATE_APK_RUNTIME_CLOSURE_AND_DEVICE_E2E**, not success.
+
+## OGTRANSLATE13 — unified default no-reload reader
+- Removed four duplicate "download model" items from the translation menu. Four existing language directions still open the SAME native reading layer.
+- On a fresh language pair, when actual ML Kit dependencies are bundled, the reader displays an in-panel consent control to download the corresponding model over Wi-Fi. No extraction, network download, or translation request is started until that button is clicked.
+- On previously authorized language pairs, the same reader translates immediately with ML Kit. If no offline engine is bundled, the existing Android system translator may be used if available; otherwise the reader gives a clear actionable error. Never claim that an unsigned AAR is a working installed engine.
+- Fullscreen uses an AlertDialog's existing ScrollView + action Button; floating window uses its **existing** WindowManager translationPanel + action Button. Closing or switching account increments translationEpoch, hides the control, and discards late UI responses.
+- The original Gecko session is not navigated, reloaded, restored, reparented or replaced from either default reader path. The optional legacy DOM translator continues under explicit separate consent with a reload warning.
+- When a private APK is being created, preserve **all** v1.2.9 original DEX files, including private classes4.dex; append additional DEX instead of overwriting that file.
+- The exact device-installed APK may be exported locally with `tools/export_installed_omnigate_v129.ps1`. It only reads the APK code; it does not export account/cookie data and never uploads to GitHub. Its SHA-256 **must** match the audited v1.2.9 base or the process stops.
+- Pending mandatory gates: real signed APK with all ML Kit runtime/transitive code and resources; Android 16 per-app language option; actual offline translation of a page after first-time Wi-Fi model download; session, draft, scroll, account and port ownership preservation. No test APK or merge until these pass.
