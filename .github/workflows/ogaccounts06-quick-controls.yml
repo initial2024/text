@@ -1,0 +1,72 @@
+name: OGACCOUNTS06 visible quota + per-slot quick actions
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountQuickSettings.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountManagerUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - '.github/workflows/ogaccounts06-quick-controls.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check visible quota list and single-slot shortcuts
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          d=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          read=lambda f:(d/f).read_text()
+          manager=read('AccountManagerUi.java')
+          quick=read('AccountQuickSettings.java')
+          picker=read('IsolatedGeckoBrowser.java')
+          overlay=read('ClaudeFloatingOverlay.java')
+          metadata=read('AccountMetadataStore.java')
+          # Regression: Android AlertDialog setMessage + setItems hides the list.
+          quota=manager.split('private void mark(Target target)',1)[1].split('private void customQuota(',1)[0]
+          assert '.setItems(choices,' in quota
+          assert '.setMessage(' not in quota
+          q2=quick.split('private static void quota(',1)[1].split('private static void customQuota(',1)[0]
+          assert '.setItems(choices,' in q2
+          assert '.setMessage(' not in q2
+          assert 'AccountMetadataStore.QuotaPreset[] presets' in quota
+          assert 'AccountMetadataStore.QuotaPreset[] presets' in q2
+          assert '"清除额度状态"' in quick
+          # Picker exposes same-account shortcuts, preserving compact rows.
+          assert 'AccountQuickSettings.show(host,provider,index)' in picker
+          assert 'AccountMetadataStore.accountTags(host,provider,slot)' in picker
+          assert 'AccountMetadataStore.status(host,provider,slot,' in picker
+          assert 'ClaudeFloatingOverlay.show(host,provider,index)' in picker
+          assert 'dp(host,49),-1' in picker
+          assert 'dp(host,46)' in picker
+          # Overlay quick form must update current slot only and keep Gecko.
+          assert 'quickControl.setOnClickListener(' in overlay
+          assert 'private static void buildQuickPanel()' in overlay
+          assert 'private static void showQuickSettings()' in overlay
+          assert 'private static void hideQuickSettings()' in overlay
+          assert 'AccountMetadataStore.setAccountInfo(app,selectedProvider,selected,' in overlay
+          assert 'AccountMetadataStore.setQuotaMark(app,selectedProvider,' in overlay
+          assert 'AccountMetadataStore.quotaPresets(app)' in overlay
+          quick_display=overlay.split('private static void showQuickSettings()',1)[1].split('private static void setOverlayFocusable(',1)[0]
+          for danger in ['openAccount(', 'releaseSession(', 'loadUri(', 'navigate(']:
+              assert danger not in quick_display,danger
+          assert 'body.setVisibility(View.GONE);' in quick_display
+          assert 'body.setVisibility(minimized?View.GONE:View.VISIBLE);' in quick_display
+          assert 'setOverlayFocusable(false);' in quick_display
+          assert 'FLAG_NOT_FOCUSABLE' in overlay
+          assert 'AccountMetadataStore.accountTags' in metadata or 'accountTags(' in metadata
+          assert 'String status(Context c,String provider,int slot,long now)' in metadata
+          assert 'clearDataFromHost' not in quick
+          assert 'sendPrompt(' not in quick and 'sendPrompt(' not in overlay
+          assert 'userAgentOverride(' not in overlay and 'userAgentOverride(' not in quick
+          print('OGACCOUNTS06_VISIBLE_QUOTA_DIALOG_NO_MESSAGE_COLLISION=PASS')
+          print('OGACCOUNTS06_PICKER_PER_SLOT_SETTINGS=PASS')
+          print('OGACCOUNTS06_OVERLAY_INLINE_CURRENT_ACCOUNT_ONLY=PASS')
+          print('OGACCOUNTS06_NO_RELOAD_OR_SEND_FROM_QUICK_PANEL=PASS')
+          PY
