@@ -15,6 +15,10 @@ import java.lang.reflect.Proxy;
  */
 final class GeckoOriginalTranslation {
     private GeckoOriginalTranslation(){}
+    // Exactly one legacy Gecko DOM translation operation per owned session.
+    // A second request while one is active must not stack delegate wrappers.
+    private static final java.util.Set<Object> ACTIVE=
+        java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     static void showConsent(Context c,View anchor,Object ownedSession){
         if(c==null||anchor==null||ownedSession==null)return;
         PopupMenu consent=new PopupMenu(c,anchor);
@@ -63,6 +67,13 @@ final class GeckoOriginalTranslation {
         final android.os.Handler main=new android.os.Handler(android.os.Looper.getMainLooper());
         final java.util.concurrent.atomic.AtomicBoolean settled=
             new java.util.concurrent.atomic.AtomicBoolean(false);
+        synchronized(ACTIVE){
+            if(!ACTIVE.add(session)){
+                toast(c,"此网页已有整页翻译任务，请等待完成或超时后再试");
+                return;
+            }
+        }
+        final Runnable[] cleanup={null};
         try{
             Class<?> delegate=Class.forName("org.mozilla.geckoview."+
                 "TranslationsController$SessionTranslation$Delegate");
@@ -80,7 +91,11 @@ final class GeckoOriginalTranslation {
                         session.getClass().getMethod("setTranslationsSessionDelegate",delegate)
                             .invoke(session,previous);
                 }catch(Exception ignored){}
+                finally{
+                    synchronized(ACTIVE){ACTIVE.remove(session);}
+                }
             };
+            cleanup[0]=restoreDelegate;
             Object listener=Proxy.newProxyInstance(delegate.getClassLoader(),
                 new Class<?>[]{delegate},(p,m,args)->{
                     if("hashCode".equals(m.getName()))return System.identityHashCode(p);
@@ -178,20 +193,11 @@ final class GeckoOriginalTranslation {
                 }
             },45_000);
         }catch(Exception error){
+            settled.set(true);
+            if(cleanup[0]!=null)main.post(cleanup[0]);
+            else synchronized(ACTIVE){ACTIVE.remove(session);}
             toast(c,"当前 GeckoView 无法启动整页翻译："+error.getClass().getSimpleName());
         }
-    }
-    private static Object consumer(Class<?> type,Context c,String message){
-        return Proxy.newProxyInstance(type.getClassLoader(),new Class<?>[]{type},
-            (p,m,args)->{
-                if("accept".equals(m.getName()))
-                    new android.os.Handler(android.os.Looper.getMainLooper())
-                        .post(()->toast(c,message));
-                if("hashCode".equals(m.getName()))return System.identityHashCode(p);
-                if("equals".equals(m.getName()))return args!=null&&args.length>0&&p==args[0];
-                if("toString".equals(m.getName()))return "OmniGateLegacyCallback";
-                return null;
-            });
     }
     private static void toast(Context context,String message){
         Toast.makeText(context.getApplicationContext(),message,Toast.LENGTH_LONG).show();
