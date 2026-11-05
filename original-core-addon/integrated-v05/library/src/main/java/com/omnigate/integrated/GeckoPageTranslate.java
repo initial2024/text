@@ -30,40 +30,110 @@ final class GeckoPageTranslate {
      * dialog, never GeckoView recreation or native page restore.
      */
     static void showMenu(Context context,View anchor,Object session){
+        showMenu(context,anchor,session,null);
+    }
+
+    /**
+     * The copied screen is a frozen, IN-MEMORY GeckoView bitmap. A separate
+     * scrollable native translation sheet is composited above it. It cannot
+     * click the screenshot or claim pixel-perfect per-word replacement:
+     * Gecko page extraction yields text/markdown, not element coordinates.
+     */
+    static void showMenu(Context context,View anchor,Object session,
+            Object ownedGeckoView){
         if(!(context instanceof Activity)){
             Toast.makeText(context,
-                "悬浮窗需使用自带的翻译阅读层",Toast.LENGTH_SHORT).show();
+                "悬浮窗需使用自带的镜像译文层",Toast.LENGTH_SHORT).show();
             return;
         }
         Activity activity=(Activity)context;
         final TextView result=new TextView(activity);
-        result.setTextSize(15);
-        result.setTextColor(0xFF202331);
-        int pad=Math.round(activity.getResources().getDisplayMetrics().density*16);
+        result.setTextSize(16);
+        result.setTextColor(0xFF172133);
+        result.setTextIsSelectable(true);
+        result.setLineSpacing(5f,1.10f);
+        int pad=Math.round(activity.getResources().getDisplayMetrics().density*15);
         result.setPadding(pad,pad,pad,pad);
+
         final ScrollView scroll=new ScrollView(activity);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(0xFFF5F6F9);
         LinearLayout reader=new LinearLayout(activity);
         reader.setOrientation(LinearLayout.VERTICAL);
+        reader.setBackgroundColor(0xF2FFFFFF);
+        scroll.addView(reader,new ScrollView.LayoutParams(-1,-2));
+
+        TextView description=new TextView(activity);
+        description.setText("原网页静态快照 + 本地译文\n只读取当前网页，不修改页面、账号或输入框。"
+            +"译文按段落重排，不声称逐像素覆盖文字；快照不可点击。");
+        description.setTextSize(12);
+        description.setTextColor(0xFF566579);
+        description.setPadding(pad,pad,pad,pad/2);
+        reader.addView(description,new LinearLayout.LayoutParams(-1,-2));
+
+        final Button mirrorToggle=new Button(activity);
+        mirrorToggle.setText("显示原网页快照");
+        mirrorToggle.setAllCaps(false);
+        mirrorToggle.setVisibility(View.GONE);
+        reader.addView(mirrorToggle,new LinearLayout.LayoutParams(-1,-2));
         reader.addView(result,new LinearLayout.LayoutParams(-1,-2));
         final Button download=new Button(activity);
         download.setText("同意通过 Wi-Fi 下载离线语言模型并翻译");
         download.setAllCaps(false);
         download.setVisibility(View.GONE);
         reader.addView(download,new LinearLayout.LayoutParams(-1,-2));
-        scroll.addView(reader);
+
         final AlertDialog[] shown={null};
         final AtomicBoolean closed=new AtomicBoolean(false);
+        final android.graphics.Bitmap[] snapshot={null};
+        final boolean[] showingMirror={true};
+        mirrorToggle.setOnClickListener(v->{
+            showingMirror[0]=!showingMirror[0];
+            if(showingMirror[0]&&snapshot[0]!=null){
+                android.graphics.drawable.BitmapDrawable picture=
+                    new android.graphics.drawable.BitmapDrawable(
+                        activity.getResources(),snapshot[0]);
+                picture.setGravity(android.view.Gravity.FILL);
+                scroll.setBackground(picture);
+                reader.setBackgroundColor(0xEAFFFFFF);
+                mirrorToggle.setText("隐藏网页快照 · 纯净阅读");
+            }else{
+                scroll.setBackgroundColor(0xFFF5F6F9);
+                reader.setBackgroundColor(0xFFFFFFFF);
+                mirrorToggle.setText("显示原网页快照 · 镜像阅读");
+            }
+        });
         Consumer<String> display=text->{
             if(activity.isFinishing()||activity.isDestroyed()||closed.get())return;
             result.setText(text);
             if(shown[0]==null){
                 shown[0]=new AlertDialog.Builder(activity)
-                    .setTitle("译文阅读层（原网页不刷新）")
+                    .setTitle("镜像译文 · 原网页不刷新")
                     .setView(scroll)
                     .setPositiveButton("返回原网页", (d,w)->{})
                     .create();
-                shown[0].setOnDismissListener(d->closed.set(true));
+                shown[0].setOnDismissListener(d->{
+                    closed.set(true);
+                    scroll.setBackground(null);
+                    snapshot[0]=null;
+                });
                 shown[0].show();
+                if(shown[0].getWindow()!=null){
+                    android.util.DisplayMetrics dm=
+                        activity.getResources().getDisplayMetrics();
+                    shown[0].getWindow().setLayout(
+                        (int)(dm.widthPixels*0.94f),
+                        (int)(dm.heightPixels*0.83f));
+                }
+                if(ownedGeckoView instanceof View){
+                    PageMirrorSnapshot.capture(ownedGeckoView,bmp->{
+                        if(closed.get()||bmp==null||shown[0]==null)return;
+                        snapshot[0]=bmp;
+                        showingMirror[0]=false;
+                        mirrorToggle.setVisibility(View.VISIBLE);
+                        mirrorToggle.performClick();
+                    });
+                }
             }
         };
         Runnable close=()->{
