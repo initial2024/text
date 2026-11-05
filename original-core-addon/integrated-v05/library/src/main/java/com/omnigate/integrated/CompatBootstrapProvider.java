@@ -38,6 +38,10 @@ public final class CompatBootstrapProvider extends ContentProvider {
                         a instanceof CompatSettingsActivity ||
                         a instanceof OmniGateHomeActivity){
                         AutoStartRuntime.onActivityVisible(a);
+                        // A user may change Android App Info language outside
+                        // OmniGate. Reuse the original Gecko runtime if one
+                        // already exists; do not start a browser or reload.
+                        OmniGateBrowserLanguage.syncIfExisting(a);
                     }
                     if(!isOriginalUi(a))return;
                     a.runOnUiThread(()->{
