@@ -1,0 +1,38 @@
+name: OGTRANSLATE12 private APK upgrade fail-closed guard
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/tools/verify_private_omnigate_translation_apk.py'
+      - '.github/workflows/ogtranslate12-apk-release-gate.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and intentionally missing baseline rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          SCRIPT="original-core-addon/integrated-v05/tools/verify_private_omnigate_translation_apk.py"
+          python3 -m py_compile "$SCRIPT"
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          if python3 "$SCRIPT" --baseline "$TMP/missing-v129.apk" \
+            --candidate "$TMP/missing-candidate.apk" \
+            --report "$TMP/report.json"; then
+            echo 'FAIL: missing private baseline unexpectedly passed'
+            exit 1
+          fi
+          python3 - "$TMP/report.json" <<'PY'
+          import json,sys
+          data=json.load(open(sys.argv[1]))
+          assert data['result']=='BLOCKED'
+          assert data['device_e2e']=='NOT_TESTED'
+          assert data['structural_pass'] is False
+          print('OGTRANSLATE12_MISSING_BASELINE_FAIL_CLOSED=PASS')
+          print('OGTRANSLATE12_NO_PRIVATE_SIGNING_KEY_IN_CI=PASS')
+          PY
