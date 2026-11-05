@@ -290,6 +290,8 @@ public final class CompatSettingsActivity extends Activity {
         // through API/Relay controls or expanding hidden Advanced options.
         Button accountEntry=button(page,"账号切换 / 多账号备份（独立浏览器）",true);
         accountEntry.setOnClickListener(v->IsolatedGeckoBrowser.showPicker(this));
+        Button accountManager=button(page,"多账号管理 · 搜索 / 筛选 / 自定义名称",false);
+        accountManager.setOnClickListener(v->AccountManagerUi.show(this));
         margin(page,text("DeepSeek / GLM / ChatGPT / Grok / Claude｜网页登录独立存储；"+
             "不会切换原版 8787 模型执行账号",12,0xFF637086,false),8);
         Button localHourEntry=button(page,"API 本地每小时请求上限（分别设置）",false);
