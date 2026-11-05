@@ -30,6 +30,21 @@ jobs:
           assert 'GeckoPageTranslate.prepareSession(created);' in b
           assert '已开始本地翻译' in t
           assert 'restoreOriginalPage' in t
+          # The Gecko engine's restoreOriginalPage may actually reload the
+          # document. The default dismiss/cancel path must never invoke it.
+          menu=t.split('static void showMenu(',1)[1].split('private static void showRestoreWarning(',1)[0]
+          assert '取消 / 关闭翻译菜单（不刷新）' in menu
+          assert 'showRestoreWarning(context,anchor,ownedSession)' in menu
+          assert 'if(id==5)' in menu
+          cancel=menu.split('if(id==5)',1)[1].split('if(id==6)',1)[0]
+          assert 'run(' not in cancel
+          assert 'restoreOriginalPage' not in cancel
+          warning=t.split('private static void showRestoreWarning(',1)[1].split('private static void notify(',1)[0]
+          assert '确认恢复原文（可能重新加载网页）' in warning
+          assert 'if(item.getItemId()==2)' in warning
+          assert 'run(context,session,null,null);' in warning
+          assert 'if(!anchor.isAttachedToWindow())return;' in warning
+          assert 'reload(' not in t and 'loadUri(' not in t and 'openAccount(' not in t
           assert 'getMethod("translate",' in t
           assert 'GeckoResult$Consumer' in t
           assert 'pending.getClass().getMethod("accept",consumer,consumer)' in t
