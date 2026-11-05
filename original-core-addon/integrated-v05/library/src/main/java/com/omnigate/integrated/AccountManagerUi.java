@@ -40,7 +40,7 @@ final class AccountManagerUi {
         private final Activity host;
         private final Dialog dialog;
         private final LinearLayout rows;
-        private final EditText search;
+        private final EditText search, accountTagFilter;
         private final Spinner providerFilter,statusFilter;
         private final TextView countLabel;
         private final Set<String> selected=new LinkedHashSet<>();
@@ -66,10 +66,17 @@ final class AccountManagerUi {
             LinearLayout filters=new LinearLayout(host);
             shell.addView(filters);
             providerFilter=spinner(new String[]{"全部平台","DeepSeek","GLM","ChatGPT","Grok","Claude"});
-            statusFilter=spinner(new String[]{"全部状态","未标记","已标记"});
+            statusFilter=spinner(new String[]{"全部额度状态","未标记","已标记"});
             filters.addView(providerFilter,new LinearLayout.LayoutParams(0,dp(47),1.1f));
             filters.addView(statusFilter,new LinearLayout.LayoutParams(0,dp(47),1f));
-            Button tags=button("管理常用额度标签");
+            accountTagFilter=new EditText(host);
+            accountTagFilter.setSingleLine(true);
+            accountTagFilter.setTextSize(13);
+            accountTagFilter.setHint("按账号标签筛选（例如：主力；留空=全部）");
+            accountTagFilter.setHintTextColor(0xFF9BAACC);
+            accountTagFilter.setTextColor(Color.WHITE);
+            add(shell,accountTagFilter,4);
+            Button tags=button("管理额度状态预设（状态与恢复时间一体）");
             add(shell,tags,4);
             tags.setOnClickListener(v->manageTags());
             LinearLayout selectBar=new LinearLayout(host);
@@ -100,11 +107,13 @@ final class AccountManagerUi {
             done.setOnClickListener(v->dialog.dismiss());
             dialog.setContentView(shell);
             dialog.setOnDismissListener(x->handler.removeCallbacks(timer));
-            search.addTextChangedListener(new TextWatcher(){
+            TextWatcher filtersWatcher=new TextWatcher(){
                 @Override public void beforeTextChanged(CharSequence s,int a,int c,int d){}
                 @Override public void onTextChanged(CharSequence s,int a,int b,int c){render();}
                 @Override public void afterTextChanged(Editable e){}
-            });
+            };
+            search.addTextChangedListener(filtersWatcher);
+            accountTagFilter.addTextChangedListener(filtersWatcher);
             android.widget.AdapterView.OnItemSelectedListener filterListener=
                 new android.widget.AdapterView.OnItemSelectedListener(){
                     @Override public void onItemSelected(android.widget.AdapterView<?> p,View v,int i,long id){render();}
@@ -163,6 +172,7 @@ final class AccountManagerUi {
             visible.clear();
             long now=System.currentTimeMillis();
             String q=search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            String tagFilter=accountTagFilter.getText().toString().trim();
             int filter=providerFilter.getSelectedItemPosition();
             int availability=statusFilter.getSelectedItemPosition();
             long earliest=Long.MAX_VALUE;
@@ -173,12 +183,16 @@ final class AccountManagerUi {
                 for(int slot:AccountMetadataStore.sorted(host,provider,now)){
                     String name=AccountMetadataStore.name(host,provider,slot);
                     String note=AccountMetadataStore.note(host,provider,slot);
+                    String accountTags=AccountMetadataStore.accountTags(host,provider,slot);
                     long until=AccountMetadataStore.quotaUntil(host,provider,slot,now);
                     if(until>0)earliest=Math.min(earliest,until);
                     if(availability==1&&until!=0 || availability==2&&until==0)continue;
-                    String tag=AccountMetadataStore.quotaLabel(host,provider,slot,now);
+                    if(!AccountMetadataStore.hasAccountTag(host,provider,slot,tagFilter))
+                        continue;
+                    String quotaStatus=AccountMetadataStore.quotaLabel(host,provider,slot,now);
                     String hay=(AccountBrowserSlots.LABELS[p]+" "+provider+" "+name+" "+note+
-                        " "+tag+" 账号"+(slot+1)).toLowerCase(Locale.ROOT);
+                        " "+accountTags+" "+quotaStatus+" 账号"+(slot+1))
+                        .toLowerCase(Locale.ROOT);
                     if(!hay.contains(q))continue;
                     group.add(new Target(provider,slot));
                 }
@@ -214,10 +228,9 @@ final class AccountManagerUi {
             block.addView(line);
             String state=AccountMetadataStore.status(host,provider,slot,now);
             CheckBox check=new CheckBox(host);
-            check.setText(AccountMetadataStore.name(host,provider,slot)+
-                (state.isEmpty()?"":"\n"+state));
+            check.setText(AccountMetadataStore.name(host,provider,slot));
             check.setTextSize(13);
-            check.setTextColor(state.isEmpty()?Color.WHITE:0xFFFFD299);
+            check.setTextColor(Color.WHITE);
             check.setChecked(selected.contains(target.key()));
             check.setOnCheckedChangeListener((view,yes)->{
                 if(yes)selected.add(target.key());else selected.remove(target.key());
@@ -230,6 +243,9 @@ final class AccountManagerUi {
             Button mark=button("额度");
             line.addView(mark,new LinearLayout.LayoutParams(dp(56),dp(40)));
             mark.setOnClickListener(v->mark(target));
+            String tags=AccountMetadataStore.accountTags(host,provider,slot);
+            if(!tags.isEmpty())add(block,text("账号标签："+tags,12,0xFF8FD6E8),2);
+            if(!state.isEmpty())add(block,text("额度状态："+state,12,0xFFFFD299),2);
             String note=AccountMetadataStore.note(host,provider,slot);
             if(!note.isEmpty())add(block,text("备注："+note,12,0xFFBBC7E0),2);
             LinearLayout links=new LinearLayout(host);
@@ -246,21 +262,27 @@ final class AccountManagerUi {
             LinearLayout form=new LinearLayout(host);
             form.setPadding(dp(13),dp(8),dp(13),dp(8));
             form.setOrientation(LinearLayout.VERTICAL);
-            EditText name=new EditText(host),note=new EditText(host);
+            EditText name=new EditText(host),note=new EditText(host),tags=new EditText(host);
             name.setSingleLine(true);name.setTextColor(Color.WHITE);
             name.setHint("自定义账号名（最多28字）");name.setHintTextColor(0xFFB0BDE0);
             name.setText(AccountMetadataStore.name(host,target.provider,target.slot));
             note.setTextColor(Color.WHITE);note.setHint("备注（最多140字）");
             note.setHintTextColor(0xFFB0BDE0);
             note.setText(AccountMetadataStore.note(host,target.provider,target.slot));
-            add(form,name,3);add(form,note,3);
+            tags.setSingleLine(true);
+            tags.setTextColor(Color.WHITE);
+            tags.setHint("账号标签（如 主力、备用；最多4个）");
+            tags.setHintTextColor(0xFFB0BDE0);
+            tags.setText(AccountMetadataStore.accountTags(host,target.provider,target.slot));
+            add(form,name,3);add(form,tags,3);add(form,note,3);
             new AlertDialog.Builder(host).setTitle("编辑 "+target.description())
                 .setView(form).setNegativeButton("取消",null)
                 .setPositiveButton("保存",(d,w)->{
-                    try{AccountMetadataStore.setNameAndNote(host,target.provider,target.slot,
-                        name.getText().toString(),note.getText().toString());
+                    try{AccountMetadataStore.setAccountInfo(host,target.provider,target.slot,
+                        name.getText().toString(),note.getText().toString(),
+                        tags.getText().toString());
                         render();
-                    }catch(RuntimeException ex){toast("保存失败：名称最多28字，备注最多140字");}
+                    }catch(RuntimeException ex){toast("保存失败：账号标签最多4个，每个16字；请检查名称和备注");}
                 }).show();
         }
 
