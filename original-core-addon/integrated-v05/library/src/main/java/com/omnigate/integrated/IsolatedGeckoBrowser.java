@@ -76,6 +76,13 @@ final class IsolatedGeckoBrowser {
             else prior.releaseSession();
         }
     }
+    static boolean closeIfMatches(String provider,int slot){
+        IsolatedGeckoBrowser running=activeBrowser;
+        if(running==null||!running.provider.equals(provider)||
+            running.guestWindow||running.selected!=slot)return false;
+        closeActiveBrowser();
+        return true;
+    }
     static void showPicker(Activity host){
         // Opening the picker also ends any prior auxiliary GeckoSession.
         closeActiveBrowser();
@@ -96,6 +103,12 @@ final class IsolatedGeckoBrowser {
             subtitle.setTextSize(12);subtitle.setTextColor(muted);
             subtitle.setPadding(0,dp(host,6),0,dp(host,12));
             shell.addView(subtitle);
+            Button manage=new Button(host);
+            manage.setAllCaps(false);
+            manage.setText("管理账号 · 搜索 / 筛选 / 重命名 / 清理");
+            manage.setTextColor(ink);manage.setBackground(surface(0xFF28355A,12,host));
+            shell.addView(manage,new LinearLayout.LayoutParams(-1,dp(host,46)));
+            manage.setOnClickListener(v->{picker.dismiss();AccountManagerUi.show(host);});
             ScrollView scroll=new ScrollView(host);
             scroll.setFillViewport(false);
             LinearLayout options=new LinearLayout(host);
@@ -111,11 +124,18 @@ final class IsolatedGeckoBrowser {
                 heading.setTypeface(null,android.graphics.Typeface.BOLD);
                 heading.setPadding(dp(host,4),dp(host,13),0,dp(host,8));
                 options.addView(heading);
-                for(int slot=0;slot<count;slot++){
+                for(int slot:AccountMetadataStore.sorted(host,provider,
+                        System.currentTimeMillis())){
                     final int index=slot;
                     Button entry=new Button(host);
                     entry.setAllCaps(false);
-                    entry.setText("账号 "+(slot+1)+(slot==selected?"   ·   上次打开":"")+"     ›");
+                    String note=AccountMetadataStore.note(host,provider,slot);
+                    String until=AccountMetadataStore.status(host,provider,slot,
+                        System.currentTimeMillis());
+                    entry.setText(AccountMetadataStore.name(host,provider,slot)+
+                        (slot==selected?" · 上次打开":"")+
+                        (until.isEmpty()?"":" · "+until)+
+                        (note.isEmpty()?"":"\n"+note)+"  ›");
                     entry.setGravity(android.view.Gravity.CENTER_VERTICAL|android.view.Gravity.START);
                     entry.setTextColor(ink);entry.setTextSize(14);
                     entry.setPadding(dp(host,18),0,dp(host,12),0);
@@ -123,16 +143,16 @@ final class IsolatedGeckoBrowser {
                     LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(host,48));
                     lp.bottomMargin=dp(host,7);options.addView(entry,lp);
                     entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});
-                    if("claude".equals(provider)){
+                    {
                         Button floatOpen=new Button(host);
                         floatOpen.setAllCaps(false);
-                        floatOpen.setText("↗ 账号 "+(index+1)+" · Claude 悬浮窗");
+                        floatOpen.setText("↗ "+AccountMetadataStore.name(host,provider,index)+" · 悬浮窗");
                         floatOpen.setTextSize(12);floatOpen.setTextColor(ink);
                         floatOpen.setBackground(surface(0xFF253858,10,host));
                         LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(host,38));
                         op.bottomMargin=dp(host,6);options.addView(floatOpen,op);
                         floatOpen.setOnClickListener(v->{
-                            picker.dismiss();ClaudeFloatingOverlay.show(host,index);
+                            picker.dismiss();ClaudeFloatingOverlay.show(host,provider,index);
                         });
                     }
                 }
@@ -378,10 +398,10 @@ final class IsolatedGeckoBrowser {
         footer.addView(fullscreen,new LinearLayout.LayoutParams(0,-2,1.8f));
         footer.addView(close,new LinearLayout.LayoutParams(0,-2,1f));
         root.addView(footer);
-        if("claude".equals(provider) && !guestWindow){
-            Button floatOpen=button("↗ 当前 Claude 账号使用悬浮窗");
+        if(!guestWindow){
+            Button floatOpen=button("↗ 当前账号 · 悬浮窗");
             floatOpen.setOnClickListener(v->{
-                if(selected>=0)ClaudeFloatingOverlay.show(host,selected);
+                if(selected>=0)ClaudeFloatingOverlay.show(host,provider,selected);
             });
             root.addView(floatOpen,new LinearLayout.LayoutParams(-1,dp(host,42)));
         }
@@ -541,8 +561,8 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,2,1,"后退");
         menu.getMenu().add(0,3,2,"刷新");
         menu.getMenu().add(0,4,3,"用系统浏览器打开（独立登录）");
-        if("claude".equals(provider)&&!guestWindow)
-            menu.getMenu().add(0,6,4,"Claude · 当前账号悬浮窗");
+        if(!guestWindow)
+            menu.getMenu().add(0,6,4,"当前账号 · 悬浮窗");
         menu.getMenu().add(0,5,5,"退出全屏");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
@@ -552,8 +572,8 @@ final class IsolatedGeckoBrowser {
                 case 4:confirmExternalBrowser();return true;
                 case 5:setFullscreen(false);return true;
                 case 6:
-                    if(!guestWindow&&"claude".equals(provider)&&selected>=0)
-                        ClaudeFloatingOverlay.show(host,selected);
+                    if(!guestWindow&&selected>=0)
+                        ClaudeFloatingOverlay.show(host,provider,selected);
                     return true;
                 default:return false;
             }
@@ -1025,7 +1045,7 @@ final class IsolatedGeckoBrowser {
         int count=AccountBrowserStore.count(host,provider);
         for(int i=0;i<count;i++){
             final int index=i;
-            Button b=button("账号 "+(i+1));
+            Button b=button(AccountMetadataStore.name(host,provider,i));
             b.setOnClickListener(v->switchTo(index));
             tabs.addView(b);
         }
