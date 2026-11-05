@@ -81,6 +81,7 @@ final class GeckoPageTranslate {
         menu.getMenu().add(0,5,4,"返回原网页 / 取消阅读层（不刷新）");
         menu.getMenu().add(0,6,5,"说明：无刷新模式使用设备系统翻译");
         menu.getMenu().add(0,7,6,"高级：本次启用旧版整页翻译（可能刷新）");
+        menu.getMenu().add(0,8,7,"外部翻译应用 · 手动选择是否分享网页文字");
         menu.setOnMenuItemClickListener(item->{
             final int i=item.getItemId();
             if(i==5){close.run();return true;}
@@ -95,10 +96,25 @@ final class GeckoPageTranslate {
                 GeckoOriginalTranslation.showConsent(c,anchor,session);
                 return true;
             }
+            if(i==8){
+                display.accept("准备读取网页正文；只有你选择外部应用后，文字才可能离开 OmniGate。");
+                SafePageTranslation.shareToSelectedTranslator(c,session,
+                    new SafePageTranslation.Callback(){
+                        @Override public void onSuccess(String detail){
+                            display.accept(detail);
+                        }
+                        @Override public void onFailure(String reason){
+                            display.accept("未分享网页文字："+reason+"。原网页未刷新。");
+                        }
+                    });
+                return true;
+            }
             if(i<1||i>4)return true;
             final String from=i==1?"en":i==2?"ja":i==3?"ko":"zh";
             final String to=i==4?"en":"zh";
-            display.accept("正在读取并进行本机翻译…");
+            display.accept(SafePageTranslation.hasOnDeviceService(c)
+                ? "正在读取网页正文并调用系统设备端翻译（最长 35 秒）…"
+                : "当前设备未提供系统翻译服务；请重新点击翻译，选「外部翻译应用」或高级 GeckoView 整页翻译。");
             SafePageTranslation.translate(c,session,from,to,new SafePageTranslation.Callback(){
                 @Override public void onSuccess(String translated){
                     display.accept(translated);
