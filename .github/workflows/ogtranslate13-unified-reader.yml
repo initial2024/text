@@ -1,0 +1,73 @@
+name: OGTRANSLATE13 offline translation inside default no-reload reader
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoPageTranslate.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SafePageTranslation.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OfflineMlKitBridge.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - '.github/workflows/ogtranslate13-unified-reader.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify consent stays INSIDE both original no-reload reader surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          d=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          ui=(d/'GeckoPageTranslate.java').read_text()
+          floating=(d/'ClaudeFloatingOverlay.java').read_text()
+          safe=(d/'SafePageTranslation.java').read_text()
+          bridge=(d/'OfflineMlKitBridge.java').read_text()
+          full=(d/'IsolatedGeckoBrowser.java').read_text()
+          assert 'final Button download=new Button(activity)' in ui
+          assert 'download.setVisibility(View.GONE);' in ui
+          assert 'download.setOnClickListener(v->' in ui
+          assert 'showMenu(context,anchor,session,display,close,consent->' in ui
+          assert 'Consumer<Runnable> readerAction' in ui
+          assert 'readerAction.accept(()->' in ui
+          assert 'SafePageTranslation.translateOfflineWithConsent(c,session,from,to,' in ui
+          assert 'SafePageTranslation.translate(c,session,from,to,' in ui
+          assert 'OfflineMlKitBridge.isAuthorized(c,from,to)' in ui
+          assert 'OfflineMlKitBridge.isPackaged()' in ui
+          assert '未确认前不会下载模型或提取正文' in ui
+          assert 'if(i==5){close.run();return true;}' in ui
+          assert 'setTitle("译文阅读层（原网页不刷新）")' in ui
+          assert 'setPositiveButton("返回原网页"' in ui
+          assert 'translationConsent=button(app,' in floating
+          assert 'translationConsent.setVisibility(View.GONE)' in floating
+          assert 'consentAction->' in floating
+          assert 'generation!=translationEpoch' in floating
+          assert 'generation==translationEpoch)consentAction.run();' in floating
+          assert 'translationEpoch++; // Reject any late async results after cancel.' in floating
+          assert 'translationConsent.setOnClickListener(null);' in floating
+          assert 'translationConsent=null;' in floating
+          assert 'showTranslationText(text)' in floating
+          assert 'GeckoPageTranslate.showMenu(host,translate,session)' in full
+          assert 'GeckoPageTranslate.showMenu(host,fullscreenExit,session)' in full
+          assert 'translateOfflineWithConsent' in safe
+          assert 'OfflineMlKitBridge.isPackaged()' in safe
+          assert 'if(!isPackaged())' in bridge
+          assert 'userConsentedToDownload' in bridge
+          assert 'getSharedPreferences(PREF' in bridge
+          # The default reader cannot mutate GeckoSession or send page text out.
+          for source in (ui,safe,bridge):
+              assert 'getMethod("restoreOriginalPage")' not in source
+              assert 'loadUri(' not in source
+              assert 'evaluateJavascript(' not in source
+              assert 'userAgentOverride(' not in source
+              assert 'HttpURLConnection' not in source
+              assert 'translations.googleapis.com' not in source
+          print('OGTRANSLATE13_SINGLE_DEFAULT_READER_FOR_OFFLINE_AND_SYSTEM=PASS')
+          print('OGTRANSLATE13_EXPLICIT_MODEL_CONSENT_WITHOUT_EAGER_EXTRACTION=PASS')
+          print('OGTRANSLATE13_NO_RELOAD_AND_ACCOUNT_SWITCH_GUARD=PASS')
+          PY
