@@ -6,6 +6,8 @@ import android.content.Context;
 import android.view.View;
 import android.widget.PopupMenu;
 import android.widget.ScrollView;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,7 +42,15 @@ final class GeckoPageTranslate {
         int pad=Math.round(activity.getResources().getDisplayMetrics().density*16);
         result.setPadding(pad,pad,pad,pad);
         final ScrollView scroll=new ScrollView(activity);
-        scroll.addView(result);
+        LinearLayout reader=new LinearLayout(activity);
+        reader.setOrientation(LinearLayout.VERTICAL);
+        reader.addView(result,new LinearLayout.LayoutParams(-1,-2));
+        final Button download=new Button(activity);
+        download.setText("同意通过 Wi-Fi 下载离线语言模型并翻译");
+        download.setAllCaps(false);
+        download.setVisibility(View.GONE);
+        reader.addView(download,new LinearLayout.LayoutParams(-1,-2));
+        scroll.addView(reader);
         final AlertDialog[] shown={null};
         final AtomicBoolean closed=new AtomicBoolean(false);
         Consumer<String> display=text->{
@@ -60,7 +70,18 @@ final class GeckoPageTranslate {
             closed.set(true);
             if(shown[0]!=null)shown[0].dismiss();
         };
-        showMenu(context,anchor,session,display,close);
+        showMenu(context,anchor,session,display,close,consent->{
+            if(closed.get())return;
+            download.setOnClickListener(null);
+            if(consent==null){
+                download.setVisibility(View.GONE);
+            }else{
+                download.setVisibility(View.VISIBLE);
+                download.setOnClickListener(v->{
+                    if(!closed.get())consent.run();
+                });
+            }
+        });
     }
 
     /**
@@ -69,6 +90,26 @@ final class GeckoPageTranslate {
      */
     static void showMenu(Context c,View anchor,Object session,
             Consumer<String> display,Runnable close){
+        // Compatibility entry: a dedicated reader action is preferred.
+        showMenu(c,anchor,session,display,close,consent->{
+            if(consent==null)return;
+            PopupMenu confirm=new PopupMenu(c,anchor);
+            confirm.getMenu().add(0,1,0,"同意下载离线模型并翻译（仅 Wi-Fi）");
+            confirm.getMenu().add(0,2,1,"取消下载");
+            confirm.setOnMenuItemClickListener(item->{
+                if(item.getItemId()==1)consent.run();
+                return true;
+            });
+            confirm.show();
+        });
+    }
+
+    /** Render first-use ML Kit consent in the SAME native reader surface.
+     * No background page navigation, external API call or automatic download.
+     * A null action hides the consent control after a user action. */
+    static void showMenu(Context c,View anchor,Object session,
+            Consumer<String> display,Runnable close,
+            Consumer<Runnable> readerAction){
         if(c==null||anchor==null||session==null){
             if(c!=null)Toast.makeText(c,"网页尚未打开",Toast.LENGTH_SHORT).show();
             return;
@@ -88,6 +129,7 @@ final class GeckoPageTranslate {
         menu.getMenu().add(0,12,11,"首次安装离线模型 · 中→英（需要 Wi-Fi）");
         menu.setOnMenuItemClickListener(item->{
             final int i=item.getItemId();
+            readerAction.accept(null);
             if(i==5){close.run();return true;}
             if(i==6){
                 Toast.makeText(c,"默认优先使用已授权的 ML Kit 离线模型，"+
@@ -117,8 +159,38 @@ final class GeckoPageTranslate {
             if(i>=9&&i<=12){
                 final String from=i==9?"en":i==10?"ja":i==11?"ko":"zh";
                 final String to=i==12?"en":"zh";
-                display.accept("已手动授权本次 Wi-Fi 语言模型下载（每语言模型约数十 MB）。"+
-                    "网页正文仅在设备端翻译，不发送给 AI 提供商；首次下载可较慢。");
+                requestSafeTranslation(c,session,from,to,display,readerAction,true);
+                return true;
+            }
+            if(i<1||i>4)return true;
+            final String from=i==1?"en":i==2?"ja":i==3?"ko":"zh";
+            final String to=i==4?"en":"zh";
+            requestSafeTranslation(c,session,from,to,display,readerAction,false);
+            return true;
+        });
+        menu.show();
+    }
+
+    /**
+     * Default route: package available + prior consent => on-device ML Kit;
+     * first run => consent Button inside reader; optional Android OS service
+     * is only a fallback when ML Kit was not packaged. Never use Gecko DOM
+     * translation, reload or external network to translate page text.
+     */
+    private static void requestSafeTranslation(Context c,Object session,
+            String from,String to,Consumer<String> display,
+            Consumer<Runnable> readerAction,boolean explicitModelChoice){
+        if(OfflineMlKitBridge.isPackaged() &&
+           (explicitModelChoice||!OfflineMlKitBridge.isAuthorized(c,from,to))){
+            display.accept("无刷新离线阅读层 · "+from+" → "+to+
+                "\n\n首次使用此语言对需下载设备端翻译模型。"+
+                "点击下方「同意通过 Wi-Fi 下载」后开始；"+
+                "网页原有会话、草稿、滚动位置不变。"+
+                "\n\n未确认前不会下载模型或提取正文。");
+            readerAction.accept(()->{
+                readerAction.accept(null);
+                display.accept("正在读取正文并准备本机翻译…"+
+                    "\n首次下载可能需要较长时间；可返回原网页，不会刷新。");
                 SafePageTranslation.translateOfflineWithConsent(c,session,from,to,
                     new SafePageTranslation.Callback(){
                         @Override public void onSuccess(String translated){
@@ -126,32 +198,28 @@ final class GeckoPageTranslate {
                         }
                         @Override public void onFailure(String reason){
                             display.accept("离线翻译未完成："+reason+
-                                "\n\n原网页仍保持原样，可返回重试。");
+                                "\n\n原网页未刷新，可重新点击翻译。");
                         }
                     });
-                return true;
-            }
-            if(i<1||i>4)return true;
-            final String from=i==1?"en":i==2?"ja":i==3?"ko":"zh";
-            final String to=i==4?"en":"zh";
-            display.accept(OfflineMlKitBridge.isAuthorized(c,from,to)
-                    && OfflineMlKitBridge.isPackaged()
-                ? "正在使用已授权的本机 ML Kit 模型翻译（无需系统翻译服务）…"
-                : SafePageTranslation.hasOnDeviceService(c)
-                ? "正在读取正文并调用系统设备端翻译（最长 35 秒）…"
-                : OfflineMlKitBridge.unavailableReason());
-            SafePageTranslation.translate(c,session,from,to,new SafePageTranslation.Callback(){
+            });
+            return;
+        }
+        display.accept(OfflineMlKitBridge.isAuthorized(c,from,to) &&
+                OfflineMlKitBridge.isPackaged()
+            ? "正在使用本机离线翻译模型 · 原网页不刷新…"
+            : SafePageTranslation.hasOnDeviceService(c)
+              ? "正在使用系统设备端翻译（最长 35 秒） · 原网页不刷新…"
+              : OfflineMlKitBridge.unavailableReason());
+        SafePageTranslation.translate(c,session,from,to,
+            new SafePageTranslation.Callback(){
                 @Override public void onSuccess(String translated){
                     display.accept(translated);
                 }
                 @Override public void onFailure(String reason){
                     display.accept("无法翻译："+reason+
-                        "\n\n原网页未被更改。点击「返回原网页」即可关闭此阅读层。");
+                        "\n\n原网页保持不变，点击「返回原网页」即可关闭阅读层。");
                 }
             });
-            return true;
-        });
-        menu.show();
     }
 
     // Existing callers prepare the session at creation time. This is safe:
