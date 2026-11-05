@@ -1,0 +1,51 @@
+name: OGTRANSLATE07 native Gecko translation and compact controls
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoPageTranslate.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - '.github/workflows/ogtranslate07-native-layout.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify original session native translation and no fingerprint spoof
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          d=Path("original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated")
+          t=(d/"GeckoPageTranslate.java").read_text()
+          f=(d/"ClaudeFloatingOverlay.java").read_text()
+          b=(d/"IsolatedGeckoBrowser.java").read_text()
+          assert 'getSessionTranslation' in t
+          assert 'restoreOriginalPage' in t
+          assert 'getMethod("translate",' in t
+          assert 'GeckoResult$Consumer' in t
+          assert 'pending.getClass().getMethod("accept",consumer,consumer)' in t
+          assert 'geckoView' not in t
+          for code in [t,f,b]:
+              for forbidden in ['evaluateJavascript(', 'userAgentOverride(', 'setUserAgentOverride(', 'WebView.loadData(', 'translations.googleapis.com']:
+                  assert forbidden not in code,forbidden
+          assert 'GeckoPageTranslate.showMenu(app,translate,session)' in f
+          assert 'GeckoPageTranslate.showMenu(host,translate,session)' in b
+          assert 'GeckoPageTranslate.showMenu(host,fullscreenExit,session)' in b
+          assert 'addressBar.setVisibility(View.GONE);' in f
+          assert 'addressExpanded=!addressExpanded;' in f
+          assert 'caption.setText("⠿");' in f
+          assert 'window.width=compactWidth();' in f
+          assert 'window.height=compactHeight();' in f
+          assert 'setFullscreenWindow(boolean enabled)' in f
+          assert 'getMethod("contextId",String.class)' in f
+          assert 'getMethod("userAgentMode",int.class).invoke(builder,0)' in f
+          assert 'getMethod("viewportMode",int.class).invoke(builder,0)' in f
+          print("OGTRANSLATE07_NATIVE_GECKO_PAGE_TRANSLATION=PASS")
+          print("OGTRANSLATE07_NO_INJECTED_DOM_OR_UA_SPOOFING=PASS")
+          print("OGTRANSLATE07_COMPACT_OVERLAY_CONTROLS=PASS")
+          PY
