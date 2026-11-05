@@ -79,15 +79,23 @@ final class GeckoPageTranslate {
         menu.getMenu().add(0,3,2,"韩文 → 中文 · 无刷新译文");
         menu.getMenu().add(0,4,3,"中文 → 英文 · 无刷新译文");
         menu.getMenu().add(0,5,4,"返回原网页 / 取消阅读层（不刷新）");
-        menu.getMenu().add(0,6,5,"使用设备系统翻译服务；无在线API回退");
+        menu.getMenu().add(0,6,5,"说明：无刷新模式使用设备系统翻译");
+        menu.getMenu().add(0,7,6,"高级：本次启用旧版整页翻译（可能刷新）");
         menu.setOnMenuItemClickListener(item->{
             final int i=item.getItemId();
             if(i==5){close.run();return true;}
             if(i==6){
-                Toast.makeText(c,"译文只在本地阅读层显示；原 Gecko 网页保持原状。"+
-                    "需要设备提供系统本机翻译服务。",Toast.LENGTH_LONG).show();
+                Toast.makeText(c,"无刷新模式仅显示独立译文层。"+
+                    "原网页、草稿和滚动状态不会主动重载；需系统提供翻译能力。",Toast.LENGTH_LONG).show();
                 return true;
             }
+            if(i==7){
+                // Do not persist this decision. The legacy page translator
+                // may mutate DOM and Gecko restore can reload the document.
+                GeckoOriginalTranslation.showConsent(c,anchor,session);
+                return true;
+            }
+            if(i<1||i>4)return true;
             final String from=i==1?"en":i==2?"ja":i==3?"ko":"zh";
             final String to=i==4?"en":"zh";
             display.accept("正在读取并进行本机翻译…");
