@@ -37,6 +37,10 @@ jobs:
           assert '.setMessage(' not in q2
           assert 'AccountMetadataStore.QuotaPreset[] presets' in quota
           assert 'AccountMetadataStore.QuotaPreset[] presets' in q2
+          # Account manager filters must remain readable over dark backgrounds.
+          assert 't.setTextColor(0xFFF0F5FF)' in manager
+          assert 'getDropDownView(int position,View convert,ViewGroup parent)' in manager
+          assert 't.setBackgroundColor(0xFF202D4D)' in manager
           assert '"清除额度状态"' in quick
           # Picker exposes same-account shortcuts, preserving compact rows.
           assert 'AccountQuickSettings.show(host,provider,index)' in picker
