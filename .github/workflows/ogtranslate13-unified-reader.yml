@@ -39,7 +39,7 @@ jobs:
           assert 'menu.getMenu().add(0,9,' not in ui
           assert 'menu.getMenu().add(0,12,' not in ui
           assert '说明：默认离线阅读层（不刷新）' in ui
-          assert 'requestSafeTranslation(c,session,from,to,display,readerAction)' in ui
+          assert 'requestSafeTranslation(c,session,from,to,display,readerAction,' in ui
           assert 'SafePageTranslation.translateOfflineWithConsent(c,session,from,to,' in ui
           assert 'SafePageTranslation.translate(c,session,from,to,' in ui
           assert 'OfflineMlKitBridge.isAuthorized(c,from,to)' in ui
@@ -49,8 +49,8 @@ jobs:
           assert 'setTitle("镜像译文 · 原网页不刷新")' in ui
           assert 'mirrorToggle.setOnClickListener(v->' in ui
           assert 'PageMirrorSnapshot.capture(ownedGeckoView' in ui
-          assert 'scroll.setBackground(picture);' in ui
-          assert 'reader.setBackgroundColor(0xEAFFFFFF)' in ui
+          assert 'mirror.setSnapshot(bmp);' in ui
+          assert 'final PageMirrorApproximateView mirror=new PageMirrorApproximateView(activity)' in ui
           assert 'mirrorToggle.setVisibility(View.VISIBLE)' in ui
           assert 'snapshot[0]=null;' in ui
           assert 'setPositiveButton("返回原网页"' in ui
