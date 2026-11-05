@@ -25,6 +25,8 @@ public final class CompatBootstrapProvider extends ContentProvider {
         if(ctx==null)return false;
         Context app=ctx.getApplicationContext();
         GatewayApp.initialize(app);
+        // Android 14+: expose real app-language choices in system App info.
+        OmniGateAppLanguage.register(app);
         // App-process only: restore localhost 8787 and a previously authorized
         // Relay without starting the frozen native model/runtime.
         AutoStartRuntime.onProcessCreated();
