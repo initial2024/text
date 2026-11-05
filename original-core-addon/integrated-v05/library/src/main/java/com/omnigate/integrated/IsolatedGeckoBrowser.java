@@ -87,8 +87,8 @@ final class IsolatedGeckoBrowser {
         return true;
     }
     static void showPicker(Activity host){
-        // Opening the picker also ends any prior auxiliary GeckoSession.
-        closeActiveBrowser();
+        // Merely opening the account list must not refresh or close an
+        // existing login. Ownership changes only on explicit account open.
         try{
             final int ink=0xFFF5F6FF,muted=0xFFB4BEDF,accent=0xFF6C5BFB;
             Dialog picker=new Dialog(host);
@@ -102,13 +102,13 @@ final class IsolatedGeckoBrowser {
             title.setTypeface(null,android.graphics.Typeface.BOLD);
             shell.addView(title);
             TextView subtitle=new TextView(host);
-            subtitle.setText("只在点击账号时打开网页，不预加载其他平台；Claude 仅网页登录，不接入 API。");
+            subtitle.setText("按需打开 · 五个平台均可使用独立网页悬浮窗");
             subtitle.setTextSize(12);subtitle.setTextColor(muted);
             subtitle.setPadding(0,dp(host,6),0,dp(host,12));
             shell.addView(subtitle);
             Button manage=new Button(host);
             manage.setAllCaps(false);
-            manage.setText("管理账号 · 搜索 / 筛选 / 重命名 / 清理");
+            manage.setText("管理 · 搜索 / 筛选 / 备注 / 额度 / 清理");
             manage.setTextColor(ink);manage.setBackground(surface(0xFF28355A,12,host));
             shell.addView(manage,new LinearLayout.LayoutParams(-1,dp(host,46)));
             manage.setOnClickListener(v->{picker.dismiss();AccountManagerUi.show(host);});
@@ -117,60 +117,100 @@ final class IsolatedGeckoBrowser {
             LinearLayout options=new LinearLayout(host);
             options.setOrientation(LinearLayout.VERTICAL);
             scroll.addView(options);
-            for(int p=0;p<AccountBrowserSlots.PROVIDERS.length;p++){
+            // Compact accordion: just five provider headings are shown.
+            // Expand only one provider and keep each account on ONE row.
+            final int providerCount=AccountBrowserSlots.PROVIDERS.length;
+            final LinearLayout[] groups=new LinearLayout[providerCount];
+            final Button[] headings=new Button[providerCount];
+            String last=AccountBrowserStore.lastSelectedProvider(host);
+            int initial=0;
+            for(int i=0;i<providerCount;i++)
+                if(AccountBrowserSlots.PROVIDERS[i].equals(last))initial=i;
+            final int initialOpen=initial;
+            for(int p=0;p<providerCount;p++){
+                final int providerIndex=p;
                 final String provider=AccountBrowserSlots.PROVIDERS[p];
                 int count=AccountBrowserStore.count(host,provider);
                 int selected=AccountBrowserStore.selected(host,provider);
-                TextView heading=new TextView(host);
-                heading.setText(AccountBrowserSlots.LABELS[p]+"    ·    "+count+" 个隔离账号");
-                heading.setTextColor(0xFF87E6EF);heading.setTextSize(14);
-                heading.setTypeface(null,android.graphics.Typeface.BOLD);
-                heading.setPadding(dp(host,4),dp(host,13),0,dp(host,8));
-                options.addView(heading);
+                Button heading=new Button(host);
+                heading.setAllCaps(false);
+                heading.setTextSize(14);heading.setTextColor(0xFF87E6EF);
+                heading.setGravity(android.view.Gravity.CENTER_VERTICAL|
+                    android.view.Gravity.START);
+                heading.setPadding(dp(host,12),0,dp(host,8),0);
+                heading.setBackground(surface(0xFF182441,12,host));
+                LinearLayout.LayoutParams hp=new LinearLayout.LayoutParams(-1,dp(host,43));
+                hp.bottomMargin=dp(host,5);
+                options.addView(heading,hp);
+                headings[p]=heading;
+                LinearLayout group=new LinearLayout(host);
+                group.setOrientation(LinearLayout.VERTICAL);
+                group.setPadding(dp(host,5),0,dp(host,5),dp(host,6));
+                options.addView(group);
+                groups[p]=group;
+                group.setVisibility(p==initialOpen?View.VISIBLE:View.GONE);
                 for(int slot:AccountMetadataStore.sorted(host,provider,
                         System.currentTimeMillis())){
                     final int index=slot;
+                    LinearLayout line=new LinearLayout(host);
+                    line.setOrientation(LinearLayout.HORIZONTAL);
+                    line.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(host,46));
+                    lp.bottomMargin=dp(host,4);group.addView(line,lp);
                     Button entry=new Button(host);
                     entry.setAllCaps(false);
-                    String note=AccountMetadataStore.note(host,provider,slot);
-                    String until=AccountMetadataStore.status(host,provider,slot,
+                    String quota=AccountMetadataStore.status(host,provider,slot,
                         System.currentTimeMillis());
                     entry.setText(AccountMetadataStore.name(host,provider,slot)+
-                        (slot==selected?" · 上次打开":"")+
-                        (until.isEmpty()?"":" · "+until)+
-                        (note.isEmpty()?"":"\n"+note)+"  ›");
-                    entry.setGravity(android.view.Gravity.CENTER_VERTICAL|android.view.Gravity.START);
-                    entry.setTextColor(ink);entry.setTextSize(14);
-                    entry.setPadding(dp(host,18),0,dp(host,12),0);
-                    entry.setBackground(surface(slot==selected?0xFF35336C:0xFF1B2443,14,host));
-                    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,dp(host,48));
-                    lp.bottomMargin=dp(host,7);options.addView(entry,lp);
+                        (quota.isEmpty()?"":" · ⏳")+
+                        (slot==selected?" ✓":""));
+                    entry.setSingleLine(true);
+                    entry.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    entry.setGravity(android.view.Gravity.CENTER_VERTICAL|
+                        android.view.Gravity.START);
+                    entry.setTextColor(ink);entry.setTextSize(13);
+                    entry.setPadding(dp(host,10),0,dp(host,4),0);
+                    entry.setBackground(surface(slot==selected?
+                        0xFF35336C:0xFF1B2443,10,host));
+                    line.addView(entry,new LinearLayout.LayoutParams(0,-1,1f));
                     entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});
-                    {
-                        Button floatOpen=new Button(host);
-                        floatOpen.setAllCaps(false);
-                        floatOpen.setText("↗ "+AccountMetadataStore.name(host,provider,index)+" · 悬浮窗");
-                        floatOpen.setTextSize(12);floatOpen.setTextColor(ink);
-                        floatOpen.setBackground(surface(0xFF253858,10,host));
-                        LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(-1,dp(host,38));
-                        op.bottomMargin=dp(host,6);options.addView(floatOpen,op);
-                        floatOpen.setOnClickListener(v->{
-                            picker.dismiss();ClaudeFloatingOverlay.show(host,provider,index);
-                        });
-                    }
+                    Button floatOpen=new Button(host);
+                    floatOpen.setAllCaps(false);
+                    floatOpen.setText("悬浮窗");
+                    floatOpen.setTextSize(12);floatOpen.setTextColor(ink);
+                    floatOpen.setPadding(0,0,0,0);
+                    floatOpen.setBackground(surface(0xFF253858,10,host));
+                    LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(
+                        dp(host,76),-1);
+                    op.leftMargin=dp(host,5);line.addView(floatOpen,op);
+                    floatOpen.setOnClickListener(v->{
+                        picker.dismiss();ClaudeFloatingOverlay.show(host,provider,index);
+                    });
                 }
                 Button guest=new Button(host);
                 guest.setAllCaps(false);
-                guest.setText("临时访客 · 不保留登录");
-                guest.setTextColor(ink);guest.setTextSize(13);
-                guest.setBackground(surface(0xFF26314E,12,host));
-                LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,dp(host,42));
-                gp.bottomMargin=dp(host,9);options.addView(guest,gp);
+                guest.setText("临时访客 · 不保存登录");
+                guest.setTextColor(ink);guest.setTextSize(12);
+                guest.setBackground(surface(0xFF26314E,10,host));
+                LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(-1,dp(host,39));
+                group.addView(guest,gp);
                 guest.setOnClickListener(v->{picker.dismiss();showPrivateGuest(host,provider);});
+                heading.setOnClickListener(v->{
+                    boolean expanding=groups[providerIndex].getVisibility()!=View.VISIBLE;
+                    for(int i=0;i<providerCount;i++){
+                        groups[i].setVisibility(
+                            expanding&&i==providerIndex?View.VISIBLE:View.GONE);
+                        headings[i].setText((expanding&&i==providerIndex?"⌄ ":"› ")+
+                            AccountBrowserSlots.LABELS[i]+" · "+
+                            AccountBrowserStore.count(host,AccountBrowserSlots.PROVIDERS[i]));
+                    }
+                });
+                heading.setText((p==initialOpen?"⌄ ":"› ")+
+                    AccountBrowserSlots.LABELS[p]+" · "+count);
             }
             shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
             TextView notice=new TextView(host);
-            notice.setText("固定账号保留各自登录；临时访客不保存登录，仍可能被网站指纹关联。");
+            notice.setText("点击平台展开 · 每账号可选择网页或悬浮窗");
             notice.setTextSize(11);notice.setTextColor(muted);
             notice.setPadding(0,dp(host,9),0,dp(host,8));shell.addView(notice);
             Button close=new Button(host);
@@ -182,7 +222,8 @@ final class IsolatedGeckoBrowser {
             picker.show();
             Window w=picker.getWindow();
             if(w!=null)w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT);
+                Math.min(Math.round(host.getResources().getDisplayMetrics().heightPixels*.76f),
+                    dp(host,555)));
         }catch(RuntimeException storageError){
             new AlertDialog.Builder(host)
                 .setTitle("账号选择暂不可用")
