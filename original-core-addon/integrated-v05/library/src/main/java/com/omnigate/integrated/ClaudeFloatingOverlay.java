@@ -254,15 +254,18 @@ public final class ClaudeFloatingOverlay {
         LinearLayout footer=new LinearLayout(app);
         body.addView(footer,new LinearLayout.LayoutParams(-1,dp(app,39)));
         Button back=button(app,"后退"),reload=button(app,"刷新"),home=button(app,"主页");
+        Button translate=button(app,"翻译");
+        translate.setContentDescription("手动本地翻译网页或恢复原文");
         addressControl=button(app,"网址");
         addressControl.setContentDescription("显示或隐藏网址输入栏，不刷新网页");
         fullscreenFooter=button(app,"全屏");
         fullscreenFooter.setContentDescription("全屏／还原当前网页，不刷新");
-        for(Button b:new Button[]{back,reload,home,addressControl,fullscreenFooter})
+        for(Button b:new Button[]{back,reload,home,translate,addressControl,fullscreenFooter})
             footer.addView(b,new LinearLayout.LayoutParams(0,dp(app,38),1));
         back.setOnClickListener(v->callSession("goBack"));
         reload.setOnClickListener(v->callSession("reload"));
         home.setOnClickListener(v->navigate(AccountBrowserSlots.home(selectedProvider)));
+        translate.setOnClickListener(v->GeckoPageTranslate.showMenu(app,translate,session));
         addressControl.setOnClickListener(v->{
             addressExpanded=!addressExpanded;
             addressBar.setVisibility(addressExpanded?View.VISIBLE:View.GONE);
@@ -488,7 +491,12 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,102,102,"设置当前账号 · 标签 / 备注 / 额度");
         menu.getMenu().add(0,103,103,
             tallWindow?"窗口大小 · 恢复标准高度":"窗口大小 · 加高阅读区");
+        menu.getMenu().add(0,104,104,"翻译当前网页 / 恢复原文");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==104){
+                GeckoPageTranslate.showMenu(app,account,session);
+                return true;
+            }
             if(item.getItemId()==103){
                 tallWindow=!tallWindow;
                 applyWindowGeometry(); // no navigation or GeckoSession change
