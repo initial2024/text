@@ -56,14 +56,17 @@ final class SafePageTranslation {
         if(c==null||originalSession==null){
             MAIN.post(()->result.onFailure("网页尚未打开"));return;
         }
-        if(Build.VERSION.SDK_INT<31){
-            MAIN.post(()->result.onFailure(
-                "当前 Android 版本没有系统翻译接口；可在翻译菜单手动选择外部翻译应用"));return;
+        // An explicitly previously installed/authorized ML Kit language pair
+        // is independent from OEM TranslationService. It works on Android 8+.
+        if(OfflineMlKitBridge.isAuthorized(c,from,to) &&
+                OfflineMlKitBridge.isPackaged()){
+            translateOffline(c,originalSession,from,to,false,result);
+            return;
         }
-        // Check BEFORE page extraction; on OEM ROMs this service can be null.
-        if(!hasOnDeviceService(c)){
-            MAIN.post(()->result.onFailure(
-                "设备未安装 Android 系统翻译服务；请在翻译菜单选择外部翻译应用，或自愿启用 GeckoView 旧版整页翻译"));return;
+        if(Build.VERSION.SDK_INT<31 || !hasOnDeviceService(c)){
+            MAIN.post(()->result.onFailure(OfflineMlKitBridge.unavailableReason()+
+                "。亦可手动选择外部翻译应用；原网页不会刷新。"));
+            return;
         }
         AtomicBoolean completed=new AtomicBoolean(false);
         Callback once=new Callback(){
@@ -80,6 +83,43 @@ final class SafePageTranslation {
             "35 秒内未获得翻译结果（可能缺少系统语言模型或服务无响应），已停止等待；原网页未刷新"),MAX_WAIT_MS);
         extract(originalSession,source->translateText(c,source,from,to,once),
             why->once.onFailure("无法读取当前网页正文："+why));
+    }
+
+    /** A user tap on the explicit menu option authorizes only a language
+     * model download over Wi-Fi. The page text stays local during inference. */
+    static void translateOfflineWithConsent(Context c,Object session,String from,
+            String to,Callback callback){
+        translateOffline(c,session,from,to,true,callback);
+    }
+
+    private static void translateOffline(Context c,Object session,String from,
+            String to,boolean consent,Callback callback){
+        if(c==null||session==null){
+            MAIN.post(()->callback.onFailure("网页尚未打开"));return;
+        }
+        if(!OfflineMlKitBridge.isPackaged()){
+            MAIN.post(()->callback.onFailure(OfflineMlKitBridge.unavailableReason()));return;
+        }
+        if(!consent && !OfflineMlKitBridge.isAuthorized(c,from,to)){
+            MAIN.post(()->callback.onFailure(OfflineMlKitBridge.unavailableReason()));return;
+        }
+        AtomicBoolean done=new AtomicBoolean(false);
+        Callback once=new Callback(){
+            @Override public void onSuccess(String text){
+                if(done.compareAndSet(false,true))
+                    MAIN.post(()->callback.onSuccess(text));
+            }
+            @Override public void onFailure(String reason){
+                if(done.compareAndSet(false,true))
+                    MAIN.post(()->callback.onFailure(reason));
+            }
+        };
+        MAIN.postDelayed(()->once.onFailure(
+            "离线翻译等待超时；可能仍在下载模型。网页未刷新；请检查 Wi-Fi 与存储空间"),
+            155_000);
+        extract(session,source->OfflineMlKitBridge.translate(
+                c,source,from,to,consent,once),
+            reason->once.onFailure("无法读取网页正文："+reason));
     }
 
     /** Explicit ACTION_SEND fallback. A chooser never posts page text until
