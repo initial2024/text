@@ -21,6 +21,27 @@ import java.lang.reflect.Proxy;
 final class GeckoPageTranslate {
     private GeckoPageTranslate(){}
 
+    /**
+     * Register a no-op translations event delegate on this specific GeckoSession.
+     * GeckoView requires the embedding application to provide one before using
+     * session translation features. This does NOT start translation or navigate.
+     */
+    static void prepareSession(Object ownedSession){
+        if(ownedSession==null)return;
+        try{
+            Class<?> delegate=Class.forName("org.mozilla.geckoview."+
+                "TranslationsController$SessionTranslation$Delegate");
+            Object listener=Proxy.newProxyInstance(delegate.getClassLoader(),
+                new Class<?>[]{delegate},(proxy,method,args)->
+                    proxyMethod(proxy,method,args));
+            ownedSession.getClass().getMethod(
+                "setTranslationsSessionDelegate",delegate).invoke(ownedSession,listener);
+        }catch(Exception unavailable){
+            // Older Gecko builds can still open/log in normally. Translation
+            // will show a clear unsupported message if subsequently requested.
+        }
+    }
+
     static void showMenu(Context context,View anchor,Object ownedSession){
         if(context==null||anchor==null||ownedSession==null){
             notify(context,"请先打开一个网页");
