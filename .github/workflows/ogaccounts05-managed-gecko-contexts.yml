@@ -40,7 +40,7 @@ jobs:
           assert 'actual.equals(expectedOldId)' in prefs
           assert 'Math.addExact(now,HOUR_MS*hours)' in metadata
           assert 'if(hours< -1||hours>72)' in metadata
-          assert 'Arrays.sort(slots,' in metadata
+          assert 'Arrays.sort(ids,' in metadata
           assert 'return x==y?Integer.compare(a,b):(x?1:-1)' in metadata
           assert 'quotaUntil(c,provider,slot,now)' in metadata
           assert 'accountTags(Context c,String provider,int slot)' in metadata
