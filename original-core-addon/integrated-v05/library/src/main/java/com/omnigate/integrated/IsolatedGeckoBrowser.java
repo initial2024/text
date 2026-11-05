@@ -457,7 +457,7 @@ final class IsolatedGeckoBrowser {
         Button back=button("后退");back.setOnClickListener(v->callSession("goBack"));
         Button reload=button("刷新");reload.setOnClickListener(v->callSession("reload"));
         Button translate=button("翻译");
-        translate.setOnClickListener(v->GeckoPageTranslate.showMenu(host,translate,session));
+        translate.setOnClickListener(v->GeckoPageTranslate.showMenu(host,translate,session,geckoView));
         Button fullscreen=button("全屏模型");
         fullscreen.setOnClickListener(v->setFullscreen(true));
         Button close=button("关闭");close.setOnClickListener(v->dialog.dismiss());
@@ -650,7 +650,7 @@ final class IsolatedGeckoBrowser {
                 case 3:callSession("reload");return true;
                 case 4:confirmExternalBrowser();return true;
                 case 5:setFullscreen(false);return true;
-                case 7:GeckoPageTranslate.showMenu(host,fullscreenExit,session);return true;
+                case 7:GeckoPageTranslate.showMenu(host,fullscreenExit,session,geckoView);return true;
                 case 6:
                     if(!guestWindow&&selected>=0)
                         ClaudeFloatingOverlay.show(host,provider,selected);
