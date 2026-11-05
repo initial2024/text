@@ -39,6 +39,7 @@ public final class ClaudeFloatingOverlay {
     private static boolean quickOpen;
     private static android.widget.ScrollView translationPanel;
     private static TextView translationText;
+    private static Button translationConsent;
     private static boolean translationOpen;
     private static int translationEpoch;
     private static FrameLayout viewport;
@@ -307,7 +308,7 @@ public final class ClaudeFloatingOverlay {
         title.setTextColor(0xFF82E6E7);title.setTextSize(13);
         box.addView(title);
         TextView guide=new TextView(app);
-        guide.setText("不修改原网页，不会刷新原对话。由设备系统本机翻译服务处理；没有服务则不翻译。");
+        guide.setText("优先使用已授权的设备端离线翻译模型。首次语言模型下载需在此层确认 Wi-Fi；不修改原网页，不上传网页正文。");
         guide.setTextColor(0xFFB9C8E5);guide.setTextSize(11);
         box.addView(guide);
         Button exit=button(app,"返回原网页 · 不刷新");
@@ -319,6 +320,10 @@ public final class ClaudeFloatingOverlay {
         translationText.setTextIsSelectable(true);
         translationText.setPadding(0,dp(app,9),0,dp(app,16));
         box.addView(translationText);
+        translationConsent=button(app,"同意通过 Wi-Fi 下载离线语言模型并翻译");
+        translationConsent.setAllCaps(false);
+        translationConsent.setVisibility(View.GONE);
+        box.addView(translationConsent,new LinearLayout.LayoutParams(-1,dp(app,48)));
     }
     private static void requestTranslation(View anchor){
         if(session==null||selected<0)return;
@@ -333,7 +338,23 @@ public final class ClaudeFloatingOverlay {
                     generation!=translationEpoch)return;
                 showTranslationText(text);
             },
-            ()->hideTranslationPanel());
+            ()->hideTranslationPanel(),
+            consentAction->{
+                if(current!=session||selected!=currentSlot||
+                    !currentProvider.equals(selectedProvider)||
+                    generation!=translationEpoch||translationConsent==null)return;
+                translationConsent.setOnClickListener(null);
+                if(consentAction==null){
+                    translationConsent.setVisibility(View.GONE);
+                }else{
+                    translationConsent.setVisibility(View.VISIBLE);
+                    translationConsent.setOnClickListener(v->{
+                        if(current==session && selected==currentSlot &&
+                           currentProvider.equals(selectedProvider) &&
+                           generation==translationEpoch)consentAction.run();
+                    });
+                }
+            });
     }
     private static void showTranslationText(String text){
         if(root==null||translationPanel==null)return;
@@ -352,6 +373,10 @@ public final class ClaudeFloatingOverlay {
         translationOpen=false;
         if(translationPanel!=null)translationPanel.setVisibility(View.GONE);
         if(translationText!=null)translationText.setText("");
+        if(translationConsent!=null){
+            translationConsent.setOnClickListener(null);
+            translationConsent.setVisibility(View.GONE);
+        }
         if(body!=null)body.setVisibility(
             minimized||quickOpen?View.GONE:View.VISIBLE);
         if(root!=null&&manager!=null)setOverlayFocusable(false);
@@ -787,7 +812,7 @@ public final class ClaudeFloatingOverlay {
         quickNote=null;quickQuotaLabel=null;quickQuotaHours=null;
         quickIndefinite=null;quickSavePreset=null;quickStatus=null;
         quickOpen=false;
-        translationPanel=null;translationText=null;
+        translationPanel=null;translationText=null;translationConsent=null;
         translationOpen=false;translationEpoch++;
         window=null;manager=null;app=null;
         selected=-1;selectedProvider="";minimized=false;
