@@ -44,7 +44,7 @@ def require_tool(name):
 
 def core_names(z):
     return sorted(n for n in z.namelist()
-                  if re.fullmatch(r"classes(?:[2-9][0-9]*)?\.dex", n))
+                  if re.fullmatch(r"classes(?:[2-9]|[1-9][0-9]+)?\.dex", n))
 
 def check(base, candidate):
     info = {"baseline": str(base), "candidate": str(candidate),
@@ -57,12 +57,16 @@ def check(base, candidate):
         raise RuntimeError("Baseline APK SHA-256 mismatch: refuse unsafe upgrade")
     with zipfile.ZipFile(base) as old, zipfile.ZipFile(candidate) as new:
         checkset["zip_integrity"] = new.testzip() is None
-        for name in ("classes.dex", "classes2.dex", "classes3.dex"):
-            checkset["preserve_" + name] = (
-                old.read(name) == new.read(name) if
-                name in old.namelist() and name in new.namelist() else False)
+        original_dex = core_names(old)
         all_dex = core_names(new)
-        checkset["dex_files_present"] = len(all_dex) >= 4
+        # v1.2.9 has its own classes4.dex with private-only patches.
+        # Overwriting it with a rebuilt compatibility DEX would lose code.
+        checkset["preserve_all_original_dex_bytes"] = all(
+            name in new.namelist() and old.read(name) == new.read(name)
+            for name in original_dex)
+        checkset["additional_compat_dex_present"] = len(all_dex) > len(original_dex)
+        checkset["additional_dex_is_distinct_from_original"] = bool(
+            set(all_dex) - set(original_dex))
         dex_blobs = [new.read(name) for name in all_dex]
         for item in NEEDED_DEX:
             checkset["dex_" + item.decode().split("/")[-1]] = (
