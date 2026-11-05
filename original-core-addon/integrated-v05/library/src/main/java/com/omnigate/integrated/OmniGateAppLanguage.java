@@ -7,7 +7,9 @@ import android.os.Build;
 import android.os.LocaleList;
 
 /**
- * Chinese-only labels for OmniGate-owned Android screens.
+ * OmniGate-owned Android labels always remain Simplified Chinese.
+ * Android App Info -> Language is reused as a Gecko browser locale preference,
+ * not a translation engine or site-language override.
  *
  * Deliberately does not change Locale.setDefault(), WebView/GeckoView
  * Accept-Language, third-party websites, platform login, API messages,
@@ -17,14 +19,14 @@ import android.os.LocaleList;
  */
 final class OmniGateAppLanguage {
     private OmniGateAppLanguage() {}
-    private static final String OWNED_UI_LANGUAGE = "zh-CN";
+    private static final String BROWSER_LANGUAGE_CHOICES = "zh-CN,en-US";
 
     static void register(Context context) {
         if (context == null || Build.VERSION.SDK_INT < 34) return;
         try {
             LocaleManager manager = context.getSystemService(LocaleManager.class);
             if (manager == null) return;
-            LocaleList wanted = LocaleList.forLanguageTags(OWNED_UI_LANGUAGE);
+            LocaleList wanted = LocaleList.forLanguageTags(BROWSER_LANGUAGE_CHOICES);
             LocaleConfig existing = manager.getOverrideLocaleConfig();
             if (existing == null || !wanted.equals(existing.getSupportedLocales())) {
                 manager.setOverrideLocaleConfig(new LocaleConfig(wanted));
