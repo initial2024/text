@@ -286,75 +286,84 @@ final class AccountManagerUi {
                 }).show();
         }
 
+
+        /**
+         * A quota preset is ONE choice: status label plus recovery duration.
+         * Account tags are a separate persistent field in the Edit dialog.
+         */
         private void manageTags(){
-            String[] tags=AccountMetadataStore.quotaTagOptions(host);
+            AccountMetadataStore.QuotaPreset[] presets=AccountMetadataStore.quotaPresets(host);
+            String[] names=new String[presets.length];
+            for(int i=0;i<presets.length;i++)names[i]=presets[i].title();
             new AlertDialog.Builder(host)
-                .setTitle("常用额度标签 · 本机")
-                .setMessage("选择自定义标签可以删除它。删除候选标签不会清除已使用该标签的账号标记。")
-                .setItems(tags,(d,index)->{
-                    String label=tags[index];
-                    if(index<3){
-                        toast("这是内置标签，不需要删除");
+                .setTitle("额度状态预设 · 状态与恢复时间一起保存")
+                .setItems(names,(d,index)->{
+                    if(index<AccountMetadataStore.builtInQuotaPresetCount()){
+                        toast("这是内置预设，不能删除");
                         return;
                     }
-                    new AlertDialog.Builder(host)
-                        .setTitle("删除常用标签")
-                        .setMessage("只从候选列表移除「"+label+"」，不会更改已标记账号。")
+                    AccountMetadataStore.QuotaPreset preset=presets[index];
+                    new AlertDialog.Builder(host).setTitle("删除自定义预设？")
+                        .setMessage("移除「"+preset.title()+"」的快捷选项。"
+                            +"不会改变任何账号已保存的额度状态，也不影响账号标签。")
                         .setNegativeButton("取消",null)
-                        .setPositiveButton("确认",(x,y)->{
-                            try{AccountMetadataStore.deleteQuotaTagPreset(host,label);}
-                            catch(RuntimeException error){toast("删除标签失败");}
-                            render();
+                        .setPositiveButton("删除",(x,y)->{
+                            try{AccountMetadataStore.deleteQuotaPreset(host,preset);
+                                toast("预设已删除");
+                                render();
+                            }catch(RuntimeException ex){toast("删除预设失败");}
                         }).show();
                 })
                 .setNegativeButton("关闭",null)
-                .setPositiveButton("+ 新增标签",(d,w)->{
-                    EditText input=new EditText(host);
-                    input.setSingleLine(true);
-                    input.setHint("如：等待 5 小时重置");
-                    new AlertDialog.Builder(host)
-                        .setTitle("新增可复用的额度标签")
-                        .setMessage("最多 24 字，可保存 16 个自定义常用标签")
-                        .setView(input)
-                        .setNegativeButton("取消",null)
-                        .setPositiveButton("保存",(d2,w2)->{
-                            try{
-                                AccountMetadataStore.saveQuotaTagPreset(
-                                    host,input.getText().toString());
-                                toast("常用标签已保存");
-                            }catch(RuntimeException ex){toast("标签为空、太长或超过数量上限");}
-                        }).show();
+                .setPositiveButton("新增组合预设",(d,w)->customQuota(null,true))
+                .show();
+        }
+        private void mark(Target target){
+            AccountMetadataStore.QuotaPreset[] presets=AccountMetadataStore.quotaPresets(host);
+            String[] choices=new String[presets.length+2];
+            for(int i=0;i<presets.length;i++)choices[i]=presets[i].title();
+            choices[presets.length]="自定义状态及恢复时间…";
+            choices[presets.length+1]="解除本账号额度标记";
+            new AlertDialog.Builder(host)
+                .setTitle("额度状态 · "+target.description())
+                .setMessage("这是手动记录，不会自动切换账号或发送请求。到期只清除额度状态，"
+                    +"永久账号标签和备注不变。")
+                .setItems(choices,(d,index)->{
+                    if(index<presets.length){
+                        AccountMetadataStore.QuotaPreset preset=presets[index];
+                        try{
+                            AccountMetadataStore.setQuotaMark(host,target.provider,
+                                target.slot,preset.label,preset.hours,System.currentTimeMillis());
+                            render();
+                        }catch(RuntimeException ex){toast("设置额度状态失败");}
+                    }else if(index==presets.length)customQuota(target,false);
+                    else{
+                        try{
+                            AccountMetadataStore.setQuotaMark(host,target.provider,target.slot,
+                                "",-1,System.currentTimeMillis());
+                            render();
+                        }catch(RuntimeException ex){toast("解除标记失败");}
+                    }
                 }).show();
         }
-
-        private void mark(Target target){
+        private void customQuota(Target target,boolean saveOnly){
             LinearLayout form=new LinearLayout(host);
-            form.setPadding(dp(15),dp(6),dp(15),dp(8));
             form.setOrientation(LinearLayout.VERTICAL);
-            add(form,text("选择标签，或在下方直接填写自定义标签：",13,0xFFBFCDF0),5);
-            String[] options=AccountMetadataStore.quotaTagOptions(host);
-            String[] choices=new String[options.length+1];
-            System.arraycopy(options,0,choices,0,options.length);
-            choices[options.length]="自定义填写…";
-            Spinner tags=spinner(choices);
-            add(form,tags,6);
+            form.setPadding(dp(15),dp(8),dp(15),dp(8));
+            add(form,text("状态名称（不是账号标签）",13,0xFFBFCDF0),2);
             EditText label=new EditText(host);
             label.setSingleLine(true);
             label.setTextColor(Color.WHITE);
             label.setHintTextColor(0xFF9CAFCB);
-            label.setHint("额度标签（最多24字）");
-            String active=AccountMetadataStore.quotaLabel(host,target.provider,
-                target.slot,System.currentTimeMillis());
-            label.setText(active.isEmpty()?"额度已无":active);
-            add(form,label,4);
-            CheckBox save=new CheckBox(host);
-            save.setText("另存为常用标签，方便以后选择");
-            save.setTextColor(0xFFB8C9EA);
-            add(form,save,8);
-            add(form,text("标记恢复时间（手动选择，非官方额度）：",13,0xFFBFCDF0),3);
+            label.setHint("如：额度已无 / 等待恢复");
+            String current=target==null?"":AccountMetadataStore.quotaLabel(host,
+                target.provider,target.slot,System.currentTimeMillis());
+            label.setText(current.isEmpty()?"额度已无":current);
+            add(form,label,5);
+            add(form,text("恢复时间（与状态一起保存）",13,0xFFBFCDF0),2);
             Spinner duration=spinner(new String[]{
                 "手动解除（不限时）","1 小时","3 小时","5 小时",
-                "12 小时","24 小时","自定义 1–72 小时"
+                "12 小时","24 小时","自定义时长…"
             });
             duration.setSelection(3);
             add(form,duration,4);
@@ -362,65 +371,67 @@ final class AccountManagerUi {
             customHours.setSingleLine(true);
             customHours.setInputType(InputType.TYPE_CLASS_NUMBER);
             customHours.setTextColor(Color.WHITE);
-            customHours.setHint("请输入 1–72 小时");
+            customHours.setHintTextColor(0xFF9CAFCB);
+            customHours.setHint("恢复时间：1–72 小时");
             customHours.setText("5");
             customHours.setVisibility(View.GONE);
-            add(form,customHours,3);
-            duration.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-                @Override public void onItemSelected(android.widget.AdapterView<?> p,View v,int i,long id){
+            add(form,customHours,5);
+            duration.setOnItemSelectedListener(
+                new android.widget.AdapterView.OnItemSelectedListener(){
+                @Override public void onItemSelected(
+                        android.widget.AdapterView<?> parent,View view,int i,long id){
                     customHours.setVisibility(i==6?View.VISIBLE:View.GONE);
                 }
-                @Override public void onNothingSelected(android.widget.AdapterView<?> p){}
+                @Override public void onNothingSelected(
+                        android.widget.AdapterView<?> parent){}
             });
-            int pos=options.length;
-            for(int i=0;i<options.length;i++)if(options[i].equals(active)){pos=i;break;}
-            final boolean[] selectionInitialized={false};
-            tags.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-                @Override public void onItemSelected(android.widget.AdapterView<?> p,View v,int i,long id){
-                    // Don't overwrite a pre-existing custom mark on first render.
-                    if(!selectionInitialized[0]){
-                        selectionInitialized[0]=true;
-                        return;
-                    }
-                    if(i<options.length)label.setText(options[i]);
-                }
-                @Override public void onNothingSelected(android.widget.AdapterView<?> p){}
-            });
-            tags.setSelection(pos);
-            AlertDialog dialog=new AlertDialog.Builder(host)
-                .setTitle("额度标签 · "+target.description())
+            CheckBox remember=new CheckBox(host);
+            remember.setText("保存为常用组合预设（以后一次选择）");
+            remember.setTextColor(0xFFBECBE6);
+            remember.setChecked(saveOnly);
+            remember.setVisibility(saveOnly?View.GONE:View.VISIBLE);
+            add(form,remember,4);
+            AlertDialog editor=new AlertDialog.Builder(host)
+                .setTitle(saveOnly?"创建额度状态组合预设":"自定义额度状态")
                 .setView(form)
                 .setNegativeButton("取消",null)
-                .setNeutralButton("解除标记",(d,w)->{
-                    try{
-                        AccountMetadataStore.setQuotaMark(
-                            host,target.provider,target.slot,"",-1,System.currentTimeMillis());
-                        render();
-                    }catch(RuntimeException ex){toast("解除标记失败");}
-                })
                 .setPositiveButton("保存",null)
                 .create();
-            dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(v->{
-                    int i=duration.getSelectedItemPosition();
-                    int[] hours={0,1,3,5,12,24,-2};
+            editor.setOnShowListener(x->
+                editor.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
                     try{
-                        int h=hours[i];
-                        if(h==-2)h=Integer.parseInt(customHours.getText().toString());
-                        String value=label.getText().toString();
-                        AccountMetadataStore.setQuotaMark(host,target.provider,target.slot,
-                            value,h,System.currentTimeMillis());
-                        if(save.isChecked()){
-                            try{AccountMetadataStore.saveQuotaTagPreset(host,value);}
-                            catch(RuntimeException ex){toast("额度标记已保存；常用标签未保存");}
+                        int[] values={0,1,3,5,12,24,-2};
+                        int index=duration.getSelectedItemPosition();
+                        if(index<0||index>=values.length)
+                            throw new IllegalArgumentException("duration_missing");
+                        int hours=values[index];
+                        if(hours==-2)hours=Integer.parseInt(
+                            customHours.getText().toString().trim());
+                        if(hours<0||hours>72)
+                            throw new IllegalArgumentException("invalid_hours");
+                        String name=label.getText().toString().trim();
+                        if(saveOnly){
+                            AccountMetadataStore.saveQuotaPreset(host,name,hours);
+                        }else{
+                            AccountMetadataStore.setQuotaMark(host,target.provider,
+                                target.slot,name,hours,System.currentTimeMillis());
+                            if(remember.isChecked()){
+                                try{AccountMetadataStore.saveQuotaPreset(host,name,hours);}
+                                catch(RuntimeException ignored){
+                                    toast("额度状态已保存，但快捷预设未保存");
+                                }
+                            }
                         }
-                        dialog.dismiss();
+                        editor.dismiss();
+                        toast(saveOnly?"组合预设已保存":"本账号额度状态已设置");
                         render();
-                    }catch(RuntimeException ex){
-                        label.setError("请填写最多24字的标签，并选择 1–72 小时或手动解除");
+                    }catch(NumberFormatException error){
+                        customHours.setError("请输入 1–72 小时的整数");
+                    }catch(RuntimeException error){
+                        label.setError("请填写最多24字的状态名称，并核对恢复时间");
                     }
                 }));
-            dialog.show();
+            editor.show();
         }
         private ArrayList<Target> targets(){
             // Resolve from the explicit selection, not from filtered or sorted indexes.
