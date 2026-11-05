@@ -109,6 +109,12 @@ def check(base, candidate):
             "Lcom/omnigate/integrated/offlinemlkit/MlKitTranslationRuntime;":
                 "dependenciesAvailable",
             "Lcom/google/mlkit/nl/translate/Translation;":
+                None,
+            # Library classes.jar omits generated Android R classes. Their
+            # absence caused real v1.3.0 NoClassDefFoundError pre-download.
+            "Lcom/google/mlkit/nl/translate/R$raw;":
+                None,
+            "Lcom/google/mlkit/nl/translate/R$xml;":
                 None
         }
         for descriptor,required_method in required_classes.items():
@@ -137,6 +143,21 @@ def check(base, candidate):
     checkset["fixed_signer"] = bool(m and
         m.group(1).replace(":", "").lower() == CERT_SHA)
     checkset["single_signer"] = "Signer #2 certificate" not in verification
+
+    # Match both generated R$ fields against the final linked binary package.
+    # A class alone is insufficient if its constants point to the wrong ID.
+    resources_dump = run_checked([aapt2, "dump", "resources", str(candidate)])
+    for kind, resource in (("raw", "translate_models_metadata"),
+                           ("xml", "rapid_response_client_defaults")):
+        match = re.search(r"^\s*resource\s+(0x[0-9a-fA-F]{8})\s+" +
+                          kind + "/" + resource + r"\b",
+                          resources_dump, re.M)
+        checkset["linked_mlkit_resource_"+kind] = bool(match)
+        if match:
+            checkset["linked_mlkit_resource_"+kind+"_in_APK"] = any(
+                name.endswith("/"+resource+".json") if kind=="raw"
+                else name.endswith("/"+resource+".xml")
+                for name in zipfile.ZipFile(candidate).namelist())
 
     badging = run_checked([aapt2, "dump", "badging", str(candidate)])
     match = re.search(
