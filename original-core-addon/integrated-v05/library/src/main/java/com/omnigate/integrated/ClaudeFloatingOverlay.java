@@ -37,6 +37,10 @@ public final class ClaudeFloatingOverlay {
     private static android.widget.CheckBox quickIndefinite,quickSavePreset;
     private static TextView quickStatus;
     private static boolean quickOpen;
+    private static android.widget.ScrollView translationPanel;
+    private static TextView translationText;
+    private static boolean translationOpen;
+    private static int translationEpoch;
     private static FrameLayout viewport;
     private static TextView caption;
     private static Button account,fold,closeControl,fullscreenControl,fullscreenFooter,quickControl;
@@ -102,6 +106,7 @@ public final class ClaudeFloatingOverlay {
             // All providers share one overlay owner; never preloads another.
             if(!provider.equals(selectedProvider)||selected!=slot||session==null){
                 hideQuickSettings();
+                hideTranslationPanel();
                 selectedProvider=provider;
                 openAccount(slot);
             }
@@ -227,6 +232,7 @@ public final class ClaudeFloatingOverlay {
         body=new LinearLayout(app);body.setOrientation(LinearLayout.VERTICAL);
         root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         buildQuickPanel();
+        buildTranslationPanel();
         addressBar=new LinearLayout(app);
         addressBar.setVisibility(View.GONE);
         body.addView(addressBar,new LinearLayout.LayoutParams(-1,dp(app,39)));
@@ -265,7 +271,7 @@ public final class ClaudeFloatingOverlay {
         back.setOnClickListener(v->callSession("goBack"));
         reload.setOnClickListener(v->callSession("reload"));
         home.setOnClickListener(v->navigate(AccountBrowserSlots.home(selectedProvider)));
-        translate.setOnClickListener(v->GeckoPageTranslate.showMenu(app,translate,session));
+        translate.setOnClickListener(v->requestTranslation(translate));
         addressControl.setOnClickListener(v->{
             addressExpanded=!addressExpanded;
             addressBar.setVisibility(addressExpanded?View.VISIBLE:View.GONE);
@@ -281,6 +287,76 @@ public final class ClaudeFloatingOverlay {
      * OmniGate is in the background. Hiding this panel DOES NOT detach the
      * GeckoView, close the session or load a URL.
      */
+
+    /**
+     * Separate native reading layer. The actual GeckoView stays attached to
+     * viewport with the same GeckoSession, scroll, draft, cookies and URL.
+     * Opening and closing this layer MUST NOT invoke loadUri/reload/restore.
+     */
+    private static void buildTranslationPanel(){
+        translationPanel=new android.widget.ScrollView(app);
+        translationPanel.setVisibility(View.GONE);
+        translationPanel.setFillViewport(false);
+        root.addView(translationPanel,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout box=new LinearLayout(app);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(app,11),dp(app,8),dp(app,11),dp(app,8));
+        translationPanel.addView(box);
+        TextView title=new TextView(app);
+        title.setText("只读译文 · 关闭即可返回原网页");
+        title.setTextColor(0xFF82E6E7);title.setTextSize(13);
+        box.addView(title);
+        TextView guide=new TextView(app);
+        guide.setText("不修改原网页，不会刷新原对话。由设备系统本机翻译服务处理；没有服务则不翻译。");
+        guide.setTextColor(0xFFB9C8E5);guide.setTextSize(11);
+        box.addView(guide);
+        Button exit=button(app,"返回原网页 · 不刷新");
+        box.addView(exit,new LinearLayout.LayoutParams(-1,dp(app,40)));
+        exit.setOnClickListener(v->hideTranslationPanel());
+        translationText=new TextView(app);
+        translationText.setTextColor(0xFFF1F5FF);
+        translationText.setTextSize(14);
+        translationText.setTextIsSelectable(true);
+        translationText.setPadding(0,dp(app,9),0,dp(app,16));
+        box.addView(translationText);
+    }
+    private static void requestTranslation(View anchor){
+        if(session==null||selected<0)return;
+        final Object current=session;
+        final String currentProvider=selectedProvider;
+        final int currentSlot=selected;
+        final int generation=++translationEpoch;
+        GeckoPageTranslate.showMenu(app,anchor,current,
+            text->{
+                if(current!=session||selected!=currentSlot||
+                    !currentProvider.equals(selectedProvider)||
+                    generation!=translationEpoch)return;
+                showTranslationText(text);
+            },
+            ()->hideTranslationPanel());
+    }
+    private static void showTranslationText(String text){
+        if(root==null||translationPanel==null)return;
+        if(minimized)setMinimized(false);
+        quickOpen=false;
+        if(quickPanel!=null)quickPanel.setVisibility(View.GONE);
+        translationOpen=true;
+        body.setVisibility(View.GONE);
+        translationPanel.setVisibility(View.VISIBLE);
+        translationText.setText(text);
+        // Translation pane never acquires OS IME ownership from another app.
+        setOverlayFocusable(false);
+    }
+    private static void hideTranslationPanel(){
+        translationEpoch++; // Reject any late async results after cancel.
+        translationOpen=false;
+        if(translationPanel!=null)translationPanel.setVisibility(View.GONE);
+        if(translationText!=null)translationText.setText("");
+        if(body!=null)body.setVisibility(
+            minimized||quickOpen?View.GONE:View.VISIBLE);
+        if(root!=null&&manager!=null)setOverlayFocusable(false);
+    }
+
     private static EditText quickInput(LinearLayout parent,String hint){
         EditText e=new EditText(app);
         e.setSingleLine(true);e.setTextSize(13);
@@ -367,6 +443,7 @@ public final class ClaudeFloatingOverlay {
     }
     private static void showQuickSettings(){
         if(root==null||selected<0||selectedProvider.isEmpty())return;
+        hideTranslationPanel();
         if(minimized)setMinimized(false);
         quickOpen=true;
         body.setVisibility(View.GONE);
@@ -491,10 +568,10 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,102,102,"设置当前账号 · 标签 / 备注 / 额度");
         menu.getMenu().add(0,103,103,
             tallWindow?"窗口大小 · 恢复标准高度":"窗口大小 · 加高阅读区");
-        menu.getMenu().add(0,104,104,"翻译当前网页 / 恢复原文");
+        menu.getMenu().add(0,104,104,"无刷新译文阅读层 / 返回原文");
         menu.setOnMenuItemClickListener(item->{
             if(item.getItemId()==104){
-                GeckoPageTranslate.showMenu(app,account,session);
+                requestTranslation(account);
                 return true;
             }
             if(item.getItemId()==103){
@@ -525,6 +602,7 @@ public final class ClaudeFloatingOverlay {
         menu.show();
     }
     private static void openAccount(int slot) throws Exception{
+        hideTranslationPanel();
         releaseSession();
         selected=-1;
         String id=AccountBrowserStore.contextId(app,selectedProvider,slot);
@@ -651,10 +729,15 @@ public final class ClaudeFloatingOverlay {
         // Minimized always returns IME ownership to the underlying app.
         // Expanded starts passive and only acquires focus on direct input.
         setOverlayFocusable(false);
-        if(value)quickOpen=false;
-        body.setVisibility(value||quickOpen?View.GONE:View.VISIBLE);
+        if(value){
+            hideTranslationPanel();
+            quickOpen=false;
+        }
+        body.setVisibility(value||quickOpen||translationOpen?View.GONE:View.VISIBLE);
         if(quickPanel!=null)quickPanel.setVisibility(
             !value&&quickOpen?View.VISIBLE:View.GONE);
+        if(translationPanel!=null)translationPanel.setVisibility(
+            !value&&translationOpen?View.VISIBLE:View.GONE);
         caption.setVisibility(value?View.GONE:View.VISIBLE);
         account.setVisibility(value?View.GONE:View.VISIBLE);
         quickControl.setVisibility(value?View.GONE:View.VISIBLE);
@@ -690,6 +773,7 @@ public final class ClaudeFloatingOverlay {
         }
     }
     public static void close(){
+        hideTranslationPanel();
         releaseSession();
         if(root!=null&&manager!=null){
             try{manager.removeViewImmediate(root);}
@@ -703,6 +787,8 @@ public final class ClaudeFloatingOverlay {
         quickNote=null;quickQuotaLabel=null;quickQuotaHours=null;
         quickIndefinite=null;quickSavePreset=null;quickStatus=null;
         quickOpen=false;
+        translationPanel=null;translationText=null;
+        translationOpen=false;translationEpoch++;
         window=null;manager=null;app=null;
         selected=-1;selectedProvider="";minimized=false;
         fullscreenWindow=false;inputFocusHeld=false;
