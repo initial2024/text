@@ -25,6 +25,10 @@ jobs:
           f=(d/"ClaudeFloatingOverlay.java").read_text()
           b=(d/"IsolatedGeckoBrowser.java").read_text()
           assert 'getSessionTranslation' in t
+          assert 'setTranslationsSessionDelegate' in t
+          assert 'GeckoPageTranslate.prepareSession(created);' in f
+          assert 'GeckoPageTranslate.prepareSession(created);' in b
+          assert '已开始本地翻译' in t
           assert 'restoreOriginalPage' in t
           assert 'getMethod("translate",' in t
           assert 'GeckoResult$Consumer' in t
