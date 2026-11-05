@@ -1159,6 +1159,9 @@ final class IsolatedGeckoBrowser {
             if(!AccountBrowserSlots.validContextId(id))
                 throw new IllegalStateException("gecko_context_id_invalid");
             Object runtime=existingRuntime();
+            // App Info language affects Gecko requests, not the Chinese shell.
+            // Existing session/context is untouched; no reload or navigation.
+            OmniGateBrowserLanguage.applyToExisting(host,runtime);
             Class<?> builderClass=Class.forName(
                 "org.mozilla.geckoview.GeckoSessionSettings$Builder");
             Object builder=builderClass.getConstructor().newInstance();
