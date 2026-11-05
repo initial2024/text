@@ -39,18 +39,38 @@ jobs:
           assert 'newContextId()' in prefs and 'rotateContext(' in prefs
           assert 'actual.equals(expectedOldId)' in prefs
           assert 'Math.addExact(now,HOUR_MS*hours)' in metadata
-          assert 'if(hours<0||hours>72)' in metadata
+          assert 'if(hours< -1||hours>72)' in metadata
           assert 'Arrays.sort(slots,' in metadata
           assert 'return x==y?Integer.compare(a,b):(x?1:-1)' in metadata
           assert 'quotaUntil(c,provider,slot,now)' in metadata
+          assert 'accountTags(Context c,String provider,int slot)' in metadata
+          assert 'setAccountInfo(Context c,String provider,int slot,' in metadata
+          assert 'setAccountTags(Context c,String provider,int slot,String raw)' in metadata
+          assert '.account_tags' in metadata
+          assert '.remove(base+".quota_label")' in metadata
+          assert '.remove(base+".account_tags")' not in metadata
+          assert 'static final class QuotaPreset' in metadata
+          assert 'String id(){return label+' in metadata
+          assert 'void saveQuotaPreset(' in metadata
+          assert 'void deleteQuotaPreset(' in metadata
+          assert 'String title(){' in metadata
           assert 'replace(' in metadata and 'sanitize(' in metadata
           assert 'search.addTextChangedListener(' in manager
+          assert 'accountTagFilter.addTextChangedListener(' in manager
+          assert 'hasAccountTag(host,provider,slot,tagFilter)' in manager
+          assert '账号标签：' in manager
+          assert '额度状态：' in manager
           assert 'providerFilter.setOnItemSelectedListener(' in manager
           assert 'statusFilter.setOnItemSelectedListener(' in manager
           assert 'selected.retainAll(visibleKeys);' in manager
           assert 'for(Target target:visible)' in manager
           assert '"5 小时"' in manager
-          assert 'AccountMetadataStore.setNameAndNote' in manager
+          assert 'AccountMetadataStore.quotaPresets(host)' in manager
+          assert 'preset.label,preset.hours' in manager
+          assert 'choices[presets.length]="自定义状态及恢复时间…"' in manager
+          assert 'AccountMetadataStore.saveQuotaPreset(host,name,hours)' in manager
+          assert 'AccountMetadataStore.setQuotaMark(host,target.provider,' in manager
+          assert 'AccountMetadataStore.setAccountInfo' in manager
           assert 'AccountStorageCleaner.clearWholeContext' in manager
           assert 'AccountStorageCleaner.closeCurrentPage' in manager
           assert 'AccountBrowserStore.contextId(c,provider,slot)' in cleaner
