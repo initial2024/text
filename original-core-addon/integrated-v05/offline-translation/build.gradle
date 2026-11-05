@@ -1,0 +1,12 @@
+plugins { id 'com.android.library' }
+android {
+    namespace 'com.omnigate.integrated.offlinemlkit'
+    compileSdk 35
+    defaultConfig { minSdk 26 }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies {
+    // Official Google ML Kit on-device translation. This module is optional.
+    // NO online translation API and NO silent model downloads.
+    implementation 'com.google.mlkit:translate:17.0.3'
+}
