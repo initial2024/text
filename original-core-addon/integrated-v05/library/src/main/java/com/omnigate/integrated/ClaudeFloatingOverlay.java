@@ -21,9 +21,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * Explicitly opened, one-session Claude web overlay. Not an API model, not
- * an automation bridge, no access to original WebDriver or other accounts.
- * Uses original GeckoRuntime and a persisted Claude-only context ID.
+ * Explicitly opened one-session Gecko web overlay for allowlisted providers.
+ * Never connects to native 8787 execution or copies authentication state.
+ * Retains exactly one active GeckoSession, opened only by a user tap.
  */
 public final class ClaudeFloatingOverlay {
     private static Context app;
@@ -41,6 +41,7 @@ public final class ClaudeFloatingOverlay {
     private static final int BUBBLE_SIZE_DP=52;
     private static Object session,geckoView;
     private static int selected=-1;
+    private static String selectedProvider="";
     private static boolean minimized;
     private ClaudeFloatingOverlay(){}
     private static int dp(Context c,int v){
@@ -55,11 +56,13 @@ public final class ClaudeFloatingOverlay {
         return b;
     }
     public static boolean showing(){return root!=null && manager!=null;}
-    public static void show(Activity host,int slot){
-        if(host==null||host.isDestroyed()||host.isFinishing())return;
-        if(slot<0||slot>=AccountBrowserStore.count(host,"claude"))return;
+    public static void show(Activity host,int slot){show(host,"claude",slot);}
+    public static void show(Activity host,String provider,int slot){
+        if(host==null||host.isDestroyed()||host.isFinishing()||
+            !AccountBrowserSlots.supported(provider))return;
+        if(slot<0||slot>=AccountBrowserStore.count(host,provider))return;
         if(!Settings.canDrawOverlays(host)){
-            new AlertDialog.Builder(host).setTitle("开启 Claude 悬浮窗")
+            new AlertDialog.Builder(host).setTitle("开启网页悬浮窗")
                 .setMessage("需要你在 Android 系统中授予“显示在其他应用上层”权限。"+
                     "授权后回到 OmniGate 再点一次悬浮窗。不会自动启动网页登录或发送请求。")
                 .setNegativeButton("取消",null)
@@ -79,12 +82,14 @@ public final class ClaudeFloatingOverlay {
         IsolatedGeckoBrowser.closeActiveBrowser();
         try{
             if(!showing())create(host.getApplicationContext());
-            // Reopening the same floating account must not reset the
-            // current URL, chat scroll, draft or login session.
-            if(selected!=slot || session==null)openAccount(slot);
+            // All providers share one overlay owner; never preloads another.
+            if(!provider.equals(selectedProvider)||selected!=slot||session==null){
+                selectedProvider=provider;
+                openAccount(slot);
+            }
         }catch(Throwable error){
             close();
-            Toast.makeText(host,"Claude 悬浮窗不可用："+error.getClass().getSimpleName()+
+            Toast.makeText(host,"网页悬浮窗不可用："+error.getClass().getSimpleName()+
                 "；原版账号与模型保持不变",Toast.LENGTH_LONG).show();
         }
     }
@@ -127,7 +132,7 @@ public final class ClaudeFloatingOverlay {
         title.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(title,new LinearLayout.LayoutParams(-1,dp(app,48)));
         caption=new TextView(app);
-        caption.setText("⠿ Claude");
+        caption.setText("⠿ 网页");
         caption.setTextColor(0xFFE0E7FF);caption.setTextSize(13);
         caption.setGravity(Gravity.CENTER_VERTICAL);
         caption.setPadding(dp(app,5),0,0,0);
@@ -154,7 +159,7 @@ public final class ClaudeFloatingOverlay {
         title.addView(account,new LinearLayout.LayoutParams(dp(app,76),dp(app,42)));
         account.setOnClickListener(v->showAccounts());
         fullscreenControl=button(app,"全屏");
-        fullscreenControl.setContentDescription("返回全屏，保留当前 Claude 网页");
+        fullscreenControl.setContentDescription("返回全屏，保留当前网页");
         title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,56),dp(app,42)));
         fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
         fold=button(app,"—");
@@ -218,12 +223,12 @@ public final class ClaudeFloatingOverlay {
         body.addView(footer,new LinearLayout.LayoutParams(-1,dp(app,42)));
         Button back=button(app,"后退"),reload=button(app,"刷新"),home=button(app,"主页");
         fullscreenFooter=button(app,"全屏");
-        fullscreenFooter.setContentDescription("全屏／还原当前 Claude 网页，不刷新");
+        fullscreenFooter.setContentDescription("全屏／还原当前网页，不刷新");
         for(Button b:new Button[]{back,reload,home,fullscreenFooter})
             footer.addView(b,new LinearLayout.LayoutParams(0,dp(app,41),1));
         back.setOnClickListener(v->callSession("goBack"));
         reload.setOnClickListener(v->callSession("reload"));
-        home.setOnClickListener(v->navigate(AccountBrowserSlots.home("claude")));
+        home.setOnClickListener(v->navigate(AccountBrowserSlots.home(selectedProvider)));
         fullscreenFooter.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
         manager.addView(root,window);
         setMinimized(true); // Open as a small, non-IME-stealing bubble.
@@ -250,11 +255,17 @@ public final class ClaudeFloatingOverlay {
     private static void showAccounts(){
         if(account==null)return;
         PopupMenu menu=new PopupMenu(app,account);
-        int n=AccountBrowserStore.count(app,"claude");
-        for(int i=0;i<n;i++)
-            menu.getMenu().add(0,i+1,i,"Claude 账号 "+(i+1)+(i==selected?" ✓":""));
+        int n=AccountBrowserStore.count(app,selectedProvider);
+        for(int slot:AccountMetadataStore.sorted(app,selectedProvider,
+                System.currentTimeMillis())){
+            String name=AccountMetadataStore.name(app,selectedProvider,slot);
+            String mark=AccountMetadataStore.status(app,selectedProvider,slot,
+                System.currentTimeMillis());
+            menu.getMenu().add(0,slot+1,slot,name+(slot==selected?" ✓":"")+
+                (mark.isEmpty()?"":" · "+mark));
+        }
         if(n<AccountBrowserSlots.MAX_SLOTS)
-            menu.getMenu().add(0,100,100,"新增独立 Claude 账号");
+            menu.getMenu().add(0,100,100,"新增当前平台隔离账号");
         menu.getMenu().add(0,101,101,
             fullscreenWindow?"还原窗口（不刷新网页）":"全屏显示（不刷新网页）");
         menu.setOnMenuItemClickListener(item->{
@@ -264,7 +275,7 @@ public final class ClaudeFloatingOverlay {
             }
             try{
                 int chosen=item.getItemId()==100
-                    ?AccountBrowserStore.create(app,"claude")
+                    ?AccountBrowserStore.create(app,selectedProvider)
                     :item.getItemId()-1;
                 if(chosen!=selected)openAccount(chosen);
             }catch(Throwable failure){
@@ -279,7 +290,7 @@ public final class ClaudeFloatingOverlay {
     private static void openAccount(int slot) throws Exception{
         releaseSession();
         selected=-1;
-        String id=AccountBrowserStore.contextId(app,"claude",slot);
+        String id=AccountBrowserStore.contextId(app,selectedProvider,slot);
         if(!AccountBrowserSlots.validContextId(id))
             throw new IllegalStateException("context_invalid");
         Class<?> runtimeClass=Class.forName("org.mozilla.geckoview.GeckoRuntime");
@@ -312,11 +323,11 @@ public final class ClaudeFloatingOverlay {
             return false;
         });
         viewport.addView((View)visual,new FrameLayout.LayoutParams(-1,-1));
-        AccountBrowserStore.select(app,"claude",slot);
+        AccountBrowserStore.select(app,selectedProvider,slot);
         selected=slot;
-        account.setText("账号 "+(slot+1)+" ▾");
-        caption.setText("Claude · v1.2.4");
-        navigate(AccountBrowserSlots.home("claude"));
+        account.setText(AccountMetadataStore.name(app,selectedProvider,slot)+" ▾");
+        caption.setText(selectedProvider.toUpperCase(java.util.Locale.ROOT)+" · 网页悬浮窗");
+        navigate(AccountBrowserSlots.home(selectedProvider));
     }
     private static void navigate(String text){
         if(session==null)return;
@@ -393,8 +404,8 @@ public final class ClaudeFloatingOverlay {
             if(fullscreenFooter!=null)
                 fullscreenFooter.setText(fullscreenWindow?"还原":"全屏");
             fullscreenControl.setContentDescription(fullscreenWindow
-                ?"还原 Claude 悬浮窗，保留网页"
-                :"返回全屏，保留当前 Claude 网页");
+                ?"还原悬浮窗，保留网页"
+                :"返回全屏，保留当前网页");
         }
         manager.updateViewLayout(root,window);
     }
@@ -419,6 +430,12 @@ public final class ClaudeFloatingOverlay {
         fold.setContentDescription(value?"展开 Claude 网页悬浮窗":"收起 Claude 网页悬浮窗");
         applyWindowGeometry();
     }
+    static boolean closeIfMatches(String provider,int slot){
+        if(!showing()||!provider.equals(selectedProvider)||selected!=slot)
+            return false;
+        close();
+        return true;
+    }
     private static void releaseSession(){
         Object old=session,visual=geckoView;
         session=null;geckoView=null;
@@ -442,7 +459,8 @@ public final class ClaudeFloatingOverlay {
         root=null;body=null;viewport=null;caption=null;account=null;fold=null;
         closeControl=null;fullscreenControl=null;fullscreenFooter=null;
         window=null;manager=null;app=null;
-        selected=-1;minimized=false;fullscreenWindow=false;inputFocusHeld=false;
+        selected=-1;selectedProvider="";minimized=false;
+        fullscreenWindow=false;inputFocusHeld=false;
         compactX=0;compactY=0;
     }
 }
