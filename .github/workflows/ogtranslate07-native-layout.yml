@@ -4,6 +4,7 @@ on:
     branches: [work/omnigate-integrated-v05]
     paths:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoPageTranslate.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/PageMirrorSnapshot.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SafePageTranslation.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
@@ -26,6 +27,7 @@ jobs:
           safe=(d/'SafePageTranslation.java').read_text()
           overlay=(d/'ClaudeFloatingOverlay.java').read_text()
           browser=(d/'IsolatedGeckoBrowser.java').read_text()
+          mirror=(d/'PageMirrorSnapshot.java').read_text()
           # No Gecko restoreOriginalPage call. It reloads on Gecko 153.
           for text in (menu,safe,overlay):
               assert 'getMethod("restoreOriginalPage")' not in text
@@ -57,8 +59,19 @@ jobs:
           assert 'requestTranslation(translate)' in overlay
           assert 'requestTranslation(account)' in overlay
           assert 'AccountBrowserStore.contextId(app,selectedProvider,slot)' in overlay
-          assert 'GeckoPageTranslate.showMenu(host,translate,session)' in browser
-          assert 'GeckoPageTranslate.showMenu(host,fullscreenExit,session)' in browser
+          assert 'GeckoPageTranslate.showMenu(host,translate,session,geckoView)' in browser
+          assert 'GeckoPageTranslate.showMenu(host,fullscreenExit,session,geckoView)' in browser
+          assert 'PageMirrorSnapshot.capture(ownedGeckoView' in menu
+          assert 'PageMirrorSnapshot.capture(geckoView' in overlay
+          assert 'getMethod("capturePixels")' in mirror
+          assert 'view.isAttachedToWindow()' in mirror
+          assert 'MAX_PIXELS = 2_500_000L' in mirror
+          for text in (mirror,):
+              for forbidden in ('loadUri(', 'evaluateJavascript(', 'getSessionPageExtractor',
+                                'MediaProjectionManager', 'HttpURLConnection', 'openFileOutput('):
+                  assert forbidden not in text, forbidden
+          assert 'translationMirrorSnapshot=null;' in overlay
+          print('OGTRANSLATE19_RAM_ONLY_OWNED_VIEW_MIRROR=PASS')
           print('OGTRANSLATE08_NO_GECKO_RESTORE_OR_NAVIGATION=PASS')
           print('OGTRANSLATE08_NATIVE_PREVIEW_CANCEL_PRESERVES_SESSION=PASS')
           print('OGTRANSLATE08_NO_SCRIPT_INJECTION_OR_NETWORK_FALLBACK=PASS')
