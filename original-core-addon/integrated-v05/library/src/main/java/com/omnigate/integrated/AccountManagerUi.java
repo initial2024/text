@@ -326,8 +326,9 @@ final class AccountManagerUi {
             choices[presets.length+1]="解除本账号额度标记";
             new AlertDialog.Builder(host)
                 .setTitle("额度状态 · "+target.description())
-                .setMessage("这是手动记录，不会自动切换账号或发送请求。到期只清除额度状态，"
-                    +"永久账号标签和备注不变。")
+                // Android AlertDialog renders the message INSTEAD OF the list
+                // when setMessage() and setItems() are combined. Keep a visible
+                // title and an actual selectable list of duration/status pairs.
                 .setItems(choices,(d,index)->{
                     if(index<presets.length){
                         AccountMetadataStore.QuotaPreset preset=presets[index];
