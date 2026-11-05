@@ -1,6 +1,7 @@
 package com.omnigate.integrated;
 
 import android.content.Context;
+import android.content.Intent;
 import android.icu.util.ULocale;
 import android.os.Build;
 import android.os.CancellationSignal;
@@ -18,10 +19,9 @@ import android.view.translation.Translator;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Set;
-import java.util.concurrent.Executor;
 import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Snapshot reader translation; the *owned GeckoSession is read-only*.
@@ -41,32 +41,94 @@ final class SafePageTranslation {
     private static final int MAX_TEXT=12_000;
     private static final int CHUNK_SIZE=3_000;
     private static final Handler MAIN=new Handler(Looper.getMainLooper());
+    private static final long MAX_WAIT_MS=35_000L;
 
-    /** Only the explicit manual request invokes the native extractor. */
+    static boolean hasOnDeviceService(Context context){
+        return context!=null && Build.VERSION.SDK_INT>=31 &&
+            context.getSystemService(TranslationManager.class)!=null;
+    }
+
+    /**
+     * Only user-initiated operations can read current page text. Every async
+     * path completes once and the owner sees an actionable timeout instead of
+     * an indefinite "translating" spinner.
+     */
     static void translate(Context c,Object originalSession,String from,String to,Callback result){
         if(c==null||originalSession==null){
-            result.onFailure("网页尚未打开");return;
+            MAIN.post(()->result.onFailure("网页尚未打开"));return;
         }
         if(Build.VERSION.SDK_INT<31){
-            result.onFailure("需要 Android 12 或更新版本的本机翻译服务");return;
+            MAIN.post(()->result.onFailure(
+                "当前 Android 版本没有系统翻译接口；可在翻译菜单手动选择外部翻译应用"));return;
         }
+        // Check BEFORE page extraction; on OEM ROMs this service can be null.
+        if(!hasOnDeviceService(c)){
+            MAIN.post(()->result.onFailure(
+                "设备未安装 Android 系统翻译服务；请在翻译菜单选择外部翻译应用，或自愿启用 GeckoView 旧版整页翻译"));return;
+        }
+        AtomicBoolean completed=new AtomicBoolean(false);
+        Callback once=new Callback(){
+            @Override public void onSuccess(String translated){
+                if(completed.compareAndSet(false,true))
+                    MAIN.post(()->result.onSuccess(translated));
+            }
+            @Override public void onFailure(String reason){
+                if(completed.compareAndSet(false,true))
+                    MAIN.post(()->result.onFailure(reason));
+            }
+        };
+        MAIN.postDelayed(()->once.onFailure(
+            "35 秒内未获得翻译结果（可能缺少系统语言模型或服务无响应），已停止等待；原网页未刷新"),MAX_WAIT_MS);
+        extract(originalSession,source->translateText(c,source,from,to,once),
+            why->once.onFailure("无法读取当前网页正文："+why));
+    }
+
+    /** Explicit ACTION_SEND fallback. A chooser never posts page text until
+     * the user selects an external application. No cookies/session are sent. */
+    static void shareToSelectedTranslator(Context c,Object originalSession,Callback status){
+        if(c==null||originalSession==null){
+            status.onFailure("网页尚未打开");return;
+        }
+        AtomicBoolean finished=new AtomicBoolean(false);
+        MAIN.postDelayed(()->{
+            if(finished.compareAndSet(false,true))
+                status.onFailure("读取网页文字超时，未打开任何外部应用");
+        },10_000);
+        extract(originalSession,source->{
+            if(!finished.compareAndSet(false,true))return;
+            try{
+                Intent send=new Intent(Intent.ACTION_SEND);
+                send.setType("text/plain");
+                send.putExtra(Intent.EXTRA_TEXT,source);
+                Intent picker=Intent.createChooser(send,"选择翻译应用（仅在你选择后分享网页文字）");
+                picker.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                c.startActivity(picker);
+                status.onSuccess("已打开系统选择器：仅由你决定是否把网页文字分享给第三方应用。原网页未刷新。");
+            }catch(RuntimeException e){
+                status.onFailure("未能打开系统分享选择器："+e.getClass().getSimpleName());
+            }
+        },reason->{
+            if(finished.compareAndSet(false,true))
+                status.onFailure("无法读取当前网页正文："+reason);
+        });
+    }
+
+    private static void extract(Object originalSession,Consumer<String> ok,
+            Consumer<String> fail){
         try{
             Object extractor=originalSession.getClass().getMethod(
                 "getSessionPageExtractor").invoke(originalSession);
             Object pending=extractor.getClass().getMethod("getPageContent").invoke(extractor);
             attach(pending,raw->{
-                if(!(raw instanceof String)){
-                    result.onFailure("当前网页未返回可阅读文本");return;
-                }
+                if(!(raw instanceof String)){fail.accept("网页未返回可阅读文本");return;}
                 String source=((String)raw).trim();
-                if(source.isEmpty()){
-                    result.onFailure("当前网页没有可翻译的正文");return;
-                }
+                if(source.isEmpty()){fail.accept("当前网页没有可翻译的正文");return;}
                 if(source.length()>MAX_TEXT)source=source.substring(0,MAX_TEXT);
-                translateText(c,source,from,to,result);
-            },why->result.onFailure("无法读取当前网页正文："+why));
+                ok.accept(source);
+            },fail);
         }catch(Exception unsupported){
-            result.onFailure("当前 GeckoView 不支持安全文本提取");
+            fail.accept("当前 GeckoView 不支持安全文本提取（"+
+                unsupported.getClass().getSimpleName()+"）");
         }
     }
     private static void attach(Object result,Consumer<Object> ok,Consumer<String> err)
@@ -101,21 +163,19 @@ final class SafePageTranslation {
             ULocale.forLanguageTag(from),TranslationSpec.DATA_FORMAT_TEXT);
         final TranslationSpec targetSpec=new TranslationSpec(
             ULocale.forLanguageTag(to),TranslationSpec.DATA_FORMAT_TEXT);
-        final Set<?> abilities;
-        try{
-            abilities=manager.getOnDeviceTranslationCapabilities(
-                TranslationSpec.DATA_FORMAT_TEXT,TranslationSpec.DATA_FORMAT_TEXT);
-        }catch(RuntimeException error){
-            callback.onFailure("设备端翻译能力检查失败");return;
-        }
-        if(abilities==null||abilities.isEmpty()){
-            callback.onFailure("系统没有可用的设备端文本翻译能力");return;
-        }
         final TranslationContext config=new TranslationContext.Builder(
             sourceSpec,targetSpec).build();
         // createOnDeviceTranslator must be called from a worker thread.
         new Thread(()->{
             try{
+                // Android SDK explicitly requires this potentially slow probe
+                // on a worker, not the UI thread.
+                Set<?> abilities=manager.getOnDeviceTranslationCapabilities(
+                    TranslationSpec.DATA_FORMAT_TEXT,TranslationSpec.DATA_FORMAT_TEXT);
+                if(abilities==null||abilities.isEmpty()){
+                    MAIN.post(()->callback.onFailure("系统没有设备端文本翻译能力；可手动选择外部翻译应用"));
+                    return;
+                }
                 manager.createOnDeviceTranslator(config,context.getMainExecutor(),translator->{
                     if(translator==null){
                         callback.onFailure("系统没有此语言对的本机翻译模型");return;
