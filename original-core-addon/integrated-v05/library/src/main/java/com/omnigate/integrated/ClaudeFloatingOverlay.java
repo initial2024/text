@@ -30,9 +30,14 @@ public final class ClaudeFloatingOverlay {
     private static WindowManager manager;
     private static WindowManager.LayoutParams window;
     private static LinearLayout root,body;
+    private static android.widget.ScrollView quickPanel;
+    private static EditText quickName,quickTags,quickNote,quickQuotaLabel,quickQuotaHours;
+    private static android.widget.CheckBox quickIndefinite,quickSavePreset;
+    private static TextView quickStatus;
+    private static boolean quickOpen;
     private static FrameLayout viewport;
     private static TextView caption;
-    private static Button account,fold,closeControl,fullscreenControl,fullscreenFooter;
+    private static Button account,fold,closeControl,fullscreenControl,fullscreenFooter,quickControl;
     // Full-window is a geometry change of the SAME GeckoView and GeckoSession.
     // Never reload the URL or close the session for a size/mode transition.
     private static boolean fullscreenWindow;
@@ -84,6 +89,7 @@ public final class ClaudeFloatingOverlay {
             if(!showing())create(host.getApplicationContext());
             // All providers share one overlay owner; never preloads another.
             if(!provider.equals(selectedProvider)||selected!=slot||session==null){
+                hideQuickSettings();
                 selectedProvider=provider;
                 openAccount(slot);
             }
@@ -158,6 +164,12 @@ public final class ClaudeFloatingOverlay {
         account=button(app,"账号 ▾");
         title.addView(account,new LinearLayout.LayoutParams(dp(app,76),dp(app,42)));
         account.setOnClickListener(v->showAccounts());
+        quickControl=button(app,"设置");
+        quickControl.setContentDescription("仅管理当前账号的标签备注和额度记录");
+        title.addView(quickControl,new LinearLayout.LayoutParams(dp(app,43),dp(app,42)));
+        quickControl.setOnClickListener(v->{
+            if(quickOpen)hideQuickSettings();else showQuickSettings();
+        });
         fullscreenControl=button(app,"全屏");
         fullscreenControl.setContentDescription("返回全屏，保留当前网页");
         title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,56),dp(app,42)));
@@ -201,6 +213,7 @@ public final class ClaudeFloatingOverlay {
         closeControl.setOnClickListener(v->close());
         body=new LinearLayout(app);body.setOrientation(LinearLayout.VERTICAL);
         root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
+        buildQuickPanel();
         LinearLayout address=new LinearLayout(app);
         body.addView(address,new LinearLayout.LayoutParams(-1,dp(app,42)));
         EditText url=new EditText(app);
@@ -233,6 +246,184 @@ public final class ClaudeFloatingOverlay {
         manager.addView(root,window);
         setMinimized(true); // Open as a small, non-IME-stealing bubble.
     }
+
+    /**
+     * Overlay-inline account editing: no Activity token is needed while
+     * OmniGate is in the background. Hiding this panel DOES NOT detach the
+     * GeckoView, close the session or load a URL.
+     */
+    private static EditText quickInput(LinearLayout parent,String hint){
+        EditText e=new EditText(app);
+        e.setSingleLine(true);e.setTextSize(13);
+        e.setTextColor(0xFFF4F6FF);e.setHintTextColor(0xFF9DACC7);
+        e.setHint(hint);
+        parent.addView(e,new LinearLayout.LayoutParams(-1,dp(app,43)));
+        e.setOnTouchListener((v,event)->{
+            if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
+                setOverlayFocusable(true);
+            return false;
+        });
+        return e;
+    }
+    private static void buildQuickPanel(){
+        quickPanel=new android.widget.ScrollView(app);
+        quickPanel.setFillViewport(false);
+        quickPanel.setVisibility(View.GONE);
+        root.addView(quickPanel,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout content=new LinearLayout(app);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(app,8),dp(app,4),dp(app,8),dp(app,8));
+        quickPanel.addView(content);
+        quickStatus=new TextView(app);
+        quickStatus.setTextColor(0xFF82E6E7);quickStatus.setTextSize(12);
+        content.addView(quickStatus);
+        quickName=quickInput(content,"账号名称（最多28字）");
+        quickTags=quickInput(content,"账号标签：主力、备用（最多4个）");
+        quickNote=quickInput(content,"账号备注（最多140字）");
+        Button saveInfo=button(app,"保存名称 / 账号标签 / 备注");
+        content.addView(saveInfo,new LinearLayout.LayoutParams(-1,dp(app,41)));
+        saveInfo.setOnClickListener(v->{
+            if(selected<0)return;
+            try{
+                AccountMetadataStore.setAccountInfo(app,selectedProvider,selected,
+                    quickName.getText().toString(),quickNote.getText().toString(),
+                    quickTags.getText().toString());
+                account.setText(AccountMetadataStore.name(app,selectedProvider,selected)+" ▾");
+                Toast.makeText(app,"当前账号信息已保存",Toast.LENGTH_SHORT).show();
+                setOverlayFocusable(false);
+                refreshQuickPanel();
+            }catch(RuntimeException error){
+                quickTags.setError("账号标签最多4个、每个16字；请检查名称和备注长度");
+            }
+        });
+        TextView quotaTitle=new TextView(app);
+        quotaTitle.setText("额度状态和恢复时间（一次选择）");
+        quotaTitle.setTextSize(12);quotaTitle.setTextColor(0xFFFFD29C);
+        content.addView(quotaTitle);
+        Button pickPreset=button(app,"选择常用额度预设 ▾");
+        content.addView(pickPreset,new LinearLayout.LayoutParams(-1,dp(app,41)));
+        pickPreset.setOnClickListener(v->showQuotaPresets(pickPreset));
+        quickQuotaLabel=quickInput(content,"自定义额度状态（最多24字）");
+        quickQuotaHours=quickInput(content,"自定义恢复小时（1–72）");
+        quickQuotaHours.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        quickIndefinite=new android.widget.CheckBox(app);
+        quickIndefinite.setText("标记持续到手动解除");
+        quickIndefinite.setTextColor(0xFFDEE5FF);
+        content.addView(quickIndefinite);
+        quickSavePreset=new android.widget.CheckBox(app);
+        quickSavePreset.setText("保存为常用组合预设");
+        quickSavePreset.setTextColor(0xFFDEE5FF);
+        content.addView(quickSavePreset);
+        LinearLayout bar=new LinearLayout(app);
+        content.addView(bar,new LinearLayout.LayoutParams(-1,dp(app,41)));
+        Button saveQuota=button(app,"保存自定义额度");
+        Button clearQuota=button(app,"解除标记");
+        bar.addView(saveQuota,new LinearLayout.LayoutParams(0,-1,2));
+        bar.addView(clearQuota,new LinearLayout.LayoutParams(0,-1,1));
+        saveQuota.setOnClickListener(v->saveCustomQuota());
+        clearQuota.setOnClickListener(v->{
+            try{
+                AccountMetadataStore.setQuotaMark(app,selectedProvider,selected,"",-1,
+                    System.currentTimeMillis());
+                refreshQuickPanel();
+                Toast.makeText(app,"已解除当前账号额度标记",Toast.LENGTH_SHORT).show();
+                setOverlayFocusable(false);
+            }catch(RuntimeException error){
+                Toast.makeText(app,"解除失败",Toast.LENGTH_SHORT).show();
+            }
+        });
+        Button returnPage=button(app,"返回当前网页（不刷新）");
+        content.addView(returnPage,new LinearLayout.LayoutParams(-1,dp(app,42)));
+        returnPage.setOnClickListener(v->hideQuickSettings());
+    }
+    private static void showQuickSettings(){
+        if(root==null||selected<0||selectedProvider.isEmpty())return;
+        if(minimized)setMinimized(false);
+        quickOpen=true;
+        body.setVisibility(View.GONE);
+        quickPanel.setVisibility(View.VISIBLE);
+        quickControl.setText("返回");
+        refreshQuickPanel();
+        // Start non-focusable: focus only when user taps an EditText.
+        setOverlayFocusable(false);
+    }
+    private static void hideQuickSettings(){
+        quickOpen=false;
+        if(quickPanel!=null)quickPanel.setVisibility(View.GONE);
+        if(body!=null)body.setVisibility(minimized?View.GONE:View.VISIBLE);
+        if(quickControl!=null)quickControl.setText("设置");
+        setOverlayFocusable(false);
+    }
+    private static void refreshQuickPanel(){
+        if(selected<0||quickStatus==null||app==null)return;
+        String provider=selectedProvider;
+        int slot=selected;
+        quickName.setText(AccountMetadataStore.name(app,provider,slot));
+        quickTags.setText(AccountMetadataStore.accountTags(app,provider,slot));
+        quickNote.setText(AccountMetadataStore.note(app,provider,slot));
+        String current=AccountMetadataStore.status(app,provider,slot,
+            System.currentTimeMillis());
+        quickStatus.setText(provider.toUpperCase(java.util.Locale.ROOT)+" / "+
+            AccountMetadataStore.name(app,provider,slot)+
+            "\n额度记录："+(current.isEmpty()?"未标记":current)+
+            "\n仅影响当前账号，不更换登录空间");
+        String label=AccountMetadataStore.quotaLabel(app,provider,slot,
+            System.currentTimeMillis());
+        quickQuotaLabel.setText(label.isEmpty()?"额度已无":label);
+        quickQuotaHours.setText("5");
+    }
+    private static void showQuotaPresets(Button anchor){
+        if(selected<0||app==null)return;
+        AccountMetadataStore.QuotaPreset[] presets=
+            AccountMetadataStore.quotaPresets(app);
+        PopupMenu menu=new PopupMenu(app,anchor);
+        for(int i=0;i<presets.length;i++)
+            menu.getMenu().add(0,i+1,i,presets[i].title());
+        menu.getMenu().add(0,100,100,"解除当前账号额度标记");
+        menu.setOnMenuItemClickListener(item->{
+            try{
+                if(item.getItemId()==100){
+                    AccountMetadataStore.setQuotaMark(app,selectedProvider,
+                        selected,"",-1,System.currentTimeMillis());
+                }else{
+                    int index=item.getItemId()-1;
+                    if(index<0||index>=presets.length)return true;
+                    AccountMetadataStore.QuotaPreset preset=presets[index];
+                    AccountMetadataStore.setQuotaMark(app,selectedProvider,
+                        selected,preset.label,preset.hours,System.currentTimeMillis());
+                }
+                refreshQuickPanel();
+                Toast.makeText(app,"额度记录已更新",Toast.LENGTH_SHORT).show();
+            }catch(RuntimeException error){
+                Toast.makeText(app,"额度记录保存失败",Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        });
+        menu.show();
+    }
+    private static void saveCustomQuota(){
+        if(selected<0||app==null)return;
+        try{
+            int hours=quickIndefinite.isChecked()?0:
+                Integer.parseInt(quickQuotaHours.getText().toString().trim());
+            if(hours<0||hours>72||(!quickIndefinite.isChecked()&&hours==0))
+                throw new IllegalArgumentException("hours");
+            String label=quickQuotaLabel.getText().toString().trim();
+            AccountMetadataStore.setQuotaMark(app,selectedProvider,selected,
+                label,hours,System.currentTimeMillis());
+            if(quickSavePreset.isChecked())try{
+                AccountMetadataStore.saveQuotaPreset(app,label,hours);
+            }catch(RuntimeException ignored){
+                Toast.makeText(app,"额度已保存，常用预设未保存",Toast.LENGTH_SHORT).show();
+            }
+            refreshQuickPanel();
+            Toast.makeText(app,"额度状态已记录",Toast.LENGTH_SHORT).show();
+            setOverlayFocusable(false);
+        }catch(RuntimeException error){
+            quickQuotaHours.setError("请输入1–72小时，或选手动解除；状态最多24字");
+        }
+    }
+
     private static void setOverlayFocusable(boolean enabled){
         if(window==null||manager==null||root==null)return;
         if(minimized)enabled=false;
@@ -268,7 +459,12 @@ public final class ClaudeFloatingOverlay {
             menu.getMenu().add(0,100,100,"新增当前平台隔离账号");
         menu.getMenu().add(0,101,101,
             fullscreenWindow?"还原窗口（不刷新网页）":"全屏显示（不刷新网页）");
+        menu.getMenu().add(0,102,102,"设置当前账号 · 标签 / 备注 / 额度");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==102){
+                showQuickSettings();
+                return true;
+            }
             if(item.getItemId()==101){
                 setFullscreenWindow(!fullscreenWindow);
                 return true;
@@ -416,9 +612,13 @@ public final class ClaudeFloatingOverlay {
         // Minimized always returns IME ownership to the underlying app.
         // Expanded starts passive and only acquires focus on direct input.
         setOverlayFocusable(false);
-        body.setVisibility(value?View.GONE:View.VISIBLE);
+        if(value)quickOpen=false;
+        body.setVisibility(value||quickOpen?View.GONE:View.VISIBLE);
+        if(quickPanel!=null)quickPanel.setVisibility(
+            !value&&quickOpen?View.VISIBLE:View.GONE);
         caption.setVisibility(value?View.GONE:View.VISIBLE);
         account.setVisibility(value?View.GONE:View.VISIBLE);
+        quickControl.setVisibility(value?View.GONE:View.VISIBLE);
         fullscreenControl.setVisibility(value?View.GONE:View.VISIBLE);
         closeControl.setVisibility(value?View.GONE:View.VISIBLE);
         // Remember the last compact placement only when leaving compact.
@@ -458,6 +658,10 @@ public final class ClaudeFloatingOverlay {
         }
         root=null;body=null;viewport=null;caption=null;account=null;fold=null;
         closeControl=null;fullscreenControl=null;fullscreenFooter=null;
+        quickControl=null;quickPanel=null;quickName=null;quickTags=null;
+        quickNote=null;quickQuotaLabel=null;quickQuotaHours=null;
+        quickIndefinite=null;quickSavePreset=null;quickStatus=null;
+        quickOpen=false;
         window=null;manager=null;app=null;
         selected=-1;selectedProvider="";minimized=false;
         fullscreenWindow=false;inputFocusHeld=false;
