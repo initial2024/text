@@ -87,16 +87,40 @@ jobs:
           gradle --no-daemon :offline-translation:dependencies --configuration releaseRuntimeClasspath \
             > offline-translation/releaseRuntimeClasspath.txt
           grep -F 'com.google.mlkit:translate:17.0.3' offline-translation/releaseRuntimeClasspath.txt
+          gradle --no-daemon :offline-translation:exportReleaseDependencyClosure
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          d=Path('offline-translation/build/offline-runtime-closure')
+          m=json.loads((d/'closure.json').read_text())
+          assert m['state']=='PUBLIC_OFFLINE_DEPENDENCIES_ONLY_NOT_INSTALLABLE_APK'
+          assert m['originalPrivateApkIncluded'] is False
+          assert m['privateKeystoreIncluded'] is False
+          assert m['allAndroidResourcesMergedIntoOriginalApk'] is False
+          assert m['androidDeviceE2ePassed'] is False
+          assert m['dependencyCount']==len(m['dependencies'])>0
+          assert any(x['coordinate'].startswith('com.google.mlkit:translate:17.0.3')
+                     for x in m['dependencies'])
+          for x in m['dependencies']+[m['adapter']]:
+              f=d/x['archive']
+              assert f.is_file(),f
+              assert f.stat().st_size==x['bytes'],f
+              assert hashlib.sha256(f.read_bytes()).hexdigest()==x['sha256'],f
+          print('OGTRANSLATE14_TRANSITIVE_RUNTIME_CLOSURE_SHA256=PASS')
+          print('OGTRANSLATE14_PRIVATE_INPUT_EXCLUDED=PASS')
+          print('OGTRANSLATE14_MERGED_SIGNED_APK=NOT_YET')
+          PY
           sha256sum offline-translation/build/outputs/aar/offline-translation-release.aar \
             > offline-translation/runtime-audit.sha256
       - name: Publish compile artifact and dependency ledger, NOT installable APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: OGTRANSLATE11-OFFLINE-ADAPTER-ONLY-NOT-APK
+          name: OGTRANSLATE14-OFFLINE-RUNTIME-CLOSURE-NOT-INSTALLABLE-APK
           path: |
             original-core-addon/integrated-v05/offline-translation/build/outputs/aar/offline-translation-release.aar
             original-core-addon/integrated-v05/offline-translation/releaseRuntimeClasspath.txt
             original-core-addon/integrated-v05/offline-translation/runtime-audit.sha256
+            original-core-addon/integrated-v05/offline-translation/build/offline-runtime-closure/**
           retention-days: 3
           if-no-files-found: error
