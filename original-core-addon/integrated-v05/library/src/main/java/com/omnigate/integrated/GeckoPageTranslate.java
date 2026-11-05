@@ -120,13 +120,9 @@ final class GeckoPageTranslate {
         menu.getMenu().add(0,3,2,"韩文 → 中文 · 无刷新译文");
         menu.getMenu().add(0,4,3,"中文 → 英文 · 无刷新译文");
         menu.getMenu().add(0,5,4,"返回原网页 / 取消阅读层（不刷新）");
-        menu.getMenu().add(0,6,5,"说明：无刷新模式使用设备系统翻译");
+        menu.getMenu().add(0,6,5,"说明：默认离线阅读层（不刷新）");
         menu.getMenu().add(0,7,6,"高级：本次启用旧版整页翻译（可能刷新）");
         menu.getMenu().add(0,8,7,"外部翻译应用 · 手动选择是否分享网页文字");
-        menu.getMenu().add(0,9,8,"首次安装离线模型 · 英→中（需要 Wi-Fi）");
-        menu.getMenu().add(0,10,9,"首次安装离线模型 · 日→中（需要 Wi-Fi）");
-        menu.getMenu().add(0,11,10,"首次安装离线模型 · 韩→中（需要 Wi-Fi）");
-        menu.getMenu().add(0,12,11,"首次安装离线模型 · 中→英（需要 Wi-Fi）");
         menu.setOnMenuItemClickListener(item->{
             final int i=item.getItemId();
             readerAction.accept(null);
@@ -156,16 +152,10 @@ final class GeckoPageTranslate {
                     });
                 return true;
             }
-            if(i>=9&&i<=12){
-                final String from=i==9?"en":i==10?"ja":i==11?"ko":"zh";
-                final String to=i==12?"en":"zh";
-                requestSafeTranslation(c,session,from,to,display,readerAction,true);
-                return true;
-            }
             if(i<1||i>4)return true;
             final String from=i==1?"en":i==2?"ja":i==3?"ko":"zh";
             final String to=i==4?"en":"zh";
-            requestSafeTranslation(c,session,from,to,display,readerAction,false);
+            requestSafeTranslation(c,session,from,to,display,readerAction);
             return true;
         });
         menu.show();
@@ -179,9 +169,9 @@ final class GeckoPageTranslate {
      */
     private static void requestSafeTranslation(Context c,Object session,
             String from,String to,Consumer<String> display,
-            Consumer<Runnable> readerAction,boolean explicitModelChoice){
+            Consumer<Runnable> readerAction){
         if(OfflineMlKitBridge.isPackaged() &&
-           (explicitModelChoice||!OfflineMlKitBridge.isAuthorized(c,from,to))){
+           !OfflineMlKitBridge.isAuthorized(c,from,to)){
             display.accept("无刷新离线阅读层 · "+from+" → "+to+
                 "\n\n首次使用此语言对需下载设备端翻译模型。"+
                 "点击下方「同意通过 Wi-Fi 下载」后开始；"+
