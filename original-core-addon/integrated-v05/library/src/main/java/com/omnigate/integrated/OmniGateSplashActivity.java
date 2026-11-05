@@ -38,7 +38,7 @@ public final class OmniGateSplashActivity extends Activity {
     private int dp(float x){return Math.round(getResources().getDisplayMetrics().density*x);}
     private TextView text(String s,int size,int color,boolean bold){
         TextView v=new TextView(this);
-        v.setText(s);v.setTextSize(size);v.setTextColor(color);
+        v.setText(OmniGateAppLanguage.tr(this,s));v.setTextSize(size);v.setTextColor(color);
         v.setGravity(Gravity.CENTER);
         if(bold)v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         return v;
