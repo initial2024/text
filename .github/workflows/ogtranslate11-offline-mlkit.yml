@@ -1,0 +1,99 @@
+name: OGTRANSLATE11 optional ML Kit offline translation build
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/offline-translation/**'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OfflineMlKitBridge.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SafePageTranslation.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoPageTranslate.java'
+      - 'original-core-addon/integrated-v05/settings.gradle'
+      - '.github/workflows/ogtranslate11-offline-mlkit.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect default safety, user consent and missing APK runtime fail-closed
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('original-core-addon/integrated-v05')
+          d=root/'library/src/main/java/com/omnigate/integrated'
+          bridge=(d/'OfflineMlKitBridge.java').read_text()
+          safe=(d/'SafePageTranslation.java').read_text()
+          menu=(d/'GeckoPageTranslate.java').read_text()
+          runtime=(root/'offline-translation/src/main/java/com/omnigate/integrated/offlinemlkit/MlKitTranslationRuntime.java').read_text()
+          for token in ['Class.forName(RUNTIME','isPackaged()','isAuthorized(Context ctx',
+                        'getSharedPreferences(PREF','userConsentedToDownload']:
+              assert token in bridge, token
+          for token in ['translateOfflineWithConsent','OfflineMlKitBridge.isAuthorized(c,from,to)',
+                        'OfflineMlKitBridge.isPackaged()','getSessionPageExtractor',
+                        'getPageContent','MAX_TEXT=12_000']:
+              assert token in safe, token
+          for token in ['menu.getMenu().add(0,9,','menu.getMenu().add(0,12,',
+                        'translateOfflineWithConsent','if(i>=9&&i<=12)']:
+              assert token in menu, token
+          for token in ['com.google.mlkit.nl.translate.Translation',
+                        'downloadModelIfNeeded(conditions)','requireWifi()',
+                        'translator.translate(parts.get(index))','translator.close()']:
+              assert token in runtime, token
+          assert 'application/json' not in runtime
+          assert 'HttpURLConnection' not in runtime
+          assert 'https://' not in runtime
+          assert 'originalSession' not in runtime
+          assert 'loadUri(' not in runtime and 'evaluateJavascript(' not in runtime
+          assert 'implementation \'com.google.mlkit:translate:17.0.3\'' in (
+              root/'offline-translation/build.gradle').read_text()
+          assert "include ':offline-translation'" in (root/'settings.gradle').read_text()
+          print('OGTRANSLATE11_NO_SYSTEM_TRANSLATIONSERVICE_REQUIRED_SOURCE=PASS')
+          print('OGTRANSLATE11_WIFI_MODEL_CONSENT_AND_LOCAL_INFERENCE_SOURCE=PASS')
+          print('OGTRANSLATE11_FAIL_CLOSED_BEFORE_PRIVATE_APK_INTEGRATION=PASS')
+          PY
+  compile-offline-addon:
+    needs: source-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Compile optional ML Kit adapter (NOT merged into original APK)
+        shell: bash
+        working-directory: original-core-addon/integrated-v05
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'platforms;android-35' 'build-tools;35.0.0'
+          export ANDROID_HOME="$SDK_ROOT"
+          gradle --no-daemon --stacktrace :offline-translation:assembleRelease
+          test -s offline-translation/build/outputs/aar/offline-translation-release.aar
+          unzip -t offline-translation/build/outputs/aar/offline-translation-release.aar
+          gradle --no-daemon :offline-translation:dependencies --configuration releaseRuntimeClasspath \
+            > offline-translation/releaseRuntimeClasspath.txt
+          grep -F 'com.google.mlkit:translate:17.0.3' offline-translation/releaseRuntimeClasspath.txt
+          sha256sum offline-translation/build/outputs/aar/offline-translation-release.aar \
+            > offline-translation/runtime-audit.sha256
+      - name: Publish compile artifact and dependency ledger, NOT installable APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OGTRANSLATE11-OFFLINE-ADAPTER-ONLY-NOT-APK
+          path: |
+            original-core-addon/integrated-v05/offline-translation/build/outputs/aar/offline-translation-release.aar
+            original-core-addon/integrated-v05/offline-translation/releaseRuntimeClasspath.txt
+            original-core-addon/integrated-v05/offline-translation/runtime-audit.sha256
+          retention-days: 3
+          if-no-files-found: error
