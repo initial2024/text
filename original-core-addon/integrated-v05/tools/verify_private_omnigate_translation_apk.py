@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from dex_inventory import inventory, DexFormatError
 from pathlib import Path
 
 BASE_SHA = "da1f77fe479190f1f2fb0b1655e0977e02cca85b7a45bfb6bf9fc5ae7a66eb34"
@@ -59,18 +60,64 @@ def check(base, candidate):
         checkset["zip_integrity"] = new.testzip() is None
         original_dex = core_names(old)
         all_dex = core_names(new)
-        # v1.2.9 has its own classes4.dex with private-only patches.
-        # Overwriting it with a rebuilt compatibility DEX would lose code.
-        checkset["preserve_all_original_dex_bytes"] = all(
-            name in new.namelist() and old.read(name) == new.read(name)
-            for name in original_dex)
-        checkset["additional_compat_dex_present"] = len(all_dex) > len(original_dex)
-        checkset["additional_dex_is_distinct_from_original"] = bool(
-            set(all_dex) - set(original_dex))
-        dex_blobs = [new.read(name) for name in all_dex]
-        for item in NEEDED_DEX:
-            checkset["dex_" + item.decode().split("/")[-1]] = (
-                any(item in blob for blob in dex_blobs))
+        # The user's v1.2.9 classes4.dex ALREADY defines the compatibility
+        # classes being updated. An append-only classes5.dex with duplicate
+        # FQCN cannot reliably replace those classes on Android.
+        checkset["preserve_original_core_dex_1_through_3"] = all(
+            name in new.namelist() and old.read(name)==new.read(name)
+            for name in ("classes.dex","classes2.dex","classes3.dex"))
+        checkset["original_classes4_present_and_replaced"] = (
+            "classes4.dex" in original_dex and
+            "classes4.dex" in all_dex and
+            old.read("classes4.dex") != new.read("classes4.dex"))
+        original_class4 = inventory(old.read("classes4.dex"))
+        new_class4 = inventory(new.read("classes4.dex"))
+        checkset["all_original_classes4_definitions_retained"] = (
+            set(original_class4).issubset(new_class4))
+        checkset["updated_compatibility_method_definitions"] = all(
+            method in new_class4.get(descriptor, set())
+            for descriptor,method in (
+                ("Lcom/omnigate/integrated/SafePageTranslation;",
+                 "translateOfflineWithConsent"),
+                ("Lcom/omnigate/integrated/GeckoPageTranslate;",
+                 "requestSafeTranslation"),
+                ("Lcom/omnigate/integrated/ClaudeFloatingOverlay;",
+                 "hideTranslationPanel")
+            ))
+        candidate_inventories={name:inventory(new.read(name)) for name in all_dex}
+        owner={}
+        duplicate=[]
+        for dex_name,classes in candidate_inventories.items():
+            for descriptor in classes:
+                if descriptor in owner:
+                    duplicate.append([descriptor,owner[descriptor],dex_name])
+                else:
+                    owner[descriptor]=dex_name
+        checkset["no_duplicate_defined_classes_across_all_dex"] = not duplicate
+        info["duplicate_class_evidence"] = duplicate[:10]
+        checkset["additional_google_runtime_dex_present"] = (
+            len(all_dex)>len(original_dex) and
+            bool(set(all_dex)-set(original_dex)))
+        combined={}
+        for d in candidate_inventories.values():
+            combined.update(d)
+        required_classes={
+            "Lcom/omnigate/integrated/OfflineMlKitBridge;":
+                "isPackaged",
+            "Lcom/omnigate/integrated/OmniGateAppLanguage;":
+                "register",
+            "Lcom/omnigate/integrated/offlinemlkit/MlKitTranslationRuntime;":
+                "dependenciesAvailable",
+            "Lcom/google/mlkit/nl/translate/Translation;":
+                None
+        }
+        for descriptor,required_method in required_classes.items():
+            key=descriptor.split("/")[-1].rstrip(";")
+            checkset["defined_"+key] = descriptor in combined and (
+                required_method is None or required_method in combined[descriptor])
+        info["original_classes4_count"]=len(original_class4)
+        info["candidate_classes4_count"]=len(new_class4)
+        info["total_candidate_defined_classes"]=len(owner)
         checkset["all_original_zip_members_still_present"] = (
             set(old.namelist()).issubset(set(new.namelist())))
     apksigner, aapt2, zipalign = (
@@ -135,7 +182,7 @@ def main():
     try:
         result = check(args.baseline, args.candidate)
     except (RuntimeError, OSError, zipfile.BadZipFile,
-            subprocess.CalledProcessError, KeyError) as error:
+            subprocess.CalledProcessError, KeyError, DexFormatError) as error:
         result = {"result": "BLOCKED", "reason": str(error),
                   "device_e2e": "NOT_TESTED", "structural_pass": False}
     args.report.parent.mkdir(parents=True, exist_ok=True)
