@@ -1,7 +1,6 @@
 package com.omnigate.integrated;
 
 import android.content.Context;
-import android.content.Intent;
 import android.icu.util.ULocale;
 import android.os.Build;
 import android.os.CancellationSignal;
@@ -96,17 +95,7 @@ final class SafePageTranslation {
         },10_000);
         extract(originalSession,source->{
             if(!finished.compareAndSet(false,true))return;
-            try{
-                Intent send=new Intent(Intent.ACTION_SEND);
-                send.setType("text/plain");
-                send.putExtra(Intent.EXTRA_TEXT,source);
-                Intent picker=Intent.createChooser(send,"选择翻译应用（仅在你选择后分享网页文字）");
-                picker.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                c.startActivity(picker);
-                status.onSuccess("已打开系统选择器：仅由你决定是否把网页文字分享给第三方应用。原网页未刷新。");
-            }catch(RuntimeException e){
-                status.onFailure("未能打开系统分享选择器："+e.getClass().getSimpleName());
-            }
+            UserInitiatedTranslationShare.showChooser(c,source,status);
         },reason->{
             if(finished.compareAndSet(false,true))
                 status.onFailure("无法读取当前网页正文："+reason);
