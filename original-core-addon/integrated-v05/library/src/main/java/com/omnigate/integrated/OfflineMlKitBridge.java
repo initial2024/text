@@ -42,7 +42,11 @@ final class OfflineMlKitBridge {
             type.getMethod("translate",Context.class,String.class,
                 String.class,String.class,boolean.class,
                 Consumer.class,Consumer.class);
-            return true;
+            // A reflected runtime class is not enough: missing Google SDK
+            // dependencies must suppress the consent button rather than fail
+            // only after the user has tried to download a model.
+            Object ready=type.getMethod("dependenciesAvailable").invoke(null);
+            return Boolean.TRUE.equals(ready);
         }catch(ReflectiveOperationException | LinkageError error){
             return false;
         }
