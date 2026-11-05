@@ -5,6 +5,7 @@ on:
     paths:
       - 'original-core-addon/integrated-v05/tools/verify_private_omnigate_translation_apk.py'
       - 'original-core-addon/integrated-v05/tools/dex_inventory.py'
+      - 'original-core-addon/integrated-v05/tools/generate_merged_mlkit_r.py'
       - '.github/workflows/ogtranslate12-apk-release-gate.yml'
   workflow_dispatch:
 permissions: {contents: read}
@@ -93,3 +94,58 @@ jobs:
           print("OGTRANSLATE15_DUPLICATE_CLASS_APPEND_ONLY_BLOCKED=PASS")
           print("OGTRANSLATE15_CLASSES4_REPLACEMENT_REQUIRED=PASS")
           PY
+
+      - name: OGTRANSLATE18 generated AAR resource index prevents NoClassDefFoundError
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          GEN="original-core-addon/integrated-v05/tools/generate_merged_mlkit_r.py"
+          python3 -m py_compile "$GEN"
+          cat > "$TMP/resources.txt" <<'RES'
+          type raw id=0c entryCount=1
+            resource 0x7f0c0000 raw/translate_models_metadata
+              () (file) res/raw/translate_models_metadata.json
+          type xml id=13 entryCount=10
+            resource 0x7f130009 xml/rapid_response_client_defaults
+              () (file) res/xml/rapid_response_client_defaults.xml
+          RES
+          python3 "$GEN" --aapt2-resources-dump "$TMP/resources.txt" \
+            --out-dir "$TMP/src"
+          test -s "$TMP/src/com/google/mlkit/nl/translate/R.java"
+          grep -F '0x7f0c0000' "$TMP/src/com/google/mlkit/nl/translate/R.java"
+          grep -F '0x7f130009' "$TMP/src/com/google/mlkit/nl/translate/R.java"
+          mkdir -p "$TMP/classes" "$TMP/dex"
+          javac -source 8 -target 8 -d "$TMP/classes" \
+            "$TMP/src/com/google/mlkit/nl/translate/R.java"
+          D8="$ANDROID_HOME/build-tools/35.0.0/d8"
+          if [ ! -x "$D8" ]; then
+            MGR="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n1)"
+            "$MGR" --sdk_root="$ANDROID_HOME" 'build-tools;35.0.0'
+          fi
+          "$D8" --min-api 26 --output "$TMP/dex" \
+            "$TMP/classes/com/google/mlkit/nl/translate/R.class" \
+            "$TMP/classes/com/google/mlkit/nl/translate/R\$raw.class" \
+            "$TMP/classes/com/google/mlkit/nl/translate/R\$xml.class"
+          python3 - "$TMP/dex/classes.dex" <<'PY'
+          import sys
+          sys.path.insert(0,"original-core-addon/integrated-v05/tools")
+          from dex_inventory import inventory
+          classes=inventory(open(sys.argv[1],"rb").read())
+          for name in ("R;","R$raw;","R$xml;"):
+              assert "Lcom/google/mlkit/nl/translate/"+name in classes
+          verifier=open("original-core-addon/integrated-v05/tools/verify_private_omnigate_translation_apk.py").read()
+          for token in ("linked_mlkit_resource_raw","linked_mlkit_resource_xml",
+                        'R$raw;', 'R$xml;'):
+              assert token in verifier,token
+          print("OGTRANSLATE18_RESOURCE_INDEX_CLASSES_GENERATED_IN_D8=PASS")
+          print("OGTRANSLATE18_MISSING_R_CLASSES_RELEASE_GATE_BLOCKED=PASS")
+          PY
+          printf 'resource 0x7f0c0000 raw/translate_models_metadata\n' > "$TMP/broken.txt"
+          if python3 "$GEN" --aapt2-resources-dump "$TMP/broken.txt" \
+              --out-dir "$TMP/bad"; then
+            echo 'Missing ML Kit xml resource was not rejected'
+            exit 1
+          fi
+          echo 'OGTRANSLATE18_MISSING_RESOURCE_FAIL_CLOSED=PASS'
