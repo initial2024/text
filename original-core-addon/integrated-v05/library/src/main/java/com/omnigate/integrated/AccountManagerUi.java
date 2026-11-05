@@ -8,6 +8,7 @@ import android.graphics.Color;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
+import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
@@ -65,9 +66,12 @@ final class AccountManagerUi {
             LinearLayout filters=new LinearLayout(host);
             shell.addView(filters);
             providerFilter=spinner(new String[]{"全部平台","DeepSeek","GLM","ChatGPT","Grok","Claude"});
-            statusFilter=spinner(new String[]{"全部状态","可用","额度已无"});
+            statusFilter=spinner(new String[]{"全部状态","未标记","已标记"});
             filters.addView(providerFilter,new LinearLayout.LayoutParams(0,dp(47),1.1f));
             filters.addView(statusFilter,new LinearLayout.LayoutParams(0,dp(47),1f));
+            Button tags=button("管理常用额度标签");
+            add(shell,tags,4);
+            tags.setOnClickListener(v->manageTags());
             LinearLayout selectBar=new LinearLayout(host);
             shell.addView(selectBar);
             action(selectBar,"全选当前结果",()->{
@@ -171,9 +175,10 @@ final class AccountManagerUi {
                     String note=AccountMetadataStore.note(host,provider,slot);
                     long until=AccountMetadataStore.quotaUntil(host,provider,slot,now);
                     if(until>0)earliest=Math.min(earliest,until);
-                    if(availability==1&&until>0 || availability==2&&until==0)continue;
+                    if(availability==1&&until!=0 || availability==2&&until==0)continue;
+                    String tag=AccountMetadataStore.quotaLabel(host,provider,slot,now);
                     String hay=(AccountBrowserSlots.LABELS[p]+" "+provider+" "+name+" "+note+
-                        " 账号"+(slot+1)).toLowerCase(Locale.ROOT);
+                        " "+tag+" 账号"+(slot+1)).toLowerCase(Locale.ROOT);
                     if(!hay.contains(q))continue;
                     group.add(new Target(provider,slot));
                 }
@@ -258,27 +263,142 @@ final class AccountManagerUi {
                     }catch(RuntimeException ex){toast("保存失败：名称最多28字，备注最多140字");}
                 }).show();
         }
-        private void mark(Target target){
-            String[] choices={"解除标记","1 小时","3 小时","5 小时","12 小时","24 小时","自定义小时"};
-            new AlertDialog.Builder(host).setTitle("人工标记额度状态 · "+target.description())
-                .setItems(choices,(d,which)->{
-                    int[] hours={0,1,3,5,12,24,-1};
-                    if(hours[which]==-1){
-                        EditText input=new EditText(host);
-                        input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
-                        input.setHint("1–72 小时");input.setText("5");
-                        new AlertDialog.Builder(host).setTitle("设置恢复时间（小时）")
-                            .setView(input).setNegativeButton("取消",null)
-                            .setPositiveButton("保存",(a,b)->{
-                                try{saveHours(target,Integer.parseInt(input.getText().toString()));}
-                                catch(RuntimeException ex){toast("请输入 1–72 小时");}
-                            }).show();
-                    }else saveHours(target,hours[which]);
+
+        private void manageTags(){
+            String[] tags=AccountMetadataStore.quotaTagOptions(host);
+            new AlertDialog.Builder(host)
+                .setTitle("常用额度标签 · 本机")
+                .setMessage("选择自定义标签可以删除它。删除候选标签不会清除已使用该标签的账号标记。")
+                .setItems(tags,(d,index)->{
+                    String label=tags[index];
+                    if(index<3){
+                        toast("这是内置标签，不需要删除");
+                        return;
+                    }
+                    new AlertDialog.Builder(host)
+                        .setTitle("删除常用标签")
+                        .setMessage("只从候选列表移除「"+label+"」，不会更改已标记账号。")
+                        .setNegativeButton("取消",null)
+                        .setPositiveButton("确认",(x,y)->{
+                            try{AccountMetadataStore.deleteQuotaTagPreset(host,label);}
+                            catch(RuntimeException error){toast("删除标签失败");}
+                            render();
+                        }).show();
+                })
+                .setNegativeButton("关闭",null)
+                .setPositiveButton("+ 新增标签",(d,w)->{
+                    EditText input=new EditText(host);
+                    input.setSingleLine(true);
+                    input.setHint("如：等待 5 小时重置");
+                    new AlertDialog.Builder(host)
+                        .setTitle("新增可复用的额度标签")
+                        .setMessage("最多 24 字，可保存 16 个自定义常用标签")
+                        .setView(input)
+                        .setNegativeButton("取消",null)
+                        .setPositiveButton("保存",(d2,w2)->{
+                            try{
+                                AccountMetadataStore.saveQuotaTagPreset(
+                                    host,input.getText().toString());
+                                toast("常用标签已保存");
+                            }catch(RuntimeException ex){toast("标签为空、太长或超过数量上限");}
+                        }).show();
                 }).show();
         }
-        private void saveHours(Target t,int hours){
-            AccountMetadataStore.markQuota(host,t.provider,t.slot,hours,System.currentTimeMillis());
-            render();
+
+        private void mark(Target target){
+            LinearLayout form=new LinearLayout(host);
+            form.setPadding(dp(15),dp(6),dp(15),dp(8));
+            form.setOrientation(LinearLayout.VERTICAL);
+            add(form,text("选择标签，或在下方直接填写自定义标签：",13,0xFFBFCDF0),5);
+            String[] options=AccountMetadataStore.quotaTagOptions(host);
+            String[] choices=new String[options.length+1];
+            System.arraycopy(options,0,choices,0,options.length);
+            choices[options.length]="自定义填写…";
+            Spinner tags=spinner(choices);
+            add(form,tags,6);
+            EditText label=new EditText(host);
+            label.setSingleLine(true);
+            label.setTextColor(Color.WHITE);
+            label.setHintTextColor(0xFF9CAFCB);
+            label.setHint("额度标签（最多24字）");
+            String active=AccountMetadataStore.quotaLabel(host,target.provider,
+                target.slot,System.currentTimeMillis());
+            label.setText(active.isEmpty()?"额度已无":active);
+            add(form,label,4);
+            CheckBox save=new CheckBox(host);
+            save.setText("另存为常用标签，方便以后选择");
+            save.setTextColor(0xFFB8C9EA);
+            add(form,save,8);
+            add(form,text("标记恢复时间（手动选择，非官方额度）：",13,0xFFBFCDF0),3);
+            Spinner duration=spinner(new String[]{
+                "手动解除（不限时）","1 小时","3 小时","5 小时",
+                "12 小时","24 小时","自定义 1–72 小时"
+            });
+            duration.setSelection(3);
+            add(form,duration,4);
+            EditText customHours=new EditText(host);
+            customHours.setSingleLine(true);
+            customHours.setInputType(InputType.TYPE_CLASS_NUMBER);
+            customHours.setTextColor(Color.WHITE);
+            customHours.setHint("请输入 1–72 小时");
+            customHours.setText("5");
+            customHours.setVisibility(View.GONE);
+            add(form,customHours,3);
+            duration.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+                @Override public void onItemSelected(android.widget.AdapterView<?> p,View v,int i,long id){
+                    customHours.setVisibility(i==6?View.VISIBLE:View.GONE);
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> p){}
+            });
+            int pos=options.length;
+            for(int i=0;i<options.length;i++)if(options[i].equals(active)){pos=i;break;}
+            final boolean[] selectionInitialized={false};
+            tags.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+                @Override public void onItemSelected(android.widget.AdapterView<?> p,View v,int i,long id){
+                    // Don't overwrite a pre-existing custom mark on first render.
+                    if(!selectionInitialized[0]){
+                        selectionInitialized[0]=true;
+                        return;
+                    }
+                    if(i<options.length)label.setText(options[i]);
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> p){}
+            });
+            tags.setSelection(pos);
+            AlertDialog dialog=new AlertDialog.Builder(host)
+                .setTitle("额度标签 · "+target.description())
+                .setView(form)
+                .setNegativeButton("取消",null)
+                .setNeutralButton("解除标记",(d,w)->{
+                    try{
+                        AccountMetadataStore.setQuotaMark(
+                            host,target.provider,target.slot,"",-1,System.currentTimeMillis());
+                        render();
+                    }catch(RuntimeException ex){toast("解除标记失败");}
+                })
+                .setPositiveButton("保存",null)
+                .create();
+            dialog.setOnShowListener(x->dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v->{
+                    int i=duration.getSelectedItemPosition();
+                    int[] hours={0,1,3,5,12,24,-2};
+                    try{
+                        int h=hours[i];
+                        if(h==-2)h=Integer.parseInt(customHours.getText().toString());
+                        String value=label.getText().toString();
+                        AccountMetadataStore.setQuotaMark(host,target.provider,target.slot,
+                            value,h,System.currentTimeMillis());
+                        if(save.isChecked()){
+                            try{AccountMetadataStore.saveQuotaTagPreset(host,value);}
+                            catch(RuntimeException ex){toast("额度标记已保存；常用标签未保存");}
+                        }
+                        dialog.dismiss();
+                        render();
+                    }catch(RuntimeException ex){
+                        label.setError("请填写最多24字的标签，并选择 1–72 小时或手动解除");
+                    }
+                }));
+            dialog.show();
         }
         private ArrayList<Target> targets(){
             // Resolve from the explicit selection, not from filtered or sorted indexes.
