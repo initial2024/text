@@ -35,9 +35,12 @@ jobs:
                         'OfflineMlKitBridge.isPackaged()','getSessionPageExtractor',
                         'getPageContent','MAX_TEXT=12_000']:
               assert token in safe, token
-          for token in ['menu.getMenu().add(0,9,','menu.getMenu().add(0,12,',
-                        'translateOfflineWithConsent','if(i>=9&&i<=12)']:
+          for token in ['menu.getMenu().add(0,1,','menu.getMenu().add(0,4,',
+                        'translateOfflineWithConsent','readerAction.accept(()->',
+                        'requestSafeTranslation(c,session,from,to,display,readerAction)']:
               assert token in menu, token
+          assert 'menu.getMenu().add(0,9,' not in menu
+          assert 'menu.getMenu().add(0,12,' not in menu
           for token in ['com.google.mlkit.nl.translate.Translation',
                         'downloadModelIfNeeded(conditions)','requireWifi()',
                         'translator.translate(parts.get(index))','translator.close()']:
