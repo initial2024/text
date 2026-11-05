@@ -144,10 +144,28 @@ final class AccountManagerUi {
         }
         private Spinner spinner(String[] values){
             Spinner s=new Spinner(host);
-            ArrayAdapter<String> adapter=new ArrayAdapter<>(host,
-                android.R.layout.simple_spinner_item,values);
+            // Android's stock spinner uses dark text, unreadable over the
+            // OmniGate dark account manager. Style both selected and popup.
+            ArrayAdapter<String> adapter=new ArrayAdapter<String>(host,
+                    android.R.layout.simple_spinner_item,values){
+                @Override public View getView(int position,View convert,ViewGroup parent){
+                    TextView t=(TextView)super.getView(position,convert,parent);
+                    t.setTextColor(0xFFF0F5FF);t.setTextSize(13);
+                    t.setBackgroundColor(0xFF202D4D);
+                    t.setPadding(dp(8),dp(7),dp(7),dp(7));
+                    return t;
+                }
+                @Override public View getDropDownView(int position,View convert,ViewGroup parent){
+                    TextView t=(TextView)super.getDropDownView(position,convert,parent);
+                    t.setTextColor(0xFFF0F5FF);t.setTextSize(14);
+                    t.setBackgroundColor(0xFF202D4D);
+                    t.setPadding(dp(10),dp(10),dp(8),dp(10));
+                    return t;
+                }
+            };
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-            s.setAdapter(adapter);return s;
+            s.setAdapter(adapter);
+            return s;
         }
         private void add(LinearLayout to,View v,int bottom){
             LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);
