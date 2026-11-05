@@ -546,6 +546,7 @@ public final class ClaudeFloatingOverlay {
             Class.forName("org.mozilla.geckoview.GeckoSessionSettings"))
             .newInstance(settings);
         session=created;
+        GeckoPageTranslate.prepareSession(created);
         sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
         Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
         Object visual=viewClass.getConstructor(Context.class).newInstance(app);
