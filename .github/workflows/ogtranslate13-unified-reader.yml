@@ -35,6 +35,10 @@ jobs:
           assert 'showMenu(context,anchor,session,display,close,consent->' in ui
           assert 'Consumer<Runnable> readerAction' in ui
           assert 'readerAction.accept(()->' in ui
+          assert 'menu.getMenu().add(0,9,' not in ui
+          assert 'menu.getMenu().add(0,12,' not in ui
+          assert '说明：默认离线阅读层（不刷新）' in ui
+          assert 'requestSafeTranslation(c,session,from,to,display,readerAction)' in ui
           assert 'SafePageTranslation.translateOfflineWithConsent(c,session,from,to,' in ui
           assert 'SafePageTranslation.translate(c,session,from,to,' in ui
           assert 'OfflineMlKitBridge.isAuthorized(c,from,to)' in ui
