@@ -82,12 +82,17 @@ final class GeckoPageTranslate {
         menu.getMenu().add(0,6,5,"说明：无刷新模式使用设备系统翻译");
         menu.getMenu().add(0,7,6,"高级：本次启用旧版整页翻译（可能刷新）");
         menu.getMenu().add(0,8,7,"外部翻译应用 · 手动选择是否分享网页文字");
+        menu.getMenu().add(0,9,8,"首次安装离线模型 · 英→中（需要 Wi-Fi）");
+        menu.getMenu().add(0,10,9,"首次安装离线模型 · 日→中（需要 Wi-Fi）");
+        menu.getMenu().add(0,11,10,"首次安装离线模型 · 韩→中（需要 Wi-Fi）");
+        menu.getMenu().add(0,12,11,"首次安装离线模型 · 中→英（需要 Wi-Fi）");
         menu.setOnMenuItemClickListener(item->{
             final int i=item.getItemId();
             if(i==5){close.run();return true;}
             if(i==6){
-                Toast.makeText(c,"无刷新模式仅显示独立译文层。"+
-                    "原网页、草稿和滚动状态不会主动重载；需系统提供翻译能力。",Toast.LENGTH_LONG).show();
+                Toast.makeText(c,"默认优先使用已授权的 ML Kit 离线模型，"+
+                    "其次使用系统翻译服务。首次模型下载必须手动选择并使用 Wi-Fi；"+
+                    "网站、Cookie、草稿与滚动位置不会刷新。",Toast.LENGTH_LONG).show();
                 return true;
             }
             if(i==7){
@@ -109,12 +114,32 @@ final class GeckoPageTranslate {
                     });
                 return true;
             }
+            if(i>=9&&i<=12){
+                final String from=i==9?"en":i==10?"ja":i==11?"ko":"zh";
+                final String to=i==12?"en":"zh";
+                display.accept("已手动授权本次 Wi-Fi 语言模型下载（每语言模型约数十 MB）。"+
+                    "网页正文仅在设备端翻译，不发送给 AI 提供商；首次下载可较慢。");
+                SafePageTranslation.translateOfflineWithConsent(c,session,from,to,
+                    new SafePageTranslation.Callback(){
+                        @Override public void onSuccess(String translated){
+                            display.accept(translated);
+                        }
+                        @Override public void onFailure(String reason){
+                            display.accept("离线翻译未完成："+reason+
+                                "\n\n原网页仍保持原样，可返回重试。");
+                        }
+                    });
+                return true;
+            }
             if(i<1||i>4)return true;
             final String from=i==1?"en":i==2?"ja":i==3?"ko":"zh";
             final String to=i==4?"en":"zh";
-            display.accept(SafePageTranslation.hasOnDeviceService(c)
-                ? "正在读取网页正文并调用系统设备端翻译（最长 35 秒）…"
-                : "当前设备未提供系统翻译服务；请重新点击翻译，选「外部翻译应用」或高级 GeckoView 整页翻译。");
+            display.accept(OfflineMlKitBridge.isAuthorized(c,from,to)
+                    && OfflineMlKitBridge.isPackaged()
+                ? "正在使用已授权的本机 ML Kit 模型翻译（无需系统翻译服务）…"
+                : SafePageTranslation.hasOnDeviceService(c)
+                ? "正在读取正文并调用系统设备端翻译（最长 35 秒）…"
+                : OfflineMlKitBridge.unavailableReason());
             SafePageTranslation.translate(c,session,from,to,new SafePageTranslation.Callback(){
                 @Override public void onSuccess(String translated){
                     display.accept(translated);
