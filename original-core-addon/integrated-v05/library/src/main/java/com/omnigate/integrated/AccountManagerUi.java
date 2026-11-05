@@ -184,8 +184,13 @@ final class AccountManagerUi {
                     addRow(target,now);
                 }
             }
+            // Selected rows that become hidden by search/filter must never
+            // be accidentally erased during a bulk operation.
+            Set<String> visibleKeys=new LinkedHashSet<>();
+            for(Target t:visible)visibleKeys.add(t.key());
+            selected.retainAll(visibleKeys);
             countLabel.setText("当前结果 "+visible.size()+" 个，已选 "+selected.size()+
-                " 个 · 批量操作只处理已明确勾选的账号");
+                " 个 · 全选/反选/清理仅作用于当前可见账号");
             handler.removeCallbacks(timer);
             if(dialog.isShowing()){
                 long delay=earliest==Long.MAX_VALUE?60_000L:
@@ -230,7 +235,7 @@ final class AccountManagerUi {
             action(links,"悬浮窗",()->{
                 dialog.dismiss();ClaudeFloatingOverlay.show(host,provider,slot);
             });
-            add(rows,block,dp(7)/Math.max(1,dp(1)));
+            add(rows,block,7);
         }
         private void edit(Target target){
             LinearLayout form=new LinearLayout(host);
