@@ -8,6 +8,7 @@ on:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SafePageTranslation.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/UserInitiatedTranslationShare.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateAppLanguage.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateBrowserLanguage.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatBootstrapProvider.java'
       - 'original-core-addon/integrated-v05/library/src/main/AndroidManifest.xml'
       - 'original-core-addon/integrated-v05/library/src/main/res/xml/omnigate_locale_config.xml'
@@ -54,7 +55,7 @@ jobs:
               assert 'evaluateJavascript(' not in source
               assert 'setAlwaysTranslate' not in source
               assert 'startActivity(' not in source
-          assert 'GeckoPageTranslate.showMenu(host,translate,session)' in browser
+          assert 'GeckoPageTranslate.showMenu(host,translate,session,geckoView)' in browser
           assert 'GeckoPageTranslate.showMenu(app,anchor,current,' in overlay
           assert 'hideTranslationPanel()' in overlay
           assert 'translationEpoch++; // Reject any late async results after cancel.' in overlay
@@ -76,6 +77,18 @@ jobs:
           assert 'android:localeConfig="@xml/omnigate_locale_config"' in manifest
           assert 'android:name="zh-CN"' in locale_config
           assert 'android:name="en-US"' in locale_config
+          assert 'BROWSER_LANGUAGE_CHOICES = "zh-CN,en-US"' in locale
+          assert 'static boolean isEnglish(Context context)' in locale
+          assert 'return false;' in locale
+          assert 'return chinese;' in locale
+          assert 'setOverrideLocaleConfig' in locale
+          browser_locale=(d/'OmniGateBrowserLanguage.java').read_text()
+          assert 'applyToExisting' in browser_locale
+          assert 'getApplicationLocales()' in browser_locale
+          assert 'setLocales' in browser_locale
+          assert 'loadUri(' not in browser_locale
+          assert 'evaluateJavascript(' not in browser_locale
+          print('OGLOCALE02_NATIVE_CHINESE_APPINFO_TWO_LANGUAGES=PASS')
           print('OGTRANSLATE10_MISSING_SYSTEM_TRANSLATOR_FAST_FAIL=PASS')
           print('OGTRANSLATE10_EXPLICIT_USER_SHARE_ONLY=PASS')
           print('OGLOCALE01_DYNAMIC_AND_STATIC_CONFIG_SOURCE=PASS')
