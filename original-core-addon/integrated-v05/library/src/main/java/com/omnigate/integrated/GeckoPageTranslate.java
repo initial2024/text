@@ -76,6 +76,22 @@ final class GeckoPageTranslate {
         mirrorToggle.setAllCaps(false);
         mirrorToggle.setVisibility(View.GONE);
         reader.addView(mirrorToggle,new LinearLayout.LayoutParams(-1,-2));
+        final PageMirrorApproximateView mirror=new PageMirrorApproximateView(activity);
+        reader.addView(mirror,new LinearLayout.LayoutParams(-1,-2));
+        final LinearLayout adjust=new LinearLayout(activity);
+        adjust.setOrientation(LinearLayout.HORIZONTAL);
+        adjust.setVisibility(View.GONE);
+        final Button up=new Button(activity);
+        up.setText("译文上移");
+        up.setAllCaps(false);
+        up.setOnClickListener(v->mirror.nudge(-6));
+        final Button down=new Button(activity);
+        down.setText("译文下移");
+        down.setAllCaps(false);
+        down.setOnClickListener(v->mirror.nudge(6));
+        adjust.addView(up,new LinearLayout.LayoutParams(0,-2,1));
+        adjust.addView(down,new LinearLayout.LayoutParams(0,-2,1));
+        reader.addView(adjust,new LinearLayout.LayoutParams(-1,-2));
         reader.addView(result,new LinearLayout.LayoutParams(-1,-2));
         final Button download=new Button(activity);
         download.setText("同意通过 Wi-Fi 下载离线语言模型并翻译");
@@ -87,21 +103,16 @@ final class GeckoPageTranslate {
         final AtomicBoolean closed=new AtomicBoolean(false);
         final android.graphics.Bitmap[] snapshot={null};
         final boolean[] showingMirror={true};
+        final String[] translated={null};
         mirrorToggle.setOnClickListener(v->{
             showingMirror[0]=!showingMirror[0];
-            if(showingMirror[0]&&snapshot[0]!=null){
-                android.graphics.drawable.BitmapDrawable picture=
-                    new android.graphics.drawable.BitmapDrawable(
-                        activity.getResources(),snapshot[0]);
-                picture.setGravity(android.view.Gravity.FILL);
-                scroll.setBackground(picture);
-                reader.setBackgroundColor(0xEAFFFFFF);
-                mirrorToggle.setText("隐藏网页快照 · 纯净阅读");
-            }else{
-                scroll.setBackgroundColor(0xFFF5F6F9);
-                reader.setBackgroundColor(0xFFFFFFFF);
-                mirrorToggle.setText("显示原网页快照 · 镜像阅读");
-            }
+            mirror.setVisibility(showingMirror[0]&&snapshot[0]!=null
+                ? View.VISIBLE : View.GONE);
+            adjust.setVisibility(showingMirror[0]&&snapshot[0]!=null
+                ? View.VISIBLE : View.GONE);
+            mirrorToggle.setText(showingMirror[0]
+                ? "隐藏快照 · 纯净阅读"
+                : "显示原网页快照 · 镜像覆盖");
         });
         Consumer<String> display=text->{
             if(activity.isFinishing()||activity.isDestroyed()||closed.get())return;
@@ -115,6 +126,8 @@ final class GeckoPageTranslate {
                 shown[0].setOnDismissListener(d->{
                     closed.set(true);
                     scroll.setBackground(null);
+                    mirror.clear();
+                    translated[0]=null;
                     snapshot[0]=null;
                 });
                 shown[0].show();
@@ -129,6 +142,8 @@ final class GeckoPageTranslate {
                     PageMirrorSnapshot.capture(ownedGeckoView,bmp->{
                         if(closed.get()||bmp==null||shown[0]==null)return;
                         snapshot[0]=bmp;
+                        mirror.setSnapshot(bmp);
+                        mirror.setTranslated(translated[0]);
                         showingMirror[0]=false;
                         mirrorToggle.setVisibility(View.VISIBLE);
                         mirrorToggle.performClick();
@@ -151,6 +166,10 @@ final class GeckoPageTranslate {
                     if(!closed.get())consent.run();
                 });
             }
+        },success->{
+            if(closed.get())return;
+            translated[0]=success;
+            mirror.setTranslated(success);
         });
     }
 
@@ -180,6 +199,14 @@ final class GeckoPageTranslate {
     static void showMenu(Context c,View anchor,Object session,
             Consumer<String> display,Runnable close,
             Consumer<Runnable> readerAction){
+        showMenu(c,anchor,session,display,close,readerAction,null);
+    }
+
+    /** Success observer receives only actual translated results, not status. */
+    static void showMenu(Context c,View anchor,Object session,
+            Consumer<String> display,Runnable close,
+            Consumer<Runnable> readerAction,
+            Consumer<String> translationSuccess){
         if(c==null||anchor==null||session==null){
             if(c!=null)Toast.makeText(c,"网页尚未打开",Toast.LENGTH_SHORT).show();
             return;
@@ -225,7 +252,8 @@ final class GeckoPageTranslate {
             if(i<1||i>4)return true;
             final String from=i==1?"en":i==2?"ja":i==3?"ko":"zh";
             final String to=i==4?"en":"zh";
-            requestSafeTranslation(c,session,from,to,display,readerAction);
+            requestSafeTranslation(c,session,from,to,display,readerAction,
+                translationSuccess);
             return true;
         });
         menu.show();
@@ -239,7 +267,8 @@ final class GeckoPageTranslate {
      */
     private static void requestSafeTranslation(Context c,Object session,
             String from,String to,Consumer<String> display,
-            Consumer<Runnable> readerAction){
+            Consumer<Runnable> readerAction,
+            Consumer<String> translationSuccess){
         if(OfflineMlKitBridge.isPackaged() &&
            !OfflineMlKitBridge.isAuthorized(c,from,to)){
             display.accept("无刷新离线阅读层 · "+from+" → "+to+
@@ -255,6 +284,8 @@ final class GeckoPageTranslate {
                     new SafePageTranslation.Callback(){
                         @Override public void onSuccess(String translated){
                             display.accept(translated);
+                            if(translationSuccess!=null)
+                                translationSuccess.accept(translated);
                         }
                         @Override public void onFailure(String reason){
                             display.accept("离线翻译未完成："+reason+
@@ -274,6 +305,8 @@ final class GeckoPageTranslate {
             new SafePageTranslation.Callback(){
                 @Override public void onSuccess(String translated){
                     display.accept(translated);
+                    if(translationSuccess!=null)
+                        translationSuccess.accept(translated);
                 }
                 @Override public void onFailure(String reason){
                     display.accept("无法翻译："+reason+
