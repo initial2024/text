@@ -161,9 +161,16 @@ final class IsolatedGeckoBrowser {
                     entry.setAllCaps(false);
                     String quota=AccountMetadataStore.status(host,provider,slot,
                         System.currentTimeMillis());
+                    String tags=AccountMetadataStore.accountTags(host,provider,slot);
                     entry.setText(AccountMetadataStore.name(host,provider,slot)+
+                        (tags.isEmpty()?"":" · "+tags)+
                         (quota.isEmpty()?"":" · ⏳")+
                         (slot==selected?" ✓":""));
+                    entry.setContentDescription(
+                        AccountMetadataStore.name(host,provider,slot)+
+                        (tags.isEmpty()?"":"；标签 "+tags)+
+                        (quota.isEmpty()?"":"；"+quota)+
+                        "。点击打开网页，长按编辑账号设置。");
                     entry.setSingleLine(true);
                     entry.setEllipsize(android.text.TextUtils.TruncateAt.END);
                     entry.setGravity(android.view.Gravity.CENTER_VERTICAL|
@@ -174,17 +181,34 @@ final class IsolatedGeckoBrowser {
                         0xFF35336C:0xFF1B2443,10,host));
                     line.addView(entry,new LinearLayout.LayoutParams(0,-1,1f));
                     entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});
+                    entry.setOnLongClickListener(v->{
+                        picker.dismiss();AccountQuickSettings.show(host,provider,index);
+                        return true;
+                    });
                     Button floatOpen=new Button(host);
                     floatOpen.setAllCaps(false);
-                    floatOpen.setText("悬浮窗");
+                    floatOpen.setText("浮窗");
                     floatOpen.setTextSize(12);floatOpen.setTextColor(ink);
                     floatOpen.setPadding(0,0,0,0);
                     floatOpen.setBackground(surface(0xFF253858,10,host));
                     LinearLayout.LayoutParams op=new LinearLayout.LayoutParams(
-                        dp(host,76),-1);
+                        dp(host,57),-1);
                     op.leftMargin=dp(host,5);line.addView(floatOpen,op);
                     floatOpen.setOnClickListener(v->{
                         picker.dismiss();ClaudeFloatingOverlay.show(host,provider,index);
+                    });
+                    Button quick=new Button(host);
+                    quick.setAllCaps(false);quick.setText("设置");
+                    quick.setTextColor(ink);quick.setTextSize(11);
+                    quick.setPadding(0,0,0,0);
+                    quick.setBackground(surface(0xFF2B3155,10,host));
+                    LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(
+                        dp(host,49),-1);
+                    qp.leftMargin=dp(host,4);line.addView(quick,qp);
+                    quick.setContentDescription("设置"+AccountMetadataStore.name(host,provider,index)+
+                        "的名称、标签、备注、额度记录");
+                    quick.setOnClickListener(v->{
+                        picker.dismiss();AccountQuickSettings.show(host,provider,index);
                     });
                 }
                 Button guest=new Button(host);
@@ -443,11 +467,18 @@ final class IsolatedGeckoBrowser {
         footer.addView(close,new LinearLayout.LayoutParams(0,-2,1f));
         root.addView(footer);
         if(!guestWindow){
+            LinearLayout accountActions=new LinearLayout(host);
             Button floatOpen=button("↗ 当前账号 · 悬浮窗");
             floatOpen.setOnClickListener(v->{
                 if(selected>=0)ClaudeFloatingOverlay.show(host,provider,selected);
             });
-            root.addView(floatOpen,new LinearLayout.LayoutParams(-1,dp(host,42)));
+            accountActions.addView(floatOpen,new LinearLayout.LayoutParams(0,dp(host,42),1));
+            Button quick=button("⚙ 账号设置");
+            quick.setOnClickListener(v->{
+                if(selected>=0)AccountQuickSettings.show(host,provider,selected);
+            });
+            accountActions.addView(quick,new LinearLayout.LayoutParams(0,dp(host,42),1));
+            root.addView(accountActions,new LinearLayout.LayoutParams(-1,dp(host,42)));
         }
         root.setFitsSystemWindows(false);
         root.setOnApplyWindowInsetsListener((view,insets)->{
