@@ -41,6 +41,9 @@ public final class ClaudeFloatingOverlay {
     private static TextView translationText;
     private static Button translationConsent;
     private static Button translationMirrorToggle;
+    private static PageMirrorApproximateView translationMirrorView;
+    private static LinearLayout translationMirrorAdjust;
+    private static String translationSucceededText;
     private static android.graphics.Bitmap translationMirrorSnapshot;
     private static boolean translationMirrorVisible=true;
     private static boolean translationOpen;
@@ -323,6 +326,21 @@ public final class ClaudeFloatingOverlay {
         });
         box.addView(translationMirrorToggle,
             new LinearLayout.LayoutParams(-1,dp(app,42)));
+        translationMirrorView=new PageMirrorApproximateView(app);
+        box.addView(translationMirrorView,new LinearLayout.LayoutParams(-1,-2));
+        translationMirrorAdjust=new LinearLayout(app);
+        translationMirrorAdjust.setVisibility(View.GONE);
+        Button moveUp=button(app,"译文上移");
+        Button moveDown=button(app,"译文下移");
+        moveUp.setOnClickListener(v->{
+            if(translationMirrorView!=null)translationMirrorView.nudge(-6);
+        });
+        moveDown.setOnClickListener(v->{
+            if(translationMirrorView!=null)translationMirrorView.nudge(6);
+        });
+        translationMirrorAdjust.addView(moveUp,new LinearLayout.LayoutParams(0,dp(app,40),1));
+        translationMirrorAdjust.addView(moveDown,new LinearLayout.LayoutParams(0,dp(app,40),1));
+        box.addView(translationMirrorAdjust,new LinearLayout.LayoutParams(-1,-2));
         Button exit=button(app,"返回原网页 · 不刷新");
         box.addView(exit,new LinearLayout.LayoutParams(-1,dp(app,40)));
         exit.setOnClickListener(v->hideTranslationPanel());
@@ -344,6 +362,10 @@ public final class ClaudeFloatingOverlay {
         final String currentProvider=selectedProvider;
         final int currentSlot=selected;
         final int generation=++translationEpoch;
+        translationSucceededText=null;
+        if(translationMirrorView!=null)translationMirrorView.clear();
+        if(translationMirrorAdjust!=null)
+            translationMirrorAdjust.setVisibility(View.GONE);
         translationMirrorSnapshot=null;
         if(translationPanel!=null)translationPanel.setBackground(null);
         if(translationMirrorToggle!=null)translationMirrorToggle.setVisibility(View.GONE);
@@ -355,6 +377,10 @@ public final class ClaudeFloatingOverlay {
                 generation!=translationEpoch)return;
             translationMirrorSnapshot=bmp;
             translationMirrorVisible=true;
+            if(translationMirrorView!=null){
+                translationMirrorView.setSnapshot(bmp);
+                translationMirrorView.setTranslated(translationSucceededText);
+            }
             if(translationMirrorToggle!=null)
                 translationMirrorToggle.setVisibility(View.VISIBLE);
             updateTranslationMirrorBackground();
@@ -382,6 +408,14 @@ public final class ClaudeFloatingOverlay {
                            generation==translationEpoch)consentAction.run();
                     });
                 }
+            },
+            translated->{
+                if(current!=session||selected!=currentSlot||
+                    !currentProvider.equals(selectedProvider)||
+                    generation!=translationEpoch)return;
+                translationSucceededText=translated;
+                if(translationMirrorView!=null)
+                    translationMirrorView.setTranslated(translated);
             });
     }
     private static void showTranslationText(String text){
@@ -397,26 +431,20 @@ public final class ClaudeFloatingOverlay {
         // Translation pane never acquires OS IME ownership from another app.
         setOverlayFocusable(false);
     }
-    /** Snapshot is a visual backdrop only, never a clickable replica of DOM. */
+    /** The screenshot stays fixed; up to three rough translation bands move. */
     private static void updateTranslationMirrorBackground(){
         if(translationPanel==null)return;
-        if(translationMirrorVisible&&translationMirrorSnapshot!=null){
-            android.graphics.drawable.BitmapDrawable image=
-                new android.graphics.drawable.BitmapDrawable(
-                    app.getResources(),translationMirrorSnapshot);
-            image.setGravity(android.view.Gravity.FILL);
-            translationPanel.setBackground(image);
-            if(translationText!=null)
-                translationText.setBackgroundColor(0xEB152033);
-            if(translationMirrorToggle!=null)
-                translationMirrorToggle.setText("隐藏快照 · 纯净阅读");
-        }else{
-            translationPanel.setBackgroundColor(0xFF12192A);
-            if(translationText!=null)
-                translationText.setBackgroundColor(0xFF162237);
-            if(translationMirrorToggle!=null)
-                translationMirrorToggle.setText("显示原网页快照 · 镜像阅读");
-        }
+        translationPanel.setBackgroundColor(0xFF12192A);
+        boolean visible=translationMirrorVisible&&translationMirrorSnapshot!=null;
+        if(translationMirrorView!=null)
+            translationMirrorView.setVisibility(visible?View.VISIBLE:View.GONE);
+        if(translationMirrorAdjust!=null)
+            translationMirrorAdjust.setVisibility(visible?View.VISIBLE:View.GONE);
+        if(translationText!=null)
+            translationText.setBackgroundColor(0xFF162237);
+        if(translationMirrorToggle!=null)
+            translationMirrorToggle.setText(visible
+                ?"隐藏快照 · 纯净阅读":"显示原网页快照 · 镜像阅读");
     }
 
     private static void hideTranslationPanel(){
@@ -427,6 +455,10 @@ public final class ClaudeFloatingOverlay {
             translationPanel.setBackground(null);
         }
         translationMirrorSnapshot=null;
+        translationSucceededText=null;
+        if(translationMirrorView!=null)translationMirrorView.clear();
+        if(translationMirrorAdjust!=null)
+            translationMirrorAdjust.setVisibility(View.GONE);
         if(translationMirrorToggle!=null)translationMirrorToggle.setVisibility(View.GONE);
         if(translationText!=null)translationText.setText("");
         if(translationConsent!=null){
