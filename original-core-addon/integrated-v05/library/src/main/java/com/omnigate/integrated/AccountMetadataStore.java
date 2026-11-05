@@ -56,7 +56,7 @@ final class AccountMetadataStore {
     static String accountTags(Context c,String provider,int slot){
         return store(c).getString(key(c,provider,slot)+".account_tags","");
     }
-    static void setAccountTags(Context c,String provider,int slot,String raw){
+    private static String normalizeAccountTags(String raw){
         String text=sanitize(raw,100);
         Set<String> tags=new LinkedHashSet<>();
         if(!text.isEmpty()){
@@ -67,9 +67,22 @@ final class AccountMetadataStore {
                 if(tags.size()>4)throw new IllegalArgumentException("too_many_account_tags");
             }
         }
-        String canonical=android.text.TextUtils.join("、",tags);
+        return android.text.TextUtils.join("、",tags);
+    }
+    static void setAccountTags(Context c,String provider,int slot,String raw){
+        String canonical=normalizeAccountTags(raw);
         if(!store(c).edit().putString(key(c,provider,slot)+".account_tags",canonical)
                 .commit())throw new IllegalStateException("account_tags_save_failed");
+    }
+    /** One transaction: an invalid tag cannot partially rename the account. */
+    static void setAccountInfo(Context c,String provider,int slot,
+            String name,String note,String tags){
+        String k=key(c,provider,slot);
+        String n=sanitize(name,28),m=sanitize(note,140);
+        String cleanTags=normalizeAccountTags(tags);
+        if(!store(c).edit().putString(k+".name",n)
+                .putString(k+".note",m).putString(k+".account_tags",cleanTags)
+                .commit())throw new IllegalStateException("account_info_save_failed");
     }
     static boolean hasAccountTag(Context c,String provider,int slot,String filter){
         String query=filter==null?"":filter.trim();
