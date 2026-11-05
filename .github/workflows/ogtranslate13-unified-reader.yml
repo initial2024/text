@@ -4,6 +4,7 @@ on:
     branches: [work/omnigate-integrated-v05]
     paths:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoPageTranslate.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/PageMirrorSnapshot.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SafePageTranslation.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OfflineMlKitBridge.java'
@@ -45,7 +46,13 @@ jobs:
           assert 'OfflineMlKitBridge.isPackaged()' in ui
           assert '未确认前不会下载模型或提取正文' in ui
           assert 'if(i==5){close.run();return true;}' in ui
-          assert 'setTitle("译文阅读层（原网页不刷新）")' in ui
+          assert 'setTitle("镜像译文 · 原网页不刷新")' in ui
+          assert 'mirrorToggle.setOnClickListener(v->' in ui
+          assert 'PageMirrorSnapshot.capture(ownedGeckoView' in ui
+          assert 'scroll.setBackground(picture);' in ui
+          assert 'reader.setBackgroundColor(0xEAFFFFFF)' in ui
+          assert 'mirrorToggle.setVisibility(View.VISIBLE)' in ui
+          assert 'snapshot[0]=null;' in ui
           assert 'setPositiveButton("返回原网页"' in ui
           assert 'translationConsent=button(app,' in floating
           assert 'translationConsent.setVisibility(View.GONE)' in floating
@@ -56,8 +63,11 @@ jobs:
           assert 'translationConsent.setOnClickListener(null);' in floating
           assert 'translationConsent=null;' in floating
           assert 'showTranslationText(text)' in floating
-          assert 'GeckoPageTranslate.showMenu(host,translate,session)' in full
-          assert 'GeckoPageTranslate.showMenu(host,fullscreenExit,session)' in full
+          assert 'GeckoPageTranslate.showMenu(host,translate,session,geckoView)' in full
+          assert 'GeckoPageTranslate.showMenu(host,fullscreenExit,session,geckoView)' in full
+          assert 'translationMirrorToggle.setOnClickListener(v->' in floating
+          assert 'translationMirrorSnapshot=null;' in floating
+          assert 'updateTranslationMirrorBackground()' in floating
           assert 'translateOfflineWithConsent' in safe
           assert 'OfflineMlKitBridge.isPackaged()' in safe
           assert 'if(!isPackaged())' in bridge
