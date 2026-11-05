@@ -1,0 +1,81 @@
+name: OGTRANSLATE16 public local APK tooling bundle (NO USER APK)
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - '.github/workflows/ogtranslate16-local-toolchain.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  produce-tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Install official build tools for LOCAL private signing only
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="$ANDROID_HOME"
+          MGR="$(find "$SDK/cmdline-tools" -type f -name sdkmanager | sort | tail -n1)"
+          test -x "$MGR"
+          "$MGR" --sdk_root="$SDK" 'build-tools;35.0.0' 'platforms;android-35'
+          test -x "$SDK/build-tools/35.0.0/aapt2"
+          test -x "$SDK/build-tools/35.0.0/zipalign"
+          test -s "$SDK/build-tools/35.0.0/lib/d8.jar"
+          test -s "$SDK/build-tools/35.0.0/lib/apksigner.jar"
+          test -s "$SDK/platforms/android-35/android.jar"
+          mkdir -p tooling/sdk/build-tools tooling/sdk/platform tooling/java
+          cp -a "$SDK/build-tools/35.0.0/." tooling/sdk/build-tools/
+          cp "$SDK/platforms/android-35/android.jar" tooling/sdk/platform/android.jar
+      - name: Resolve Open Source smali and baksmali classes with transitive deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tooling/dependency-resolver
+          cat > tooling/dependency-resolver/settings.gradle <<'GRADLE'
+          rootProject.name = 'ogtranslate16-local-tools'
+          GRADLE
+          cat > tooling/dependency-resolver/build.gradle <<'GRADLE'
+          plugins { id 'base' }
+          repositories { mavenCentral() }
+          configurations { dexPatch }
+          dependencies {
+              dexPatch 'org.smali:baksmali:2.5.2'
+              dexPatch 'org.smali:smali:2.5.2'
+          }
+          tasks.register('collectDexPatchLibraries', Copy) {
+              from configurations.dexPatch
+              into '../java'
+          }
+          GRADLE
+          (cd tooling/dependency-resolver && gradle --no-daemon collectDexPatchLibraries)
+          find tooling/java -type f -name '*.jar' -size +0c
+          CP=$(find tooling/java -name '*.jar' -printf '%p:' | sed 's/:$//')
+          java -cp "$CP" org.jf.baksmali.Main --help >/dev/null
+          java -cp "$CP" org.jf.smali.Main --help >/dev/null
+      - name: Validate tools without using any private APK or signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          tooling/sdk/build-tools/d8 --version
+          tooling/sdk/build-tools/zipalign -h >/dev/null 2>&1 || true
+          java -jar tooling/sdk/build-tools/lib/apksigner.jar help >/dev/null
+          find tooling -type f -print0 | sort -z | xargs -0 sha256sum > tooling/TOOL_SHA256SUMS.txt
+          printf 'PUBLIC_BUILD_TOOLS_ONLY=YES\nPRIVATE_APK_INCLUDED=NO\nKEYSTORE_INCLUDED=NO\n' > tooling/READ_ME_FIRST.txt
+          test -s tooling/TOOL_SHA256SUMS.txt
+      - name: Bundle tooling for PRIVATE local use (not a signed APK)
+        uses: actions/upload-artifact@v4
+        with:
+          name: OGTRANSLATE16-LOCAL-TOOLS-NO-USER-APK-OR-KEY
+          path: tooling/
+          retention-days: 3
+          compression-level: 6
+          if-no-files-found: error
