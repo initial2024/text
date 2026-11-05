@@ -694,6 +694,9 @@ public final class ClaudeFloatingOverlay {
         get.setAccessible(true);
         Object runtime=get.invoke(null);
         if(runtime==null)throw new IllegalStateException("gecko_runtime_not_ready");
+        // Use the selected Android app language only as Gecko browser locale.
+        // Never start a second runtime or open a background account.
+        OmniGateBrowserLanguage.applyToExisting(app,runtime);
         Class<?> builderClass=Class.forName("org.mozilla.geckoview.GeckoSessionSettings$Builder");
         Object builder=builderClass.getConstructor().newInstance();
         builderClass.getMethod("contextId",String.class).invoke(builder,id);
