@@ -136,8 +136,8 @@ jobs:
           for name in ("R;","R$raw;","R$xml;"):
               assert "Lcom/google/mlkit/nl/translate/"+name in classes
           verifier=open("original-core-addon/integrated-v05/tools/verify_private_omnigate_translation_apk.py").read()
-          for token in ("linked_mlkit_resource_raw","linked_mlkit_resource_xml",
-                        'R$raw;', 'R$xml;'):
+          for token in ("linked_mlkit_resource_", "translate_models_metadata",
+                        "rapid_response_client_defaults", 'R$raw;', 'R$xml;'):
               assert token in verifier,token
           print("OGTRANSLATE18_RESOURCE_INDEX_CLASSES_GENERATED_IN_D8=PASS")
           print("OGTRANSLATE18_MISSING_R_CLASSES_RELEASE_GATE_BLOCKED=PASS")
