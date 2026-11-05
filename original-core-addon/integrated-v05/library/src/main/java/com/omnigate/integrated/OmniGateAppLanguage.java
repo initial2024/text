@@ -11,9 +11,12 @@ import android.os.LocaleList;
  * Android App Info -> Language is reused as a Gecko browser locale preference,
  * not a translation engine or site-language override.
  *
- * Deliberately does not change Locale.setDefault(), WebView/GeckoView
- * Accept-Language, third-party websites, platform login, API messages,
- * user's input, Android system UI, or the original third-party app UI.
+ * This class only exposes the system language picker and keeps OmniGate
+ * native labels Chinese. OmniGateBrowserLanguage separately applies the
+ * selected BCP-47 preference to existing GeckoRuntime settings for subsequent
+ * browser requests, without reloading a page or translating site content.
+ * Do not change Locale.setDefault(), third-party page DOM, login, user input,
+ * OS language, or the original third-party app UI.
  *
  * Keep the historical method signatures for DEX binary compatibility.
  */
