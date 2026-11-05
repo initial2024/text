@@ -10,3 +10,79 @@ dependencies {
     // NO online translation API and NO silent model downloads.
     implementation 'com.google.mlkit:translate:17.0.3'
 }
+
+
+// OGTRANSLATE14: public, reproducible dependency closure, NOT a signed APK.
+// Preserve every AAR/JAR (and the adapter AAR) so the private offline packager
+// has a complete ledger. Do not upload user APKs, sessions, keystores or keys.
+tasks.register('exportReleaseDependencyClosure') {
+    dependsOn 'assembleRelease'
+    doLast {
+        def config = configurations.getByName('releaseRuntimeClasspath')
+        def artifacts = config.resolvedConfiguration.resolvedArtifacts
+            .toList().sort { a, b ->
+                a.moduleVersion.id.toString() <=> b.moduleVersion.id.toString()
+            }
+        def out = layout.buildDirectory.dir('offline-runtime-closure').get().asFile
+        def dependenciesFolder = new File(out, 'dependencies')
+        project.delete(out)
+        dependenciesFolder.mkdirs()
+        def sha256 = { File input ->
+            def digest = java.security.MessageDigest.getInstance('SHA-256')
+            input.withInputStream { stream ->
+                byte[] buffer = new byte[65536]
+                int count
+                while ((count = stream.read(buffer)) != -1) {
+                    if (count > 0) digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().encodeHex().toString()
+        }
+        def rows = []
+        for (def artifact : artifacts) {
+            File source = artifact.file
+            String coordinate = artifact.moduleVersion.id.toString()
+            String hash = sha256(source)
+            String safe = coordinate.replaceAll('[^A-Za-z0-9._-]', '_')
+            String outputName = safe + '-' + hash.substring(0, 12) + '-' + source.name
+            File output = new File(dependenciesFolder, outputName)
+            java.nio.file.Files.copy(source.toPath(), output.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            rows << [coordinate:coordinate,
+                     archive: 'dependencies/' + outputName,
+                     sha256: hash, bytes:source.length()]
+        }
+        if (!rows.any { it.coordinate.startsWith('com.google.mlkit:translate:17.0.3') }) {
+            throw new GradleException('Missing the pinned ML Kit translator runtime')
+        }
+        File adapter = layout.buildDirectory.file(
+            'outputs/aar/offline-translation-release.aar').get().asFile
+        if (!adapter.isFile()) {
+            throw new GradleException('Optional adapter AAR missing')
+        }
+        String adapterHash = sha256(adapter)
+        File adapterCopy = new File(out,
+            'offline-translation-release-' + adapterHash.substring(0, 12) + '.aar')
+        java.nio.file.Files.copy(adapter.toPath(), adapterCopy.toPath(),
+            java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        def closure = [
+            schema: 'omnigate.ogtranslate14.release-closure.v1',
+            state: 'PUBLIC_OFFLINE_DEPENDENCIES_ONLY_NOT_INSTALLABLE_APK',
+            runtimeCoordinate: 'com.google.mlkit:translate:17.0.3',
+            adapter: [archive:adapterCopy.name, sha256:adapterHash,
+                      bytes:adapter.length()],
+            dependencies:rows,
+            dependencyCount:rows.size(),
+            allRuntimeArtifactsBundled:true,
+            originalPrivateApkIncluded:false,
+            privateKeystoreIncluded:false,
+            allAndroidResourcesMergedIntoOriginalApk:false,
+            androidDeviceE2ePassed:false
+        ]
+        new File(out, 'closure.json').text =
+            groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(closure))
+        println('OGTRANSLATE14_DEPENDENCIES_EXPORTED=' + rows.size())
+        println('OGTRANSLATE14_PRIVATE_APK_INCLUDED=NO')
+        println('OGTRANSLATE14_NOT_INSTALLABLE_APK=YES')
+    }
+}
