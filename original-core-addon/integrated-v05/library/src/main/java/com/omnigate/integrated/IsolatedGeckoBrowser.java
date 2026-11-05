@@ -72,8 +72,11 @@ final class IsolatedGeckoBrowser {
         IsolatedGeckoBrowser prior=activeBrowser;
         activeBrowser=null;
         if(prior!=null){
+            // Close the GeckoSession synchronously before asynchronous
+            // dialog-dismiss callbacks: storage clearing must not race a
+            // still-open page that could re-create cookies.
+            prior.releaseSession();
             if(prior.dialog.isShowing())prior.dialog.dismiss();
-            else prior.releaseSession();
         }
     }
     static boolean closeIfMatches(String provider,int slot){
