@@ -40,6 +40,9 @@ public final class ClaudeFloatingOverlay {
     private static android.widget.ScrollView translationPanel;
     private static TextView translationText;
     private static Button translationConsent;
+    private static Button translationMirrorToggle;
+    private static android.graphics.Bitmap translationMirrorSnapshot;
+    private static boolean translationMirrorVisible=true;
     private static boolean translationOpen;
     private static int translationEpoch;
     private static FrameLayout viewport;
@@ -304,13 +307,22 @@ public final class ClaudeFloatingOverlay {
         box.setPadding(dp(app,11),dp(app,8),dp(app,11),dp(app,8));
         translationPanel.addView(box);
         TextView title=new TextView(app);
-        title.setText("只读译文 · 关闭即可返回原网页");
+        title.setText("镜像译文 · 本地快照与独立译文层");
         title.setTextColor(0xFF82E6E7);title.setTextSize(13);
         box.addView(title);
         TextView guide=new TextView(app);
-        guide.setText("优先使用已授权的设备端离线翻译模型。首次语言模型下载需在此层确认 Wi-Fi；不修改原网页，不上传网页正文。");
+        guide.setText("原网页只读快照保存在内存中；译文可滚动、可复制，但不逐像素对应按钮及图片。" +
+            "首次下载离线模型需要手动确认 Wi-Fi；不刷新原网页、不切换账号、不上传正文。");
         guide.setTextColor(0xFFB9C8E5);guide.setTextSize(11);
         box.addView(guide);
+        translationMirrorToggle=button(app,"显示原网页快照 · 镜像阅读");
+        translationMirrorToggle.setVisibility(View.GONE);
+        translationMirrorToggle.setOnClickListener(v->{
+            translationMirrorVisible=!translationMirrorVisible;
+            updateTranslationMirrorBackground();
+        });
+        box.addView(translationMirrorToggle,
+            new LinearLayout.LayoutParams(-1,dp(app,42)));
         Button exit=button(app,"返回原网页 · 不刷新");
         box.addView(exit,new LinearLayout.LayoutParams(-1,dp(app,40)));
         exit.setOnClickListener(v->hideTranslationPanel());
@@ -318,7 +330,8 @@ public final class ClaudeFloatingOverlay {
         translationText.setTextColor(0xFFF1F5FF);
         translationText.setTextSize(14);
         translationText.setTextIsSelectable(true);
-        translationText.setPadding(0,dp(app,9),0,dp(app,16));
+        translationText.setPadding(dp(app,10),dp(app,11),dp(app,10),dp(app,18));
+        translationText.setLineSpacing(dp(app,4),1.1f);
         box.addView(translationText);
         translationConsent=button(app,"同意通过 Wi-Fi 下载离线语言模型并翻译");
         translationConsent.setAllCaps(false);
@@ -331,6 +344,21 @@ public final class ClaudeFloatingOverlay {
         final String currentProvider=selectedProvider;
         final int currentSlot=selected;
         final int generation=++translationEpoch;
+        translationMirrorSnapshot=null;
+        if(translationPanel!=null)translationPanel.setBackground(null);
+        if(translationMirrorToggle!=null)translationMirrorToggle.setVisibility(View.GONE);
+        // Capture before hiding GeckoView; no second session, no OS-wide
+        // screen recording, no screenshot upload or persistent image file.
+        PageMirrorSnapshot.capture(geckoView,bmp->{
+            if(bmp==null||current!=session||selected!=currentSlot||
+                !currentProvider.equals(selectedProvider)||
+                generation!=translationEpoch)return;
+            translationMirrorSnapshot=bmp;
+            translationMirrorVisible=true;
+            if(translationMirrorToggle!=null)
+                translationMirrorToggle.setVisibility(View.VISIBLE);
+            updateTranslationMirrorBackground();
+        });
         GeckoPageTranslate.showMenu(app,anchor,current,
             text->{
                 if(current!=session||selected!=currentSlot||
@@ -365,13 +393,41 @@ public final class ClaudeFloatingOverlay {
         body.setVisibility(View.GONE);
         translationPanel.setVisibility(View.VISIBLE);
         translationText.setText(text);
+        updateTranslationMirrorBackground();
         // Translation pane never acquires OS IME ownership from another app.
         setOverlayFocusable(false);
     }
+    /** Snapshot is a visual backdrop only, never a clickable replica of DOM. */
+    private static void updateTranslationMirrorBackground(){
+        if(translationPanel==null)return;
+        if(translationMirrorVisible&&translationMirrorSnapshot!=null){
+            android.graphics.drawable.BitmapDrawable image=
+                new android.graphics.drawable.BitmapDrawable(
+                    app.getResources(),translationMirrorSnapshot);
+            image.setGravity(android.view.Gravity.FILL);
+            translationPanel.setBackground(image);
+            if(translationText!=null)
+                translationText.setBackgroundColor(0xEB152033);
+            if(translationMirrorToggle!=null)
+                translationMirrorToggle.setText("隐藏快照 · 纯净阅读");
+        }else{
+            translationPanel.setBackgroundColor(0xFF12192A);
+            if(translationText!=null)
+                translationText.setBackgroundColor(0xFF162237);
+            if(translationMirrorToggle!=null)
+                translationMirrorToggle.setText("显示原网页快照 · 镜像阅读");
+        }
+    }
+
     private static void hideTranslationPanel(){
         translationEpoch++; // Reject any late async results after cancel.
         translationOpen=false;
-        if(translationPanel!=null)translationPanel.setVisibility(View.GONE);
+        if(translationPanel!=null){
+            translationPanel.setVisibility(View.GONE);
+            translationPanel.setBackground(null);
+        }
+        translationMirrorSnapshot=null;
+        if(translationMirrorToggle!=null)translationMirrorToggle.setVisibility(View.GONE);
         if(translationText!=null)translationText.setText("");
         if(translationConsent!=null){
             translationConsent.setOnClickListener(null);
