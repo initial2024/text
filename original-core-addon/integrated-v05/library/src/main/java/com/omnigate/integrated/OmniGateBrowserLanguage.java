@@ -23,9 +23,6 @@ import java.util.Locale;
 final class OmniGateBrowserLanguage {
     private OmniGateBrowserLanguage() {}
 
-    private static Object lastRuntime;
-    private static String lastLocale;
-
     /** Read the user's app-language choice, or follow the device on "system". */
     static String requestedLocale(Context context) {
         if (context == null) return "zh-CN";
@@ -68,18 +65,21 @@ final class OmniGateBrowserLanguage {
     static synchronized boolean applyToExisting(Context context, Object existingRuntime) {
         if (context == null || existingRuntime == null) return false;
         final String preferred = requestedLocale(context);
-        if (existingRuntime == lastRuntime && preferred.equals(lastLocale)) return true;
         try {
             Object settings = existingRuntime.getClass().getMethod("getSettings")
                 .invoke(existingRuntime);
             if (settings == null) return false;
+            // Read the *actual runtime setting*, not a cached success flag:
+            // the original application may replace its runtime settings.
+            Object current = settings.getClass().getMethod("getLocales").invoke(settings);
+            if (current instanceof String[] &&
+                    java.util.Arrays.equals((String[])current,
+                        new String[]{preferred})) return true;
             Method setLocales = settings.getClass()
                 .getMethod("setLocales", String[].class);
             setLocales.invoke(settings, (Object)new String[]{preferred});
-            lastRuntime = existingRuntime;
-            lastLocale = preferred;
             return true;
-        } catch (ReflectiveOperationException | LinkageError unavailable) {
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) {
             // Gecko API may differ across original binaries. Fail closed,
             // never spoof a UA, modify session storage, or recreate runtime.
             return false;
@@ -96,7 +96,7 @@ final class OmniGateBrowserLanguage {
             Object existing = get.invoke(null);
             if (existing == null) return false;
             return applyToExisting(context, existing);
-        } catch (ReflectiveOperationException | LinkageError unavailable) {
+        } catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) {
             return false;
         }
     }
