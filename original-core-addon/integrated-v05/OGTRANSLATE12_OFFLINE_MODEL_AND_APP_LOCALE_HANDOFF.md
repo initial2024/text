@@ -12,7 +12,7 @@
 - Source SHA at that private build: **6aa6f6981f2e8bdabda2daac06cee0e6b828813e**.
 - That audit explicitly says `system_app_info_language=NOT_IMPLEMENTED`; Android 16 real-device E2E was not done. The missing language option in the screenshot is explained by this baseline.
 - The old PR description's original package **com.deepseek2.app** refers to an **earlier binary stage**. DO NOT use it as the final installed package name or produce an APK with the wrong identity.
-- The v1.2.9 **actual signed APK bytes are not available as a current working file**. A previous v1.2.6 artifact is **not** an acceptable silent downgrade or binary base. Preserve all v1.2.9 private-only classes and resources.
+- **Update 2026-11-05:** the user subsequently uploaded the exact v1.2.9 signed APK privately in ChatGPT. Independently verified SHA-256 matches the baseline audit. It is **not** uploaded to the public GitHub repo/runner. A previous v1.2.6 artifact remains an unacceptable silent downgrade or binary base. Preserve all v1.2.9 private-only classes and resources.
 
 ## Source and CI evidence (2026-11-05)
 - Main PR: https://github.com/initial2024/text/pull/1 (Draft).
@@ -46,3 +46,9 @@ Current source workflow produces an offline module AAR and a dependency ledger, 
 - When a private APK is being created, preserve **all** v1.2.9 original DEX files, including private classes4.dex; append additional DEX instead of overwriting that file.
 - The exact device-installed APK may be exported locally with `tools/export_installed_omnigate_v129.ps1`. It only reads the APK code; it does not export account/cookie data and never uploads to GitHub. Its SHA-256 **must** match the audited v1.2.9 base or the process stops.
 - Pending mandatory gates: real signed APK with all ML Kit runtime/transitive code and resources; Android 16 per-app language option; actual offline translation of a page after first-time Wi-Fi model download; session, draft, scroll, account and port ownership preservation. No test APK or merge until these pass.
+
+## OGTRANSLATE14 — full ML Kit runtime dependency closure (2026-11-05)
+- offline-translation/build.gradle now defines exportReleaseDependencyClosure; it resolves every Release Runtime AAR/JAR from Google Maven, copies each unchanged, and writes a JSON ledger with coordinate, filename, byte length, SHA-256 and the adapter AAR.
+- .github/workflows/ogtranslate11-offline-mlkit.yml validates the full closure and uploads a short-lived DEPENDENCY-ONLY artifact. It is not a merged application APK, and no user accounts, signed APKs, or signing keys enter public CI.
+- The user-provided private APK is available within the current ChatGPT working container for read-only verification, but cannot be submitted to a public CI workflow. The packager must use it locally, preserve all existing DEX bytes, add new dependency DEX, merge Android resources/manifest, and sign with the original fixed certificate.
+- Current hard blockers: local Android SDK/D8/aapt2/apksigner and authenticated signing tools are unavailable in the container runtime; no complete private integration pipeline or Android 16 device E2E has passed. Do not rename v1.2.9 or claim a final signed fix.
