@@ -29,7 +29,9 @@ public final class ClaudeFloatingOverlay {
     private static Context app;
     private static WindowManager manager;
     private static WindowManager.LayoutParams window;
-    private static LinearLayout root,body;
+    private static LinearLayout root,body,addressBar;
+    private static boolean addressExpanded,tallWindow;
+    private static Button addressControl;
     private static android.widget.ScrollView quickPanel;
     private static EditText quickName,quickTags,quickNote,quickQuotaLabel,quickQuotaHours;
     private static android.widget.CheckBox quickIndefinite,quickSavePreset;
@@ -44,6 +46,16 @@ public final class ClaudeFloatingOverlay {
     private static int compactX,compactY;
     private static boolean inputFocusHeld;
     private static final int BUBBLE_SIZE_DP=52;
+    // Native window geometry only; never rewrite site CSS, DPR or JS viewport.
+    private static int compactWidth(){
+        int screen=app.getResources().getDisplayMetrics().widthPixels;
+        return Math.min(Math.round(screen*.94f),dp(app,440));
+    }
+    private static int compactHeight(){
+        int screen=app.getResources().getDisplayMetrics().heightPixels;
+        int target=Math.round(screen*(tallWindow?.70f:.51f));
+        return Math.max(dp(app,300),Math.min(target,dp(app,tallWindow?720:540)));
+    }
     private static Object session,geckoView;
     private static int selected=-1;
     private static String selectedProvider="";
@@ -103,11 +115,9 @@ public final class ClaudeFloatingOverlay {
         app=context;
         manager=(WindowManager)app.getSystemService(Context.WINDOW_SERVICE);
         if(manager==null)throw new IllegalStateException("window_manager_missing");
-        int screen=app.getResources().getDisplayMetrics().widthPixels;
-        int height=app.getResources().getDisplayMetrics().heightPixels;
         window=new WindowManager.LayoutParams(
-            Math.min(Math.round(screen*.78f),dp(app,340)),
-            Math.max(dp(app,285),Math.round(height*.50f)),
+            compactWidth(),
+            compactHeight(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
@@ -136,13 +146,14 @@ public final class ClaudeFloatingOverlay {
         });
         LinearLayout title=new LinearLayout(app);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(title,new LinearLayout.LayoutParams(-1,dp(app,48)));
+        root.addView(title,new LinearLayout.LayoutParams(-1,dp(app,40)));
         caption=new TextView(app);
-        caption.setText("⠿ 网页");
-        caption.setTextColor(0xFFE0E7FF);caption.setTextSize(13);
-        caption.setGravity(Gravity.CENTER_VERTICAL);
-        caption.setPadding(dp(app,5),0,0,0);
-        title.addView(caption,new LinearLayout.LayoutParams(0,-1,1));
+        caption.setText("⠿");
+        caption.setTextColor(0xFFE0E7FF);caption.setTextSize(15);
+        caption.setGravity(Gravity.CENTER);
+        caption.setSingleLine(true);
+        caption.setContentDescription("拖动悬浮窗位置");
+        title.addView(caption,new LinearLayout.LayoutParams(dp(app,28),-1));
         final float[] drag=new float[2];
         final int[] pos=new int[2];
         caption.setOnTouchListener((v,event)->{
@@ -162,20 +173,22 @@ public final class ClaudeFloatingOverlay {
             }
         });
         account=button(app,"账号 ▾");
-        title.addView(account,new LinearLayout.LayoutParams(dp(app,76),dp(app,42)));
+        account.setSingleLine(true);
+        account.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        title.addView(account,new LinearLayout.LayoutParams(0,dp(app,38),1));
         account.setOnClickListener(v->showAccounts());
         quickControl=button(app,"设置");
         quickControl.setContentDescription("仅管理当前账号的标签备注和额度记录");
-        title.addView(quickControl,new LinearLayout.LayoutParams(dp(app,43),dp(app,42)));
+        title.addView(quickControl,new LinearLayout.LayoutParams(dp(app,42),dp(app,38)));
         quickControl.setOnClickListener(v->{
             if(quickOpen)hideQuickSettings();else showQuickSettings();
         });
         fullscreenControl=button(app,"全屏");
         fullscreenControl.setContentDescription("返回全屏，保留当前网页");
-        title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,56),dp(app,42)));
+        title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,51),dp(app,38)));
         fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
         fold=button(app,"—");
-        title.addView(fold,new LinearLayout.LayoutParams(dp(app,42),dp(app,42)));
+        title.addView(fold,new LinearLayout.LayoutParams(dp(app,38),dp(app,38)));
         fold.setContentDescription("收起或展开 Claude 悬浮窗");
         // A collapsed bubble is draggable without forcing keyboard focus.
         final float[] handleDown=new float[2];
@@ -209,39 +222,52 @@ public final class ClaudeFloatingOverlay {
         });
         fold.setOnClickListener(v->setMinimized(!minimized));
         closeControl=button(app,"×");
-        title.addView(closeControl,new LinearLayout.LayoutParams(dp(app,38),dp(app,42)));
+        title.addView(closeControl,new LinearLayout.LayoutParams(dp(app,34),dp(app,38)));
         closeControl.setOnClickListener(v->close());
         body=new LinearLayout(app);body.setOrientation(LinearLayout.VERTICAL);
         root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
         buildQuickPanel();
-        LinearLayout address=new LinearLayout(app);
-        body.addView(address,new LinearLayout.LayoutParams(-1,dp(app,42)));
+        addressBar=new LinearLayout(app);
+        addressBar.setVisibility(View.GONE);
+        body.addView(addressBar,new LinearLayout.LayoutParams(-1,dp(app,39)));
         EditText url=new EditText(app);
         url.setSingleLine(true);url.setTextSize(11);url.setTextColor(0xFFF1F4FF);
         url.setHintTextColor(0xFFB8BFCE);url.setHint("输入 https:// 网址");
         url.setInputType(android.text.InputType.TYPE_CLASS_TEXT|
             android.text.InputType.TYPE_TEXT_VARIATION_URI);
-        address.addView(url,new LinearLayout.LayoutParams(0,-1,1));
+        addressBar.addView(url,new LinearLayout.LayoutParams(0,-1,1));
         url.setOnTouchListener((v,event)->{
             if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
                 setOverlayFocusable(true);
             return false;
         });
-        Button go=button(app,"前往");address.addView(go,
-            new LinearLayout.LayoutParams(dp(app,52),dp(app,41)));
-        go.setOnClickListener(v->navigate(url.getText().toString()));
+        Button go=button(app,"前往");addressBar.addView(go,
+            new LinearLayout.LayoutParams(dp(app,52),dp(app,38)));
+        go.setOnClickListener(v->{
+            navigate(url.getText().toString());
+            addressExpanded=false;
+            addressBar.setVisibility(View.GONE);
+            setOverlayFocusable(false);
+        });
         viewport=new FrameLayout(app);
         body.addView(viewport,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout footer=new LinearLayout(app);
-        body.addView(footer,new LinearLayout.LayoutParams(-1,dp(app,42)));
+        body.addView(footer,new LinearLayout.LayoutParams(-1,dp(app,39)));
         Button back=button(app,"后退"),reload=button(app,"刷新"),home=button(app,"主页");
+        addressControl=button(app,"网址");
+        addressControl.setContentDescription("显示或隐藏网址输入栏，不刷新网页");
         fullscreenFooter=button(app,"全屏");
         fullscreenFooter.setContentDescription("全屏／还原当前网页，不刷新");
-        for(Button b:new Button[]{back,reload,home,fullscreenFooter})
-            footer.addView(b,new LinearLayout.LayoutParams(0,dp(app,41),1));
+        for(Button b:new Button[]{back,reload,home,addressControl,fullscreenFooter})
+            footer.addView(b,new LinearLayout.LayoutParams(0,dp(app,38),1));
         back.setOnClickListener(v->callSession("goBack"));
         reload.setOnClickListener(v->callSession("reload"));
         home.setOnClickListener(v->navigate(AccountBrowserSlots.home(selectedProvider)));
+        addressControl.setOnClickListener(v->{
+            addressExpanded=!addressExpanded;
+            addressBar.setVisibility(addressExpanded?View.VISIBLE:View.GONE);
+            if(!addressExpanded)setOverlayFocusable(false);
+        });
         fullscreenFooter.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
         manager.addView(root,window);
         setMinimized(true); // Open as a small, non-IME-stealing bubble.
@@ -460,7 +486,14 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,101,101,
             fullscreenWindow?"还原窗口（不刷新网页）":"全屏显示（不刷新网页）");
         menu.getMenu().add(0,102,102,"设置当前账号 · 标签 / 备注 / 额度");
+        menu.getMenu().add(0,103,103,
+            tallWindow?"窗口大小 · 恢复标准高度":"窗口大小 · 加高阅读区");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==103){
+                tallWindow=!tallWindow;
+                applyWindowGeometry(); // no navigation or GeckoSession change
+                return true;
+            }
             if(item.getItemId()==102){
                 showQuickSettings();
                 return true;
@@ -577,11 +610,8 @@ public final class ClaudeFloatingOverlay {
             window.x=0;
             window.y=0;
         }else{
-            window.width=Math.min(
-                Math.round(app.getResources().getDisplayMetrics().widthPixels*.78f),
-                dp(app,340));
-            window.height=Math.max(dp(app,285),
-                Math.round(app.getResources().getDisplayMetrics().heightPixels*.50f));
+            window.width=compactWidth();
+            window.height=compactHeight();
             window.x=compactX;
             window.y=compactY;
         }
@@ -656,7 +686,9 @@ public final class ClaudeFloatingOverlay {
             try{manager.removeViewImmediate(root);}
             catch(RuntimeException ignored){}
         }
-        root=null;body=null;viewport=null;caption=null;account=null;fold=null;
+        root=null;body=null;addressBar=null;addressControl=null;
+        addressExpanded=false;tallWindow=false;
+        viewport=null;caption=null;account=null;fold=null;
         closeControl=null;fullscreenControl=null;fullscreenFooter=null;
         quickControl=null;quickPanel=null;quickName=null;quickTags=null;
         quickNote=null;quickQuotaLabel=null;quickQuotaHours=null;
