@@ -133,7 +133,8 @@ public final class OmniGateHomeActivity extends Activity {
                     .setPositiveButton("确定",null).show();
             }
         });
-        add(main,txt("应用语言由 Android 系统管理；只改变 OmniGate 原生界面语言，不能翻译模型网页。",
+        add(main,txt("应用信息中的语言选项保留中文和英文；只调整浏览器后续网页请求的语言偏好。"+
+            "OmniGate 原生界面固定简体中文，不自动翻译第三方网站。",
             11,MUTED,false),7);
         accountStatus=txt("账号空间：读取中…",13,CYAN,true);
         add(main,accountStatus,9);
