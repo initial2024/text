@@ -41,7 +41,8 @@ final class AndroidProfileSafetyCenter {
 
     private static String status(Context c){
         UserManager manager=c.getSystemService(UserManager.class);
-        String user="不可读取",related="不可读取",managed="未知",unlocked="未知";
+        String user="不可读取",related="不可读取",managed="未知";
+        String profile="未知",unlocked="未知",admin="未知";
         String feature=c.getPackageManager().hasSystemFeature(
             android.content.pm.PackageManager.FEATURE_MANAGED_USERS)?"系统声明支持":"系统未声明支持";
         if(manager!=null){
@@ -55,6 +56,14 @@ final class AndroidProfileSafetyCenter {
             }catch(RuntimeException ignored){}
             if(android.os.Build.VERSION.SDK_INT>=30){
                 try{managed=manager.isManagedProfile()?"是":"否";}
+                catch(RuntimeException ignored){}
+            }
+            if(android.os.Build.VERSION.SDK_INT>=33){
+                try{profile=manager.isProfile()?"是":"否";}
+                catch(RuntimeException ignored){}
+            }
+            if(android.os.Build.VERSION.SDK_INT>=34){
+                try{admin=manager.isAdminUser()?"是":"否";}
                 catch(RuntimeException ignored){}
             }
             if(android.os.Build.VERSION.SDK_INT>=24){
@@ -74,15 +83,20 @@ final class AndroidProfileSafetyCenter {
         }
         String marker="不可读取";
         try{marker=localMarker(c);}catch(RuntimeException ignored){}
-        return "当前 Android 用户序列号："+user+
-            "\n当前运行于工作资料："+managed+
+        return "当前身份："+("是".equals(managed)?"工作资料":
+                "是".equals(profile)?"其它关联资料":"否".equals(profile)?"普通系统用户":"未能核实")+
+            " · Android 用户序列号 "+user+
+            "\n当前属于工作资料："+managed+" · 当前为系统管理员："+admin+
             "\n用户数据已解锁："+unlocked+
-            "\n当前用户关联资料数（含自身）："+related+
+            "\n关联资料组数量（含自身）："+related+
+            "\n允许跨资料启动 OmniGate 的目标数："+launchableProfiles(c).size()+
+            "\n系统支持独立多用户："+(UserManager.supportsMultipleUsers()?"是":"未声明")+
             "\n工作资料设备功能："+feature+
             "\n工作资料配置预检查："+provisioning+
-            "\n本安装私有观察标记："+marker+
-            "\n\n以上是本机只读诊断，不能据此宣称存在第二台物理设备。"+
-            "关联资料数不是全机独立用户数。安装标记不是设备指纹或跨用户证书。";
+            "\n本安装观察标记："+marker+
+            "\n\n关联资料数不是系统设置里“多用户”的独立用户总数。"+
+            "普通应用不能枚举全机用户名单、确认其它用户是否为访客，"+
+            "也不能替系统切换完整独立用户。";
     }
 
     /**
@@ -163,26 +177,32 @@ final class AndroidProfileSafetyCenter {
         java.util.List<UserHandle> targets=launchableProfiles(host);
         if(targets.isEmpty()){
             TextView none=new TextView(host);
-            none.setText("当前没有可直接打开的其他 OmniGate 工作资料实例。"+
-                "关联资料数包含当前用户，不代表另一实例可启动。"+
-                "如果已有工作资料，请先在工作资料内安装同签名 APK。");
+            none.setText("没有发现可直接启动的关联资料 OmniGate 实例。"+
+                "这不等于没有工作资料：目标资料可能尚未安装应用、已暂停，"+
+                "或受手机厂商限制。");
             none.setTextSize(13);
             content.addView(none);
         }else{
             TextView available=new TextView(host);
-            available.setText("发现 "+targets.size()+" 个可启动的同组系统资料。"+
-                "点击按钮会在目标资料启动另一份独立 OmniGate，"+
-                "原账号 Cookie、文件和登录不会跨资料复制。");
+            available.setText("发现 "+targets.size()+" 个允许启动的关联资料 OmniGate。"+
+                "仅可启动已安装且启用的同包应用；不会共享 Cookie 或文件。");
             available.setTextSize(13);
             content.addView(available);
             for(UserHandle user:targets){
-                String label="打开其他系统资料中的 OmniGate";
+                String label="打开可访问资料中的 OmniGate（类型未核实）";
                 try{
                     android.content.pm.CrossProfileApps bridge=host.getSystemService(
                         android.content.pm.CrossProfileApps.class);
-                    if(bridge!=null)
-                        label="一键"+bridge.getProfileSwitchingLabel(user)+" · OmniGate";
-                }catch(RuntimeException ignored){}
+                    if(bridge!=null){
+                        String type="资料类型未核实";
+                        if(android.os.Build.VERSION.SDK_INT>=35){
+                            if(bridge.isManagedProfile(user))type="工作资料";
+                            else if(bridge.isProfile(user))type="其他关联资料";
+                            else type="同组系统用户";
+                        }
+                        label="打开"+type+" · "+bridge.getProfileSwitchingLabel(user);
+                    }
+                }catch(RuntimeException | LinkageError ignored){}
                 android.widget.Button go=action(host,label);
                 content.addView(go);
                 go.setOnClickListener(v->launchOwnOtherProfile(host,user));
@@ -202,10 +222,12 @@ final class AndroidProfileSafetyCenter {
         userTitle.setTextSize(16);
         content.addView(userTitle);
         TextView userHelp=new TextView(host);
-        userHelp.setText("独立系统用户不属于当前资料组，普通应用不能在个人用户里"+
-            "直接嵌入、操控或静默切换到该用户的应用。需系统级切换，"+
-            "但不用再次下载文件：可在新用户从系统已有安装列表中安装（OEM 支持时）"+
-            "或重新安装同签名 APK。");
+        userHelp.setText("系统“多用户”列表中已经存在的具名账号是独立用户；"+
+            "“添加访客”是新建临时访客的单独入口。无需创建访客。"+
+            "\n独立用户的应用数据与当前机主隔离。"+
+            "普通 OmniGate 无法从机主里远程操作、静默切换到另一个完整系统用户。"+
+            "\n首次切换后，可尝试手机提供的“安装已有应用”；"+
+            "能否免重复下载由厂商决定。不要清除机主现有 Cookie 或应用数据。");
         userHelp.setTextSize(13);
         content.addView(userHelp);
         android.widget.Button openUsers=action(host,"系统设置 · 多用户");
