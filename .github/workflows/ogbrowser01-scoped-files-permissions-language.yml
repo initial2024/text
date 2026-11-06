@@ -65,6 +65,9 @@ jobs:
           assert 'GeckoBrowserTransfers.cancelSession(host,prior)' in br
           assert 'GeckoBrowserTransfers.cancelSession(app,old)' in overlay
           assert 'onFilePrompt' in transfers
+          assert '"onFolderUploadPrompt".equals(m.getName())' in transfers
+          assert 'immediateDismiss(args[1])' in transfers
+          assert '!uploadEnabled(s)' in transfers
           assert 'FilePrompt$Type' in transfers
           assert 'confirm",Context.class,Uri.class' in transfers
           assert 'confirm",Context.class,Uri[].class' in transfers
