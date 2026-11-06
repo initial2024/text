@@ -53,6 +53,8 @@ final class IsolatedGeckoBrowser {
     private final Button fullscreenExit;
     private final EditText addressInput;
     private String currentUrl;
+    private String lastPageFailure;
+    private boolean contentProcessTerminated;
     private boolean fullscreenMode;
     private float fullscreenEdgeRatio=0.42f;
     private float dragStartRatio,dragStartY;
@@ -945,69 +947,88 @@ final class IsolatedGeckoBrowser {
      * No injection, polling DOM, silent reload or login-state inference.
      */
     private void followClaudePageProgress(Object ownedSession,Class<?> sessionClass){
-        // Install for every provider: page-start is an earlier cancellation
-        // boundary than onLocationChange for pending document pickers.
+        // ProgressDelegate covers *all* allowlisted platforms, not just Claude.
+        // Browser loading success is NOT evidence that SPA hydration, OAuth,
+        // anti-bot checks or account sign-in completed.
         try{
             Class<?> progress=Class.forName(
                 "org.mozilla.geckoview.GeckoSession$ProgressDelegate");
-            final long[] pageStartElapsedMs={-1L};
+            final long[] started={-1L};
             Object observer=java.lang.reflect.Proxy.newProxyInstance(
                 progress.getClassLoader(),new Class<?>[]{progress},(proxy,method,args)->{
                     String event=method.getName();
                     if("hashCode".equals(event))return System.identityHashCode(proxy);
-                    if("equals".equals(event))return proxy==args[0];
-                    if("toString".equals(event))return "OmniGateClaudeLoadStatus";
-                    if(args==null||args.length<2)return null;
+                    if("equals".equals(event))return args!=null&&args.length>0&&proxy==args[0];
+                    if("toString".equals(event))return "OmniGateAllProviderLoadState";
+                    if(args==null||args.length<2||args[0]!=ownedSession)return null;
                     if("onPageStart".equals(event)){
-                        if(session==ownedSession)
+                        if(session==ownedSession){
                             GeckoBrowserTransfers.cancelSession(host,ownedSession);
-                        pageStartElapsedMs[0]=android.os.SystemClock.elapsedRealtime();
-                        if(!"claude".equals(provider))return null;
+                            lastPageFailure=null;
+                            contentProcessTerminated=false;
+                        }
+                        started[0]=android.os.SystemClock.elapsedRealtime();
                         host.runOnUiThread(()->{
-                            if(session==ownedSession && dialog.isShowing())
-                                state.setText("Claude 页面正在加载 · 右上角本地账号空间可立即使用");
+                            if(session==ownedSession&&dialog.isShowing())
+                                state.setText(provider.toUpperCase(java.util.Locale.ROOT)+
+                                    " 网页正在加载 · 未触发自动刷新或更换账号");
                         });
-                    }else if("claude".equals(provider)&&"onProgressChange".equals(event) && args[1] instanceof Integer){
+                    }else if("onProgressChange".equals(event)&&
+                            "claude".equals(provider)&&args[1] instanceof Integer){
                         int percent=(Integer)args[1];
                         if(percent>=0&&percent<=100)host.runOnUiThread(()->{
-                            if(session==ownedSession && dialog.isShowing())
-                                state.setText("Claude 网页加载 "+percent+
-                                    "% · 不代表登录完成；本地账号入口已就绪");
+                            if(session==ownedSession&&dialog.isShowing()&&lastPageFailure==null)
+                                state.setText("Claude 基础页面 "+percent+
+                                    "% · 不代表网页登录或模型功能已经就绪");
                         });
-                    }else if("claude".equals(provider)&&"onPageStop".equals(event) && args[1] instanceof Boolean){
+                    }else if("onPageStop".equals(event)&&args[1] instanceof Boolean){
                         boolean success=(Boolean)args[1];
-                        long elapsed=pageStartElapsedMs[0]>=0
-                            ?Math.max(0,android.os.SystemClock.elapsedRealtime()-pageStartElapsedMs[0])
-                            :-1;
+                        long elapsed=started[0]>=0?Math.max(0,
+                            android.os.SystemClock.elapsedRealtime()-started[0]):-1;
                         String duration=elapsed>=0?String.format(
                             java.util.Locale.ROOT,"%.1fs",elapsed/1000.0):"未记录";
                         host.runOnUiThread(()->{
-                            if(session==ownedSession && dialog.isShowing())
-                                state.setText(success
-                                    ?"Claude 基础页面耗时 "+duration+
-                                        "；网站头像可能稍后显示（不代表登录成功）"
-                                    :"Claude 页面加载失败（"+duration+"）；未自动重试或切换账号");
+                            if(session!=ownedSession||!dialog.isShowing())return;
+                            if(lastPageFailure!=null){
+                                state.setText(lastPageFailure+
+                                    " · 未自动重试，请点击“主页”手动重新打开");
+                            }else{
+                                state.setText(provider.toUpperCase(java.util.Locale.ROOT)+
+                                    (success?" 基础页面加载结束（":" 基础页面加载失败（")+
+                                    duration+"）；"+(success
+                                        ?"不代表站点登录、客户端脚本加载成功"
+                                        :"没有自动刷新或切换账号；可手动打开主页"));
+                            }
                         });
                     }
                     return null;
                 });
             sessionClass.getMethod("setProgressDelegate",progress)
                 .invoke(ownedSession,observer);
-            Object actual=sessionClass.getMethod("getProgressDelegate")
-                .invoke(ownedSession);
-            if(actual!=observer)
-                throw new IllegalStateException("page_start_gate_owner_mismatch");
+            if(sessionClass.getMethod("getProgressDelegate")
+                .invoke(ownedSession)!=observer)
+                throw new IllegalStateException("all_provider_progress_owner_mismatch");
         }catch(Throwable unsupported){
-            // Compatibility with older bundled Gecko; never replace its
-            // progress events with guessed login/session state.
             GeckoBrowserTransfers.blockSessionFileUploads(ownedSession);
             android.util.Log.w("OmniGateBrowser",
-                "page_start_upload_gate_unavailable",unsupported);
+                "all_provider_page_progress_gate_unavailable",unsupported);
         }
     }
 
     private void navigateTo(String typed){
         if(session==null){state.setText("未打开账号浏览器，不进行后台导航");return;}
+        if(contentProcessTerminated){
+            // Gecko's ContentDelegate.onCrash/onKill marks this session
+            // unusable. Only a direct user action may open a new session
+            // under the SAME saved contextId. Never silently rotate IDs.
+            int previous=selected;
+            if(previous>=0&&!guestWindow){
+                open(previous);
+                return;
+            }
+            state.setText("内容进程已关闭；请手动重新打开该账号空间");
+            return;
+        }
         String raw=typed==null?"":typed.trim();
         String url=raw;
         if(!raw.regionMatches(true,0,"https://",0,8) &&
@@ -1053,6 +1074,19 @@ final class IsolatedGeckoBrowser {
                     if("hashCode".equals(method.getName()))return System.identityHashCode(proxy);
                     if("equals".equals(method.getName()))return proxy==args[0];
                     if("toString".equals(method.getName()))return "OmniGateManualNavigation";
+                    if("onLoadError".equals(method.getName())&&
+                            args!=null&&args.length>=3&&args[0]==ownedSession){
+                        Object failure=args[2];
+                        String reason=GeckoPageFailureUi.detail(failure);
+                        host.runOnUiThread(()->{
+                            if(session==ownedSession && dialog.isShowing()){
+                                lastPageFailure=reason;
+                                state.setText(reason+
+                                    " · 这是 Gecko 网络/证书错误；不自动重启网页");
+                            }
+                        });
+                        return GeckoPageFailureUi.response(provider,failure);
+                    }
                     if("onLocationChange".equals(method.getName()) &&
                         args!=null && args.length>1 && args[1] instanceof String){
                         String current=(String)args[1];
@@ -1507,6 +1541,7 @@ final class IsolatedGeckoBrowser {
         GeckoBrowserDownloads.cancelSession(prior);
         String guestId=guestContextId;
         session=null;geckoView=null;selected=-1;currentUrl=null;guestContextId=null;
+        lastPageFailure=null;contentProcessTerminated=false;
         if(view!=null){
             try{view.getClass().getMethod("releaseSession").invoke(view);}
             catch(Throwable failure){sessionCloseFailed=true;}
