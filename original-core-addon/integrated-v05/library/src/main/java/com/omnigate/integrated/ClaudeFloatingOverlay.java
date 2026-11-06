@@ -770,6 +770,7 @@ public final class ClaudeFloatingOverlay {
         session=created;
         GeckoPageTranslate.prepareSession(created);
         sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
+        followUploadNavigation(created,sessionClass);
         GeckoBrowserTransfers.attachFilePrompt(app,created,
             ()->session==created&&showing());
         GeckoScopedPermissionGate.install(app,created,id,
@@ -795,6 +796,35 @@ public final class ClaudeFloatingOverlay {
         caption.setText(selectedProvider.toUpperCase(java.util.Locale.ROOT)+" · 网页悬浮窗");
         navigate(AccountBrowserSlots.home(selectedProvider));
     }
+    /**
+     * Cancel a pending document-picker result whenever page navigation changes
+     * while the same GeckoSession remains open. A file selected for one page
+     * must never be completed into another page after a redirect or link tap.
+     */
+    private static void followUploadNavigation(Object owned,Class<?> gecko){
+        try{
+            Class<?> nav=Class.forName("org.mozilla.geckoview.GeckoSession$NavigationDelegate");
+            Object proxy=java.lang.reflect.Proxy.newProxyInstance(nav.getClassLoader(),
+                new Class<?>[]{nav},(p,m,args)->{
+                    if("hashCode".equals(m.getName()))return System.identityHashCode(p);
+                    if("equals".equals(m.getName()))return args!=null&&args.length>0&&p==args[0];
+                    if("toString".equals(m.getName()))return "OmniGateOverlayUploadNavigation";
+                    if("onLocationChange".equals(m.getName())&&args!=null&&
+                        args.length>1&&args[0]==owned){
+                        if(app!=null&&session==owned)
+                            GeckoBrowserTransfers.cancelSession(app,owned);
+                    }
+                    return null;
+                });
+            gecko.getMethod("setNavigationDelegate",nav).invoke(owned,proxy);
+        }catch(Throwable failure){
+            // If Gecko navigation cannot be observed, prevent file completion:
+            // a failed observer is not a proof that the selected page stayed put.
+            GeckoBrowserTransfers.blockSessionFileUploads(owned);
+            android.util.Log.w("OmniGateWebFiles","overlay_navigation_gate_unavailable",failure);
+        }
+    }
+
     private static void navigate(String text){
         if(session==null)return;
         try{
@@ -806,6 +836,7 @@ public final class ClaudeFloatingOverlay {
             java.net.URI u=new java.net.URI(url);
             if(u.getHost()==null||u.getRawUserInfo()!=null)
                 throw new IllegalArgumentException("url");
+            GeckoBrowserTransfers.cancelSession(app,session);
             session.getClass().getMethod("loadUri",String.class).invoke(session,url);
         }catch(Exception invalid){
             Toast.makeText(app,"仅支持有效 HTTP/HTTPS 网址",Toast.LENGTH_SHORT).show();
