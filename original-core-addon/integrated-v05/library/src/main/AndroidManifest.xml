@@ -28,5 +28,9 @@
             android:exported="false"/>
         <activity android:name="com.omnigate.integrated.GeckoFilePickerActivity"
             android:exported="false"/>
+        <activity android:name="com.omnigate.integrated.GeckoDownloadApprovalActivity"
+            android:exported="false"/>
+        <activity android:name="com.omnigate.integrated.GeckoDownloadManagerActivity"
+            android:exported="false"/>
     </application>
 </manifest>
