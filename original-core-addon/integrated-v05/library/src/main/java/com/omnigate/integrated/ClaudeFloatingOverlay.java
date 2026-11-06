@@ -231,6 +231,9 @@ public final class ClaudeFloatingOverlay {
             return;
         }
         final Object moving=session,oldView=geckoView;
+        // Prevent a delayed file selection result from being delivered into
+        // a different Android window even though sessionId stays unchanged.
+        GeckoBrowserTransfers.cancelSession(app,moving);
         if(!IsolatedGeckoBrowser.adoptLiveOverlay(host,selectedProvider,selected,
                 moving,oldView)){
             Toast.makeText(app,"无刷新返回失败；原悬浮窗与登录仍保留",
