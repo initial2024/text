@@ -350,13 +350,17 @@ public final class CloudflareRelayClient {
                     if ("host".equals(lower)
                             || "content-length".equals(lower)
                             || "connection".equals(lower)
-                            || "x-omnigate-public-relay".equals(lower)) {
+                            || "x-omnigate-public-relay".equals(lower)
+                            || "x-omnigate-instance-key".equals(lower)) {
                         continue;
                     }
                     conn.setRequestProperty(key, headers.optString(key, ""));
                 }
             }
             conn.setRequestProperty("X-OmniGate-Public-Relay", "1");
+            // Authenticated same-installation tunnel → local proxy bridge.
+            // Never forward a caller-supplied instance key or leak it to edge.
+            conn.setRequestProperty("X-OmniGate-Instance-Key",GatewayApp.localApiKey());
 
             String body = msg.optString("body", "");
             if (!body.isEmpty()
