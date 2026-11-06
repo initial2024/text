@@ -31,6 +31,10 @@ final class AccountStorageCleaner {
         Object storage=runtimeClass.getMethod("getStorageController").invoke(runtime);
         storage.getClass().getMethod("clearDataForSessionContext",String.class)
             .invoke(storage,oldId);
+        // User explicitly erased this space: retire its private download
+        // directory too. Never touch the phone Download folder or any
+        // other account context. Refuse ID rotation when erasure fails.
+        GeckoBrowserDownloads.clearContextFiles(c,oldId);
         // GeckoView's clearDataForSessionContext has a void API, not an
         // independently verifiable disk-erasure receipt. This is a submitted
         // per-context deletion, NOT certified secure erasure. Rotate the ID
