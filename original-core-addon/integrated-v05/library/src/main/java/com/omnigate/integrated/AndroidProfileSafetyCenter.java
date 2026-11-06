@@ -85,6 +85,47 @@ final class AndroidProfileSafetyCenter {
             "关联资料数不是全机独立用户数。安装标记不是设备指纹或跨用户证书。";
     }
 
+    /**
+     * Android 9+ only: launch our OWN installed app in another accessible
+     * member of the SAME profile group. No cookie copying, content providers,
+     * INTERACT_ACROSS_USERS, DPC enrollment, shell commands or user switching.
+     * This is a second app instance, not a window inside this process.
+     */
+    private static java.util.List<UserHandle> launchableProfiles(Context c){
+        if(android.os.Build.VERSION.SDK_INT<28)
+            return java.util.Collections.emptyList();
+        try{
+            android.content.pm.CrossProfileApps bridge=c.getSystemService(
+                android.content.pm.CrossProfileApps.class);
+            return bridge==null?java.util.Collections.emptyList():
+                bridge.getTargetUserProfiles();
+        }catch(RuntimeException unavailable){
+            return java.util.Collections.emptyList();
+        }
+    }
+    private static void launchOwnOtherProfile(Activity host,UserHandle target){
+        if(android.os.Build.VERSION.SDK_INT<28)return;
+        try{
+            android.content.pm.CrossProfileApps bridge=host.getSystemService(
+                android.content.pm.CrossProfileApps.class);
+            if(bridge==null || !bridge.getTargetUserProfiles().contains(target))
+                throw new SecurityException("target_profile_not_launchable");
+            Intent launcher=host.getPackageManager()
+                .getLaunchIntentForPackage(host.getPackageName());
+            android.content.ComponentName component=
+                launcher==null?null:launcher.getComponent();
+            if(component==null ||
+                !host.getPackageName().equals(component.getPackageName()))
+                throw new SecurityException("own_exported_launcher_unavailable");
+            bridge.startMainActivity(component,target);
+        }catch(SecurityException | IllegalArgumentException rejected){
+            Toast.makeText(host,"系统不允许打开该资料：请确认 OmniGate "+
+                "已在该资料安装并启用",Toast.LENGTH_LONG).show();
+        }catch(RuntimeException unsupported){
+            Toast.makeText(host,"系统跨资料启动不可用；可从工作资料应用列表手动打开",
+                Toast.LENGTH_LONG).show();
+        }
+    }
     private static android.widget.Button action(Activity host,String name){
         android.widget.Button b=new android.widget.Button(host);
         b.setAllCaps(false);
@@ -116,33 +157,58 @@ final class AndroidProfileSafetyCenter {
         info.setTextSize(13);
         content.addView(info);
         TextView title=new TextView(host);
-        title.setText("\n一、系统工作资料（Work Profile）");
+        title.setText("\n工作资料（与个人账号数据分离）");
         title.setTextSize(16);
         content.addView(title);
+        java.util.List<UserHandle> targets=launchableProfiles(host);
+        if(targets.isEmpty()){
+            TextView none=new TextView(host);
+            none.setText("当前没有可直接打开的其他 OmniGate 工作资料实例。"+
+                "关联资料数包含当前用户，不代表另一实例可启动。"+
+                "如果已有工作资料，请先在工作资料内安装同签名 APK。");
+            none.setTextSize(13);
+            content.addView(none);
+        }else{
+            TextView available=new TextView(host);
+            available.setText("发现 "+targets.size()+" 个可启动的同组系统资料。"+
+                "点击按钮会在目标资料启动另一份独立 OmniGate，"+
+                "原账号 Cookie、文件和登录不会跨资料复制。");
+            available.setTextSize(13);
+            content.addView(available);
+            for(UserHandle user:targets){
+                String label="打开其他系统资料中的 OmniGate";
+                try{
+                    android.content.pm.CrossProfileApps bridge=host.getSystemService(
+                        android.content.pm.CrossProfileApps.class);
+                    if(bridge!=null)
+                        label="一键"+bridge.getProfileSwitchingLabel(user)+" · OmniGate";
+                }catch(RuntimeException ignored){}
+                android.widget.Button go=action(host,label);
+                content.addView(go);
+                go.setOnClickListener(v->launchOwnOtherProfile(host,user));
+            }
+        }
         TextView work=new TextView(host);
-        work.setText("可将 OmniGate 独立安装在 Android 工作资料，使用不同的"+
-            "应用数据和系统 UID/资料边界。OmniGate 不充当 DPC，"+
-            "不会获取设备管理员权限、主动创建设备策略或复制个人账号。"+
-            "\n创建工作资料需要 Android 受管配置及用户明确授权。"+
-            "如果已由可信工具创建，请在工作资料内安装并运行同签名 OmniGate。");
+        work.setText("首次建立工作资料必须经过 Android 的受管配置及你的授权。"+
+            "OmniGate 不自行取得 DPC/设备管理员权限。");
         work.setTextSize(13);
         content.addView(work);
-        android.widget.Button openWork=action(host,"打开系统设置 · 工作资料");
+        android.widget.Button openWork=action(host,"系统设置 · 工作资料");
         content.addView(openWork);
         openWork.setOnClickListener(v->launchSystemSettings(host,"工作资料、工作空间、工作应用"));
 
         TextView userTitle=new TextView(host);
-        userTitle.setText("\n二、独立 Android 系统用户（Secondary User）");
+        userTitle.setText("\n独立 Android 系统用户");
         userTitle.setTextSize(16);
         content.addView(userTitle);
         TextView userHelp=new TextView(host);
-        userHelp.setText("系统用户有独立应用安装、配置和凭据存储。"+
-            "创建或切换用户需在系统界面完成；OmniGate 不会自动切换、删除用户。"+
-            "切换到新用户后，需在该用户安装 OmniGate 并自行登录所需网站。"+
-            "不从原用户复制 Cookie、Token 或数据库。");
+        userHelp.setText("独立系统用户不属于当前资料组，普通应用不能在个人用户里"+
+            "直接嵌入、操控或静默切换到该用户的应用。需系统级切换，"+
+            "但不用再次下载文件：可在新用户从系统已有安装列表中安装（OEM 支持时）"+
+            "或重新安装同签名 APK。");
         userHelp.setTextSize(13);
         content.addView(userHelp);
-        android.widget.Button openUsers=action(host,"打开系统设置 · 多用户");
+        android.widget.Button openUsers=action(host,"系统设置 · 多用户");
         content.addView(openUsers);
         openUsers.setOnClickListener(v->launchSystemSettings(host,"系统、多用户、添加用户"));
 
@@ -150,9 +216,9 @@ final class AndroidProfileSafetyCenter {
         safety.setText("\n账号保留保证：原个人空间的已保存账号、Gecko contextId、"+
             "Cookie 和下载不会因打开此页、检查系统资料或前往系统设置而改变。"+
             "新的 Android 用户/工作资料初始不包含原个人空间登录，这是隔离而不是丢号。"+
-            "\n\n本机多个安装可能共享 127.0.0.1 网络端口；8787 冲突时拒绝"+
-            "冒用另一实例。每个系统空间必须使用自己的 Local Key。"+
-            "同一手机仍可能被网站识别为同一设备，不承诺规避验证。");
+            "\n\n跨资料按钮只打开另一资料里本就已安装的 OmniGate；"+
+            "不共享登录、不远程操作独立系统用户，也不是虚拟机。"+
+            "不同系统空间的 8787 回环端口仍须独立验证所有权。");
         safety.setTextSize(13);
         content.addView(safety);
 
