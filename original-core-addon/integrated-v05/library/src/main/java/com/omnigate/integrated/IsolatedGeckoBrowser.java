@@ -768,6 +768,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,5,4,"当前空间 · 下载管理");
         menu.getMenu().add(0,6,5,"网页语言偏好 · 查看");
         menu.getMenu().add(0,7,6,"系统分身与隔离说明");
+        menu.getMenu().add(0,9,7,"工作资料 DNS 检查（手动）");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showPicker(host);return true;
