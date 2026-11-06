@@ -19,6 +19,13 @@ public final class LocalProxyRuntime {
             proxy.shutdown();
             proxy = null;
         }
+        try{
+            GatewayApp.localApiKey();
+        }catch(RuntimeException unavailable){
+            lastStatus="本地鉴权密钥无法由 Android Keystore 安全生成；拒绝启动 8787";
+            GatewayApp.setLocalApiStatus(lastStatus);
+            return false;
+        }
         SidecarProxyServer candidate =
             new SidecarProxyServer(value -> {
                 lastStatus = value;
