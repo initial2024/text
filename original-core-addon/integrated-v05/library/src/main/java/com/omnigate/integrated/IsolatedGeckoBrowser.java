@@ -313,6 +313,9 @@ final class IsolatedGeckoBrowser {
             return;
         }
         Object oldView=geckoView;
+        // A SAF picker initiated in the old window must not complete
+        // after this manual owner transfer. Browser cookies remain intact.
+        GeckoBrowserTransfers.cancelSession(host,session);
         if(!ClaudeFloatingOverlay.adoptLiveBrowser(host,provider,selected,
                 session,oldView)){
             state.setText("无刷新转移未完成；原网页保留，请检查悬浮窗权限或窗口状态");
