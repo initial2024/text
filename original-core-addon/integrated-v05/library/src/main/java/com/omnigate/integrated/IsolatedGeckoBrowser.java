@@ -671,6 +671,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,2,1,"当前空间设置");
         menu.getMenu().add(0,3,2,"浏览器环境检查");
         menu.getMenu().add(0,4,3,"刷新当前网页（手动）");
+        menu.getMenu().add(0,5,4,"当前空间 · 下载管理");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showPicker(host);return true;
@@ -680,10 +681,22 @@ final class IsolatedGeckoBrowser {
                     return true;
                 case 3:showBrowserEnvironment();return true;
                 case 4:callSession("reload");return true;
+                case 5:showDownloads();return true;
                 default:return false;
             }
         });
         menu.show();
+    }
+
+    private void showDownloads(){
+        if(guestWindow||selected<0||session==null){
+            state.setText("仅支持已打开的持久账号空间下载列表");return;
+        }
+        android.content.Intent intent=new android.content.Intent(host,
+            GeckoDownloadManagerActivity.class);
+        intent.putExtra(GeckoDownloadManagerActivity.EXTRA_CONTEXT,
+            AccountBrowserStore.contextId(host,provider,selected));
+        host.startActivity(intent);
     }
 
     private void showFullscreenActions(){
@@ -698,6 +711,7 @@ final class IsolatedGeckoBrowser {
             menu.getMenu().add(0,6,4,"当前账号 · 悬浮窗");
         menu.getMenu().add(0,5,5,"退出全屏");
         menu.getMenu().add(0,7,6,"翻译网页 / 恢复原文");
+        if(!guestWindow)menu.getMenu().add(0,8,7,"当前账号空间 · 下载管理");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showAddressDialog();return true;
@@ -706,6 +720,7 @@ final class IsolatedGeckoBrowser {
                 case 4:confirmExternalBrowser();return true;
                 case 5:setFullscreen(false);return true;
                 case 7:GeckoPageTranslate.showMenu(host,fullscreenExit,session,geckoView);return true;
+                case 8:showDownloads();return true;
                 case 6:
                     if(!guestWindow&&selected>=0)
                         ClaudeFloatingOverlay.show(host,provider,selected);
@@ -1309,6 +1324,10 @@ final class IsolatedGeckoBrowser {
             followClaudePageProgress(created,sessionClass);
             GeckoBrowserTransfers.attachFilePrompt(host,created,
                 ()->session==created&&dialog.isShowing()&&activeBrowser==this);
+            GeckoScopedPermissionGate.install(host,created,id,
+                ()->session==created&&dialog.isShowing()&&activeBrowser==this);
+            GeckoBrowserDownloads.attach(host,created,id,
+                ()->session==created&&dialog.isShowing()&&activeBrowser==this);
             navigateTo(AccountBrowserSlots.home(provider));
             if(!guestWindow)AccountBrowserStore.select(host,provider,index);
             selected=guestWindow?-1:index;
@@ -1332,6 +1351,7 @@ final class IsolatedGeckoBrowser {
     private void releaseSession(){
         Object prior=session,view=geckoView;
         GeckoBrowserTransfers.cancelSession(host,prior);
+        GeckoBrowserDownloads.cancelSession(prior);
         String guestId=guestContextId;
         session=null;geckoView=null;selected=-1;currentUrl=null;guestContextId=null;
         if(view!=null){
