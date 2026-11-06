@@ -29,6 +29,8 @@ final class GeckoBrowserDownloads {
     private static final Object LOCK=new Object();
     private static Transfer pending;
     private static Transfer active;
+    private static final java.util.Set<String> retiredContexts=
+        new java.util.HashSet<>();
     private GeckoBrowserDownloads(){}
 
     private static final class Transfer {
@@ -104,7 +106,8 @@ final class GeckoBrowserDownloads {
                     // downloaded file. Never save it as an authenticated export.
                     if(status<200||status>=300){closeQuietly(body);return null;}
                     if(args[0]!=session||!owner.getAsBoolean()
-                       ||!AccountBrowserSlots.validContextId(contextId)){
+                       ||!AccountBrowserSlots.validContextId(contextId)
+                       ||isRetired(contextId)){
                         closeQuietly(body);return null;
                     }
                     String source=String.valueOf(response.getClass().getField("uri").get(response));
@@ -128,10 +131,14 @@ final class GeckoBrowserDownloads {
             Log.w(TAG,"download_delegate_unavailable",unsupported);
         }
     }
+    private static boolean isRetired(String contextId){
+        synchronized(LOCK){return retiredContexts.contains(contextId);}
+    }
     static String[] pendingInfo(String token){
         synchronized(LOCK){
             if(pending==null||!pending.token.equals(token)||
-               pending.cancelled.get()||!pending.owner.getAsBoolean())return null;
+               pending.cancelled.get()||!pending.owner.getAsBoolean()||
+               retiredContexts.contains(pending.contextId))return null;
             return new String[]{pending.filename,pending.source};
         }
     }
@@ -159,7 +166,8 @@ final class GeckoBrowserDownloads {
         Transfer t;
         synchronized(LOCK){
             t=pending!=null&&pending.token.equals(token)?pending:null;
-            if(t==null||!t.owner.getAsBoolean()||!t.taken.compareAndSet(false,true))
+            if(t==null||retiredContexts.contains(t.contextId)||
+               !t.owner.getAsBoolean()||!t.taken.compareAndSet(false,true))
                 return false;
             pending=null;
             // One accepted stream at a time. Never let a second account
@@ -188,6 +196,21 @@ final class GeckoBrowserDownloads {
     /** Delete only the given private Gecko context's download directory.
      * No symlinks, no global downloads folder and no other account context. */
     static void clearContextFiles(Context c,String contextId)throws IOException{
+        // Mark retired BEFORE touching disk. A late accepted download must
+        // never repopulate storage after the user erases this context.
+        Transfer queued=null,downloading=null;
+        synchronized(LOCK){
+            retiredContexts.add(contextId);
+            if(pending!=null&&contextId.equals(pending.contextId)){
+                queued=pending;pending=null;
+            }
+            if(active!=null&&contextId.equals(active.contextId)){
+                downloading=active;
+                downloading.cancelled.set(true);
+            }
+        }
+        if(queued!=null){queued.cancelled.set(true);closeQuietly(queued.body);}
+        if(downloading!=null)closeQuietly(downloading.body);
         File dir=directory(c,contextId);
         if(!dir.exists())return;
         java.nio.file.Path root=dir.toPath();
@@ -215,7 +238,7 @@ final class GeckoBrowserDownloads {
     private static void copyStream(Context app,Transfer t){
         File temporary=null;
         try(InputStream in=t.body){
-            if(!t.owner.getAsBoolean()||t.cancelled.get())
+            if(!t.owner.getAsBoolean()||t.cancelled.get()||isRetired(t.contextId))
                 throw new IOException("no_live_owner");
             File dir=directory(app,t.contextId);
             if(!dir.exists()&&!dir.mkdirs())throw new IOException("cannot_create_download_dir");
@@ -246,9 +269,13 @@ final class GeckoBrowserDownloads {
                 }
                 out.getFD().sync();
             }
-            if(t.cancelled.get()||!t.owner.getAsBoolean())
-                throw new IOException("download_session_ended");
-            if(!temporary.renameTo(finalFile))throw new IOException("download_rename_failed");
+            synchronized(LOCK){
+                if(t.cancelled.get()||!t.owner.getAsBoolean()||
+                    retiredContexts.contains(t.contextId))
+                    throw new IOException("download_session_ended");
+                if(!temporary.renameTo(finalFile))
+                    throw new IOException("download_rename_failed");
+            }
             temporary=null;
             Log.i(TAG,"file_saved_context_locally");
         }catch(Throwable failure){
