@@ -1002,7 +1002,7 @@ public final class CompatSettingsActivity extends Activity {
                 c.setConnectTimeout(10000);
                 c.setReadTimeout(0);
                 c.setRequestMethod("POST");
-                c.setRequestProperty("Authorization", "Bearer test");
+                c.setRequestProperty("Authorization", GatewayApp.localApiHeader());
                 c.setRequestProperty("Content-Type", "application/json");
                 c.setDoOutput(true);
                 c.setFixedLengthStreamingMode(body.length);
