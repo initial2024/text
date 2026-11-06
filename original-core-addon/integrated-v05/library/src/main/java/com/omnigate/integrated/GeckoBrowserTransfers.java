@@ -156,10 +156,18 @@ final class GeckoBrowserTransfers {
             !pending.settled.get()&&pending.ownerCurrent.getAsBoolean();}
     }
     /** Called exclusively from user-visible Android picker after confirmation. */
-    static void finish(String token,Context c,Uri[] selected){
+    /**
+     * Observed native handoff status, NOT website upload completion.
+     * Never report success when navigation changed, Gecko prompt expired,
+     * or the GeckoResult could not be completed.
+     */
+    static String finish(String token,Context c,Uri[] selected){
         Pending target;
-        synchronized(LOCK){target=pending!=null&&pending.token.equals(token)?pending:null;}
-        if(target!=null)settle(target,selected,c,true);
+        synchronized(LOCK){
+            target=pending!=null&&pending.token.equals(token)?pending:null;
+        }
+        if(target==null)return "FILE_PROMPT_EXPIRED";
+        return settle(target,selected,c,selected!=null&&selected.length>0);
     }
     static void cancelSession(Context c,Object ownedSession){
         if(ownedSession==null)return;
@@ -167,12 +175,23 @@ final class GeckoBrowserTransfers {
         synchronized(LOCK){target=pending!=null&&pending.session==ownedSession?pending:null;}
         if(target!=null)settle(target,null,c,false);
     }
-    private static void settle(Pending p,Uri[] uris,Context c,boolean confirmed){
-        if(p==null||!p.settled.compareAndSet(false,true))return;
+    private static String settle(Pending p,Uri[] uris,Context c,boolean confirmed){
+        if(p==null)return "FILE_PROMPT_MISSING";
+        if(!p.settled.compareAndSet(false,true))return "FILE_PROMPT_ALREADY_SETTLED";
         synchronized(LOCK){if(pending==p)pending=null;}
+        boolean sameSession=false;
+        try{sameSession=p.ownerCurrent.getAsBoolean();}
+        catch(RuntimeException failed){sameSession=false;}
         try{
             Object response;
-            if(confirmed&&uris!=null&&uris.length>0&&p.ownerCurrent.getAsBoolean()){
+            if(confirmed&&uris!=null&&uris.length>0&&sameSession){
+                // Android ACTION_OPEN_DOCUMENT supplied an app-scoped,
+                // temporary content:// read grant. Never persist its URI,
+                // log it, or transfer it across account contexts.
+                for(Uri uri:uris){
+                    if(uri==null||!"content".equals(uri.getScheme()))
+                        throw new SecurityException("file_uri_not_content");
+                }
                 Class<?> promptClass=p.prompt.getClass();
                 if(uris.length==1){
                     response=promptClass.getMethod("confirm",Context.class,Uri.class)
@@ -183,10 +202,18 @@ final class GeckoBrowserTransfers {
                 }
             }else response=responseDismiss(p.prompt);
             completeResult(p.result,response);
+            if(confirmed&&sameSession){
+                Log.i(TAG,"file_prompt_response_accepted_by_gecko_no_upload_claim");
+                return "GECKO_FILE_INPUT_CONFIRMED";
+            }
+            return confirmed?"SESSION_CHANGED_BEFORE_FILE_HANDOFF":"FILE_SELECTION_CANCELLED";
         }catch(Throwable failure){
-            Log.w(TAG,"file_prompt_completion_rejected",failure);
+            // Never log the URL, filenames, selected URI or cookies.
+            Log.w(TAG,"gecko_file_confirm_failed_"+failure.getClass().getSimpleName());
             try{completeResult(p.result,responseDismiss(p.prompt));}
             catch(Throwable ignored){}
+            return "GECKO_CONFIRM_FAILED_"+failure.getClass().getSimpleName();
         }
     }
+
 }
