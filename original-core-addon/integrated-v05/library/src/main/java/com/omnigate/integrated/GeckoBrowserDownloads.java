@@ -50,7 +50,9 @@ final class GeckoBrowserDownloads {
     static File directory(Context c,String id){
         if(!AccountBrowserSlots.validContextId(id))
             throw new IllegalArgumentException("download_context_invalid");
-        return new File(new File(c.getFilesDir(),"gecko_downloads"),id);
+        // Exclude sensitive website downloads from Android Auto Backup while
+        // preserving per-install/per-work-profile private storage.
+        return new File(new File(c.getNoBackupFilesDir(),"gecko_downloads"),id);
     }
     static String cleanName(String input){
         String name=input==null?"download":input;
@@ -127,8 +129,14 @@ final class GeckoBrowserDownloads {
                 });
             session.getClass().getMethod("setContentDelegate",delegate)
                 .invoke(session,proxy);
+            Object installed=session.getClass().getMethod("getContentDelegate")
+                .invoke(session);
+            if(installed!=proxy)
+                throw new IllegalStateException("gecko_download_owner_mismatch");
         }catch(Throwable unsupported){
             Log.w(TAG,"download_delegate_unavailable",unsupported);
+            // No unscoped fallback or hidden external download owner.
+            throw new IllegalStateException("gecko_download_gate_unavailable",unsupported);
         }
     }
     private static boolean isRetired(String contextId){
