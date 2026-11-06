@@ -757,6 +757,8 @@ public final class ClaudeFloatingOverlay {
         session=created;
         GeckoPageTranslate.prepareSession(created);
         sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
+        GeckoBrowserTransfers.attachFilePrompt(app,created,
+            ()->session==created&&showing());
         Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
         Object visual=viewClass.getConstructor(Context.class).newInstance(app);
         if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
@@ -897,6 +899,7 @@ public final class ClaudeFloatingOverlay {
     }
     private static void releaseSession(){
         Object old=session,visual=geckoView;
+        if(app!=null)GeckoBrowserTransfers.cancelSession(app,old);
         session=null;geckoView=null;
         if(visual!=null){
             try{visual.getClass().getMethod("releaseSession").invoke(visual);}
