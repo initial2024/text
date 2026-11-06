@@ -124,7 +124,7 @@ public final class OverlayTextClient {
                 connection.setRequestMethod("POST");
                 connection.setConnectTimeout(10000);
                 connection.setReadTimeout(0);
-                connection.setRequestProperty("Authorization", "Bearer test");
+                connection.setRequestProperty("Authorization", GatewayApp.localApiHeader());
                 connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                 connection.setDoOutput(true);
                 connection.setFixedLengthStreamingMode(body.length);
