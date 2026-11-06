@@ -88,6 +88,11 @@ final class GeckoBrowserDownloads {
         }catch(Throwable ignored){return "download";}
     }
     static void attach(Context c,Object session,String contextId,BooleanSupplier owner){
+        attach(c,session,contextId,owner,event->{});
+    }
+    static void attach(Context c,Object session,String contextId,BooleanSupplier owner,
+            java.util.function.Consumer<String> processFailure){
+        if(processFailure==null)throw new IllegalArgumentException("process_failure_listener");
         try{
             Class<?> delegate=Class.forName("org.mozilla.geckoview.GeckoSession$ContentDelegate");
             Object proxy=Proxy.newProxyInstance(delegate.getClassLoader(),
@@ -96,6 +101,17 @@ final class GeckoBrowserDownloads {
                     if("hashCode".equals(method))return System.identityHashCode(o);
                     if("equals".equals(method))return args!=null&&args.length>0&&o==args[0];
                     if("toString".equals(method))return "OmniGateScopedDownloadStream";
+                    if(("onCrash".equals(method)||"onKill".equals(method))&&
+                            args!=null&&args.length>0&&args[0]==session){
+                        // A killed Gecko content process cannot be recovered
+                        // by calling reload() on the closed GeckoSession.
+                        // Show a user-controlled restart and keep storage.
+                        cancelSession(session);
+                        if(owner.getAsBoolean())
+                            processFailure.accept("onCrash".equals(method)
+                                ?"GECKO_CONTENT_CRASH":"GECKO_CONTENT_KILLED");
+                        return null;
+                    }
                     if(!"onExternalResponse".equals(method)||args==null||args.length<2)
                         return null;
                     Object response=args[1];
