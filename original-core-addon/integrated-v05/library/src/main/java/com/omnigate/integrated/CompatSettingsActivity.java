@@ -487,8 +487,9 @@ public final class CompatSettingsActivity extends Activity {
                 toast("地址已复制");
             }
         });
-        margin(api, text("客户端唯一推荐入口：本机 8787；公网通过自己的 Cloudflare Relay。"+
-            "两者均可使用同一 OmniGate 客户端 Key；原版内部 1604 和内部 Key 不给 Minis/DSH 填写。",
+        margin(api, text("本机 8787 使用当前 Android 安装独有的 Local Key；公网 Relay 使用另一个公网 API Key。"+
+            "不同工作资料、系统用户或分身不能复制旧的 Bearer test；请分别在各实例内复制 Local Key。"+
+            "原版内部端口和密钥不交给 Minis/DSH。",
             12, 0xFF3A405A, true), 8);
         margin(api, text("公网 Base URL: " + GatewayApp.effectivePublicUrl() + "/v1",
             12, 0xFF323B83, false), 8);
@@ -498,17 +499,35 @@ public final class CompatSettingsActivity extends Activity {
             if(cb!=null){cb.setPrimaryClip(ClipData.newPlainText("OmniGate 公网 Base URL",
                 GatewayApp.effectivePublicUrl()+"/v1"));toast("公网地址已复制");}
         });
-        Button copyClientKey=button(api,"复制统一客户端 Key（本地 / 公网通用）",false);
+        Button copyLocalKey=button(api,"复制当前安装的本地 8787 Key",false);
+        copyLocalKey.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
+            .setTitle("本安装专用本地 API Key")
+            .setMessage("这个密钥通过 Android Keystore 派生，只用于本安装的 127.0.0.1:8787。"+
+                "不同系统用户及工作资料需要分别读取自己的 Key；手机厂商分身是否完全隔离仍需实测。"+
+                "旧的 Bearer test/任意非空 Key 已被禁用。复制到剪贴板可能被其他应用读取。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("复制",(d,w)->{
+                try{
+                    ClipboardManager cb=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+                    if(cb!=null){
+                        cb.setPrimaryClip(ClipData.newPlainText(
+                            "OmniGate 本安装 Local Key",GatewayApp.localApiKey()));
+                        toast("当前安装的 Local Key 已复制");
+                    }
+                }catch(RuntimeException unavailable){
+                    toast("Android Keystore 不可用，拒绝使用不安全的本地 Key");
+                }
+            }).show());
+        Button copyClientKey=button(api,"复制公网 Relay API Key",false);
         copyClientKey.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
-            .setTitle("复制 OmniGate 客户端 Key")
-            .setMessage("仅复制到可信的 Minis / DSH 客户端。剪贴板可能被其他应用访问。"+
-                "这不是原版 1604 的内部密钥，也不是 Cloudflare Relay 配对 Key。"+
-                "原本地兼容模式仍接受任意非空 Key，建议新连接统一使用此 Key。")
+            .setTitle("复制公网 Relay API Key")
+            .setMessage("仅用于已授权的公网 Relay 客户端。这个 Key 不能替代本安装专用的 8787 Local Key。"+
+                "本地 8787 不再接受任意非空 Key。剪贴板可能被其他应用访问。")
             .setNegativeButton("取消",null)
             .setPositiveButton("复制",(d,w)->{
                 ClipboardManager cb=(ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
                 if(cb!=null){cb.setPrimaryClip(ClipData.newPlainText(
-                    "OmniGate 客户端 Key",GatewayApp.apiKey()));toast("Key 已复制");}
+                    "OmniGate 公网 API Key",GatewayApp.apiKey()));toast("公网 Key 已复制");}
             }).show());
         margin(api, text("目标模型", 12, 0xFF3A405A, true), 6);
         models = new Spinner(this);
@@ -571,14 +590,14 @@ public final class CompatSettingsActivity extends Activity {
           + "才能标记附件送达；如果网站不支持附件或要求登录，本功能不会绕过。", 12, 0xFF68718A, false), 0);
 
         Button expand = button(page, "高级配置  ▾  密钥与公网选项", false);
-        LinearLayout settings = panel(page, "高级配置", "本地 8787 不需要更改密钥；仅配置原上游或公网时展开");
+        LinearLayout settings = panel(page, "高级配置", "本地 8787 Key 由 Android Keystore 独立生成；这里设置上游与公网 Key");
         settings.setVisibility(View.GONE);
         expand.setOnClickListener(v -> {
             boolean show = settings.getVisibility() != View.VISIBLE;
             settings.setVisibility(show ? View.VISIBLE : View.GONE);
             expand.setText(show ? "高级配置  ▴  点击折叠" : "高级配置  ▾  密钥与公网选项");
         });
-        margin(settings,text("三种密钥不能随意互换：公网 Key 给 Minis；"+
+        margin(settings,text("本地 Local Key、公网 API Key、上游 Key、Relay 配对 Key 不能互换：公网 Key 给公网客户端；"+
             "原版上游 Key 可留空自动读取；Relay 配对 Key 只负责公网设备连接。",
             12,0xFF976012,true),8);
         upstreamKey = field(settings,"原版上游 Key（1601/1602，可留空）",
@@ -776,6 +795,7 @@ public final class CompatSettingsActivity extends Activity {
             String result;
             try {
                 c = (HttpURLConnection)new URL("http://127.0.0.1:8787/health").openConnection();
+                c.setRequestProperty("Authorization",GatewayApp.localApiHeader());
                 c.setConnectTimeout(3000);
                 c.setReadTimeout(3000);
                 int code = c.getResponseCode();
