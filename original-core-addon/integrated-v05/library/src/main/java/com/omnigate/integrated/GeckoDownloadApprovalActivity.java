@@ -14,7 +14,7 @@ public final class GeckoDownloadApprovalActivity extends Activity {
         String[] info=token==null?null:GeckoBrowserDownloads.pendingInfo(token);
         if(info==null){finish();return;}
         new AlertDialog.Builder(this).setTitle("下载到 OmniGate 私有空间？")
-            .setMessage("文件："+info[0]+"\n网页响应："+info[1]+
+            .setMessage("文件："+info[0]+"\n站点："+safeDownloadHost(info[1])+
                 "\n\n文件只保存在当前账号空间下的应用私有目录，不会自动放入手机公共下载文件夹。"+
                 "不会再次请求下载网址，不复制网站 Cookie 或登录状态。最大 128 MiB。"+
                 "可在“下载管理”中删除或另存到手机。")
@@ -25,6 +25,13 @@ public final class GeckoDownloadApprovalActivity extends Activity {
                 finish();
             })
             .setOnCancelListener(d->cancel()).show();
+    }
+    private static String safeDownloadHost(String raw){
+        try{
+            android.net.Uri u=android.net.Uri.parse(raw);
+            String host=u.getHost();
+            return host==null?"站点内部下载／blob":"https://"+host;
+        }catch(RuntimeException ignored){return "未知网页来源";}
     }
     private void cancel(){
         if(!resolved&&token!=null){

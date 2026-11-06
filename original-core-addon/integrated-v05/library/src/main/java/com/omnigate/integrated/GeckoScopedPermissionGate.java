@@ -42,7 +42,8 @@ final class GeckoScopedPermissionGate {
             Class<?> c=load("org.mozilla.geckoview.GeckoSession$PermissionDelegate");
             if(kind==constant(c,"PERMISSION_AUTOPLAY_AUDIBLE"))return "网页自动播放声音";
             if(kind==constant(c,"PERMISSION_AUTOPLAY_INAUDIBLE"))return "网页自动播放静音媒体";
-            if(kind==constant(c,"PERMISSION_GEOLOCATION"))return "读取当前位置";
+            // Location is hardware-sensitive; a Gecko profile is not an
+            // Android OS permission sandbox. Keep this unavailable.
         }catch(Exception ignored){}
         return null;
     }
@@ -61,8 +62,10 @@ final class GeckoScopedPermissionGate {
      * Site permission contextId from Gecko must match the selected slot,
      * not a shared default/foreign profile.
      */
-    static void install(Context c,Object ownedSession,String contextId,BooleanSupplier owner){
-        if(c==null||ownedSession==null||!AccountBrowserSlots.validContextId(contextId))return;
+    static boolean install(Context c,Object ownedSession,String contextId,BooleanSupplier owner){
+        if(c==null||ownedSession==null||owner==null||
+            !AccountBrowserSlots.validContextId(contextId))
+            throw new IllegalArgumentException("site_permission_context_invalid");
         try {
             Class<?> delegate=load("org.mozilla.geckoview.GeckoSession$PermissionDelegate");
             Class<?> content=load("org.mozilla.geckoview.GeckoSession$PermissionDelegate$ContentPermission");
@@ -77,24 +80,11 @@ final class GeckoScopedPermissionGate {
                     if("onAndroidPermissionsRequest".equals(event)){
                         if(args.length<3)return null;
                         Object callback=args[2];
-                        boolean available=current&&args[1] instanceof String[];
-                        if(available){
-                            String[] requested=(String[])args[1];
-                            if(requested.length==0)available=false;
-                            for(String p:requested){
-                                if(!Manifest.permission.CAMERA.equals(p)
-                                  &&!Manifest.permission.RECORD_AUDIO.equals(p)
-                                  &&!Manifest.permission.ACCESS_FINE_LOCATION.equals(p)
-                                  &&!Manifest.permission.ACCESS_COARSE_LOCATION.equals(p))
-                                    available=false;
-                                if(p==null||c.checkSelfPermission(p)!=PackageManager.PERMISSION_GRANTED)
-                                    available=false;
-                            }
-                        }
-                        callback.getClass().getMethod(available?"grant":"reject").invoke(callback);
-                        if(!available&&current && c instanceof Activity)
-                            Toast.makeText(c,"网页无法获取新的 Android 系统权限；请在系统设置中自行决定",
-                                Toast.LENGTH_SHORT).show();
+                        // This callback is an app-wide Android capability,
+                        // NOT a contextId-scoped website permission. Even if
+                        // the app has hardware grants from another workflow,
+                        // a web account cannot silently inherit them.
+                        callback.getClass().getMethod("reject").invoke(callback);
                         return null;
                     }
                     if("onContentPermissionRequest".equals(event)){
@@ -141,55 +131,25 @@ final class GeckoScopedPermissionGate {
                         return pending;
                     }
                     if("onMediaPermissionRequest".equals(event)){
-                        Object callback=args.length>4?args[4]:null;
-                        if(callback==null)return null;
-                        if(!current||!(c instanceof Activity)||!validHttpsOrigin((String)args[1])){
-                            reject(callback);return null;
-                        }
-                        Object[] videos=args[2] instanceof Object[]?(Object[])args[2]:null;
-                        Object[] audios=args[3] instanceof Object[]?(Object[])args[3]:null;
-                        boolean wantsVideo=videos!=null&&videos.length>0;
-                        boolean wantsAudio=audios!=null&&audios.length>0;
-                        if((wantsVideo&&c.checkSelfPermission(Manifest.permission.CAMERA)
-                            !=PackageManager.PERMISSION_GRANTED)
-                            ||(wantsAudio&&c.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                            !=PackageManager.PERMISSION_GRANTED)
-                            ||(!wantsVideo&&!wantsAudio)){
-                            reject(callback);return null;
-                        }
-                        Activity host=(Activity)c;
-                        host.runOnUiThread(()->{
-                            if(!owner.getAsBoolean()||host.isFinishing()||host.isDestroyed()){
-                                reject(callback);return;
-                            }
-                            new AlertDialog.Builder(host)
-                                .setTitle("当前账号空间的媒体权限")
-                                .setMessage("网站："+Uri.parse((String)args[1]).getHost()+
-                                    "\n申请："+(wantsVideo?"相机 ":"")+(wantsAudio?"麦克风":"")+
-                                    "\n\n仅授权本次网页媒体请求；Android 权限仍由系统管理。"+
-                                    "切换空间前必须关闭旧 Gecko 会话。")
-                                .setNegativeButton("拒绝",(d,w)->reject(callback))
-                                .setPositiveButton("允许此次请求",(d,w)->{
-                                    if(!owner.getAsBoolean()){reject(callback);return;}
-                                    try{
-                                        Class<?> source=load(
-                                            "org.mozilla.geckoview.GeckoSession$PermissionDelegate$MediaSource");
-                                        callback.getClass().getMethod("grant",source,source).invoke(callback,
-                                            wantsVideo?videos[0]:null,wantsAudio?audios[0]:null);
-                                    }catch(Throwable failure){reject(callback);}
-                                })
-                                .setOnCancelListener(d->reject(callback))
-                                .show();
-                        });
+                        // Camera/microphone are physical device resources.
+                        // For now reject them entirely until Android hardware
+                        // lifecycle revocation passes actual device testing.
+                        if(args.length>4)reject(args[4]);
                         return null;
                     }
                     return null;
                 });
             ownedSession.getClass().getMethod("setPermissionDelegate",delegate)
                 .invoke(ownedSession,impl);
+            Object installed=ownedSession.getClass().getMethod("getPermissionDelegate")
+                .invoke(ownedSession);
+            if(installed!=impl)throw new IllegalStateException("gecko_permission_owner_mismatch");
+            return true;
         }catch(Throwable unavailable){
-            // No speculative fallback to platform-wide access.
+            // A failed permission hook may not fall back to Gecko defaults:
+            // callers abort and close the auxiliary session.
             Log.w(TAG,"site_permission_gate_unavailable",unavailable);
+            throw new IllegalStateException("gecko_permission_gate_unavailable",unavailable);
         }
     }
     private static void finish(Object result,Object decision){

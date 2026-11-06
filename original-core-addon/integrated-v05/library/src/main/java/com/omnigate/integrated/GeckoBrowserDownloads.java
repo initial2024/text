@@ -98,6 +98,11 @@ final class GeckoBrowserDownloads {
                     Object value=response.getClass().getField("body").get(response);
                     if(!(value instanceof InputStream))return null;
                     InputStream body=(InputStream)value;
+                    int status=((Number)response.getClass().getField("statusCode")
+                        .get(response)).intValue();
+                    // An error page or redirect body is not a successful
+                    // downloaded file. Never save it as an authenticated export.
+                    if(status<200||status>=300){closeQuietly(body);return null;}
                     if(args[0]!=session||!owner.getAsBoolean()
                        ||!AccountBrowserSlots.validContextId(contextId)){
                         closeQuietly(body);return null;
