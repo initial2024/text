@@ -46,9 +46,10 @@ final class AndroidProfileSafetyCenter {
         String marker="不可读取";
         try{
             UserHandle current=Process.myUserHandle();
-            user=String.valueOf(current.getIdentifier());
             UserManager manager=host.getSystemService(UserManager.class);
             if(manager!=null){
+                long serial=manager.getSerialNumberForUser(current);
+                user=serial>=0?Long.toString(serial):"不可读取";
                 java.util.List<UserHandle> associated=manager.getUserProfiles();
                 related=associated==null?"不可读取":String.valueOf(associated.size());
             }
@@ -58,7 +59,7 @@ final class AndroidProfileSafetyCenter {
             // validated work profile or independent physical device.
         }
 
-        final String message="当前运行的 Android 用户编号："+user+
+        final String message="当前运行的 Android 用户序列号："+user+
             "\n本用户可见的关联资料数："+related+
             "\n当前应用私有安装标记："+marker+
             "\n\n这里显示的是本机诊断，不是设备指纹，也不是系统隔离认证。"+
