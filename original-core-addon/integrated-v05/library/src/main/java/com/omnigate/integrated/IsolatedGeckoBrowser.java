@@ -1514,7 +1514,15 @@ final class IsolatedGeckoBrowser {
             GeckoScopedPermissionGate.install(host,created,id,
                 ()->GeckoLiveWindowHandoff.owns(created));
             GeckoBrowserDownloads.attach(host,created,id,
-                ()->GeckoLiveWindowHandoff.owns(created));
+                ()->GeckoLiveWindowHandoff.owns(created),
+                event->{
+                    if(session!=created||!dialog.isShowing())return;
+                    contentProcessTerminated=true;
+                    lastPageFailure=event;
+                    state.setText(event+
+                        " · Gecko 内容进程终止；请手动点“主页”重建此账号网页。"+
+                        " Cookie 和账号空间 ID 未清理，未自动重发请求");
+                });
             navigateTo(AccountBrowserSlots.home(provider));
             if(!guestWindow)AccountBrowserStore.select(host,provider,index);
             selected=guestWindow?-1:index;
@@ -1549,7 +1557,13 @@ final class IsolatedGeckoBrowser {
         boolean closed=prior==null;
         if(prior!=null){
             try{
-                prior.getClass().getMethod("close").invoke(prior);
+                // Gecko explicitly closes a session on content crash/kill;
+                // close() again is unnecessary and may fail on a dead process.
+                // isOpen()==false is the documented safe terminal state,
+                // and does not imply removal of persistent Gecko context data.
+                boolean open=Boolean.TRUE.equals(
+                    prior.getClass().getMethod("isOpen").invoke(prior));
+                if(open)prior.getClass().getMethod("close").invoke(prior);
                 closed=true;
             }catch(Throwable failure){
                 sessionCloseFailed=true;
