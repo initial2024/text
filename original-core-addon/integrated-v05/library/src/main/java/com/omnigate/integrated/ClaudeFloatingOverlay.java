@@ -818,6 +818,7 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,105,105,"当前账号空间 · 下载管理");
         menu.getMenu().add(0,106,106,"回到账号空间全页（无刷新）");
         menu.getMenu().add(0,107,107,"手动重开当前网页（保留账号 Cookie）");
+        menu.getMenu().add(0,108,108,"工作资料 DNS 检查（手动）");
         menu.setOnMenuItemClickListener(item->{
             if(item.getItemId()==106){returnLivePage();return true;}
             if(item.getItemId()==107){
