@@ -51,6 +51,8 @@ public final class ClaudeFloatingOverlay {
     private static FrameLayout viewport;
     private static TextView caption;
     private static Button account,fold,closeControl,fullscreenControl,fullscreenFooter,quickControl;
+    private static Button returnToPageControl;
+    private static java.lang.ref.WeakReference<Activity> handoffActivity;
     // Full-window is a geometry change of the SAME GeckoView and GeckoSession.
     // Never reload the URL or close the session for a size/mode transition.
     private static boolean fullscreenWindow;
@@ -70,6 +72,9 @@ public final class ClaudeFloatingOverlay {
     private static Object session,geckoView;
     private static boolean sessionCloseFailed;
     static boolean ownerHealthy(){return !sessionCloseFailed;}
+    static boolean ownsLiveSession(Object expected){
+        return expected!=null && session==expected && showing() && !sessionCloseFailed;
+    }
     private static int selected=-1;
     private static String selectedProvider="";
     private static boolean minimized;
@@ -88,6 +93,8 @@ public final class ClaudeFloatingOverlay {
     public static boolean showing(){return root!=null && manager!=null;}
     public static void show(Activity host,int slot){show(host,"claude",slot);}
     public static void show(Activity host,String provider,int slot){
+        if(host!=null&&!host.isFinishing()&&!host.isDestroyed())
+            handoffActivity=new java.lang.ref.WeakReference<>(host);
         if(host==null||host.isDestroyed()||host.isFinishing()||
             !AccountBrowserSlots.supported(provider))return;
         if(slot<0||slot>=AccountBrowserStore.count(host,provider))return;
@@ -134,6 +141,110 @@ public final class ClaudeFloatingOverlay {
                 "；原版账号与模型保持不变",Toast.LENGTH_LONG).show();
         }
     }
+    /**
+     * This is the ONLY non-reloading page -> overlay entry point.
+     * Ownership stays in the existing full-page Dialog until the new
+     * GeckoView has attached the EXACT GeckoSession. No loadUri/reload.
+     */
+    static boolean adoptLiveBrowser(Activity host,String provider,int slot,
+            Object existing,Object sourceView){
+        if(host==null||host.isFinishing()||host.isDestroyed()||
+            !AccountBrowserSlots.supported(provider)||slot<0||
+            slot>=AccountBrowserStore.count(host,provider)||
+            !IsolatedGeckoBrowser.ownsLiveSession(existing)||
+            !IsolatedGeckoBrowser.ownerHealthy()||sessionCloseFailed)
+            return false;
+        if(!Settings.canDrawOverlays(host)){
+            new AlertDialog.Builder(host).setTitle("需要悬浮窗权限")
+                .setMessage("请先允许 OmniGate 显示在其他应用上层。"+
+                    "本次没有关闭或刷新当前 Gecko 网页；授权后重新点击“悬浮窗”。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("打开系统权限",(d,w)->{
+                    try{host.startActivity(new Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:"+host.getPackageName())));}
+                    catch(RuntimeException ignored){}
+                }).show();
+            return false;
+        }
+        if(showing()&&session!=null){
+            Toast.makeText(host,"已有另一个悬浮窗会话；先手动关闭该会话",
+                Toast.LENGTH_LONG).show();
+            return false;
+        }
+        Object nextView=null;
+        try{
+            String id=AccountBrowserStore.contextId(host,provider,slot);
+            GeckoLiveWindowHandoff.verify(existing,id);
+            if(!showing())create(host.getApplicationContext());
+            if(minimized)setMinimized(false);
+            hideQuickSettings();
+            hideTranslationPanel();
+            Class<?> v=Class.forName("org.mozilla.geckoview.GeckoView");
+            nextView=v.getConstructor(Context.class).newInstance(app);
+            if(!(nextView instanceof View))
+                throw new IllegalStateException("overlay_gecko_view_invalid");
+            View visual=(View)nextView;
+            visual.setOnTouchListener((view,event)->{
+                if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
+                    setOverlayFocusable(true);
+                return false;
+            });
+            viewport.addView(visual,new FrameLayout.LayoutParams(-1,-1));
+            // GeckoView.releaseSession does NOT close or reload the session.
+            GeckoLiveWindowHandoff.move(sourceView,nextView,existing,id);
+            session=existing;
+            geckoView=nextView;
+            selectedProvider=provider;
+            selected=slot;
+            handoffActivity=new java.lang.ref.WeakReference<>(host);
+            account.setText(AccountMetadataStore.name(app,provider,slot)+" ▾");
+            caption.setText(provider.toUpperCase(java.util.Locale.ROOT)+" · 原网页未刷新");
+            followUploadNavigation(existing,Class.forName("org.mozilla.geckoview.GeckoSession"));
+            // Do not navigate, create a session, change context ID, or use
+            // this method to copy cookies into another Android user/profile.
+            return true;
+        }catch(Throwable rejected){
+            android.util.Log.w("OmniGateOverlay","full_page_handoff_failed",rejected);
+            // If GeckoView.move threw, it already attempted source rollback.
+            // Never call close() on a session that may now be attached to us.
+            if(session==existing){
+                Toast.makeText(host,"窗口转移未完全完成；保留当前会话，请勿清理账号数据",
+                    Toast.LENGTH_LONG).show();
+                return true;
+            }
+            if(nextView instanceof View && viewport!=null)
+                viewport.removeView((View)nextView);
+            if(showing()&&session==null)close();
+            return false;
+        }
+    }
+
+    /** Explicitly return the SAME live GeckoSession to a full-page Dialog. */
+    private static void returnLivePage(){
+        Activity host=handoffActivity==null?null:handoffActivity.get();
+        if(host==null||host.isFinishing()||host.isDestroyed()||
+            session==null||geckoView==null||selected<0){
+            if(app!=null)Toast.makeText(app,
+                "原应用界面不可用；当前悬浮窗和网页未关闭，请返回 OmniGate 再操作",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+        final Object moving=session,oldView=geckoView;
+        if(!IsolatedGeckoBrowser.adoptLiveOverlay(host,selectedProvider,selected,
+                moving,oldView)){
+            Toast.makeText(app,"无刷新返回失败；原悬浮窗与登录仍保留",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+        // Full-page Dialog now owns the SAME session and new GeckoView.
+        // Clear references before calling close(), so close never closes it.
+        session=null;geckoView=null;
+        if(oldView instanceof View && viewport!=null)
+            viewport.removeView((View)oldView);
+        close();
+    }
+
     private static void create(Context context){
         app=context;
         manager=(WindowManager)app.getSystemService(Context.WINDOW_SERVICE);
@@ -210,6 +321,12 @@ public final class ClaudeFloatingOverlay {
         fullscreenControl.setContentDescription("返回全屏，保留当前网页");
         title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,51),dp(app,38)));
         fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
+        returnToPageControl=button(app,"回全页");
+        returnToPageControl.setContentDescription(
+            "返回原账号空间全屏网页，不刷新也不重新登录");
+        title.addView(returnToPageControl,
+            new LinearLayout.LayoutParams(dp(app,57),dp(app,38)));
+        returnToPageControl.setOnClickListener(v->returnLivePage());
         fold=button(app,"—");
         title.addView(fold,new LinearLayout.LayoutParams(dp(app,38),dp(app,38)));
         fold.setContentDescription("收起或展开 Claude 悬浮窗");
@@ -694,7 +811,9 @@ public final class ClaudeFloatingOverlay {
             tallWindow?"窗口大小 · 恢复标准高度":"窗口大小 · 加高阅读区");
         menu.getMenu().add(0,104,104,"无刷新译文阅读层 / 返回原文");
         menu.getMenu().add(0,105,105,"当前账号空间 · 下载管理");
+        menu.getMenu().add(0,106,106,"回到账号空间全页（无刷新）");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==106){returnLivePage();return true;}
             if(item.getItemId()==105){
                 if(app!=null&&selected>=0){
                     Intent intent=new Intent(app,GeckoDownloadManagerActivity.class);
@@ -779,11 +898,11 @@ public final class ClaudeFloatingOverlay {
         sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
         followUploadNavigation(created,sessionClass);
         GeckoBrowserTransfers.attachFilePrompt(app,created,
-            ()->session==created&&showing());
+            ()->GeckoLiveWindowHandoff.owns(created));
         GeckoScopedPermissionGate.install(app,created,id,
-            ()->session==created&&showing());
+            ()->GeckoLiveWindowHandoff.owns(created));
         GeckoBrowserDownloads.attach(app,created,id,
-            ()->session==created&&showing());
+            ()->GeckoLiveWindowHandoff.owns(created));
         Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
         Object visual=viewClass.getConstructor(Context.class).newInstance(app);
         if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
@@ -949,6 +1068,8 @@ public final class ClaudeFloatingOverlay {
         account.setVisibility(value?View.GONE:View.VISIBLE);
         quickControl.setVisibility(value?View.GONE:View.VISIBLE);
         fullscreenControl.setVisibility(value?View.GONE:View.VISIBLE);
+        if(returnToPageControl!=null)
+            returnToPageControl.setVisibility(value?View.GONE:View.VISIBLE);
         closeControl.setVisibility(value?View.GONE:View.VISIBLE);
         // Remember the last compact placement only when leaving compact.
         if(value&&!fullscreenWindow && window.width>0){
@@ -998,7 +1119,9 @@ public final class ClaudeFloatingOverlay {
         addressExpanded=false;tallWindow=false;
         viewport=null;caption=null;account=null;fold=null;
         closeControl=null;fullscreenControl=null;fullscreenFooter=null;
-        quickControl=null;quickPanel=null;quickName=null;quickTags=null;
+        quickControl=null;returnToPageControl=null;
+        handoffActivity=null;
+        quickPanel=null;quickName=null;quickTags=null;
         quickNote=null;quickQuotaLabel=null;quickQuotaHours=null;
         quickIndefinite=null;quickSavePreset=null;quickStatus=null;
         quickOpen=false;
