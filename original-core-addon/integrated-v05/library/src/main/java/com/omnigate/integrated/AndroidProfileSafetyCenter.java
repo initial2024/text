@@ -140,6 +140,88 @@ final class AndroidProfileSafetyCenter {
                 Toast.LENGTH_LONG).show();
         }
     }
+    private static final String SHELTER_PACKAGE="net.typeblog.shelter";
+    private static final String SHELTER_OFFICIAL=
+        "https://f-droid.org/packages/net.typeblog.shelter/";
+
+    /**
+     * Only a user-selected, separately installed DPC may enter Android's
+     * managed-profile provisioning. OmniGate is never the device/profile
+     * owner and never starts ACTION_PROVISION_MANAGED_PROFILE as itself.
+     */
+    private static boolean canProvisionHere(Activity host){
+        try{
+            if(!host.getPackageManager().hasSystemFeature(
+                    android.content.pm.PackageManager.FEATURE_MANAGED_USERS))
+                return false;
+            android.os.UserManager users=host.getSystemService(android.os.UserManager.class);
+            if(users!=null && android.os.Build.VERSION.SDK_INT>=30 &&
+                    users.isManagedProfile())return false;
+            android.app.admin.DevicePolicyManager policy=host.getSystemService(
+                android.app.admin.DevicePolicyManager.class);
+            return policy!=null && policy.isProvisioningAllowed(
+                android.app.admin.DevicePolicyManager.ACTION_PROVISION_MANAGED_PROFILE);
+        }catch(RuntimeException denied){return false;}
+    }
+
+    private static void openShelterOrInstall(Activity host){
+        // One explicit user gesture only. Never auto-install, launch a
+        // hidden DevicePolicy receiver, or grant administrator privileges.
+        try{
+            Intent installed=host.getPackageManager()
+                .getLaunchIntentForPackage(SHELTER_PACKAGE);
+            if(installed!=null){
+                installed.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                host.startActivity(installed);
+                Toast.makeText(host,
+                    "请在 Shelter 内选择创建工作资料，并仔细阅读 Android 的授权提示",
+                    Toast.LENGTH_LONG).show();
+                return;
+            }
+        }catch(RuntimeException noLauncher){}
+        try{
+            host.startActivity(new Intent(Intent.ACTION_VIEW,
+                Uri.parse(SHELTER_OFFICIAL)));
+        }catch(RuntimeException noBrowser){
+            Toast.makeText(host,
+                "无法打开官方介绍页，请在浏览器访问 f-droid.org/packages/net.typeblog.shelter/",
+                Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static void offerWorkProfileCreation(Activity host){
+        if(host==null||host.isFinishing()||host.isDestroyed())return;
+        String systemState=canProvisionHere(host)
+            ?"系统检查允许开始配置（不保证 Vivo 能完成）"
+            :"系统当前不允许从此应用发起工作资料配置";
+        new AlertDialog.Builder(host)
+            .setTitle("在手机上创建 Android 工作资料")
+            .setMessage("当前诊断："+systemState+
+                "\n\n工作资料必须经 Android 系统和独立 DPC 管理器创建。"+
+                "建议使用开源 Shelter；OmniGate 不申请设备管理员身份。"+
+                "\n\n操作：安装或打开 Shelter → 阅读它的权限说明 →"+
+                "同意 Android 的工作资料创建 → 在新工作资料中安装 OmniGate。"+
+                "原个人资料中的 Cookie、登录和文件不会迁移，也不会被清空。"+
+                "\n\n重要：本机已有 Vivo XSpace（666）及应用分身（999），"+
+                "部分厂商的分身功能与工作资料可能冲突。"+
+                "创建失败就停止，不删除 XSpace/分身、不重置手机，"+
+                "不通过 root/ADB 强制添加工作资料。"+
+                "\n\nShelter 是第三方管理器，会成为新工作资料的管理者；"+
+                "应先确认你接受其系统权限和隐私边界。")
+            .setNegativeButton("取消 · 保留现有资料",null)
+            .setNeutralButton("查看 Android 设置",(d,w)->
+                launchSystemSettings(host,"工作资料、工作空间"))
+            .setPositiveButton("打开/获取 Shelter",(d,w)->{
+                if(!canProvisionHere(host)){
+                    Toast.makeText(host,
+                        "工作资料预检查未通过；只查看 Shelter 官方页面，"+
+                        "不强行发起系统配置",Toast.LENGTH_LONG).show();
+                }
+                openShelterOrInstall(host);
+            })
+            .show();
+    }
+
     private static android.widget.Button action(Activity host,String name){
         android.widget.Button b=new android.widget.Button(host);
         b.setAllCaps(false);
@@ -213,6 +295,9 @@ final class AndroidProfileSafetyCenter {
             "OmniGate 不自行取得 DPC/设备管理员权限。");
         work.setTextSize(13);
         content.addView(work);
+        android.widget.Button createWork=action(host,"创建工作资料 · 手机端系统授权");
+        content.addView(createWork);
+        createWork.setOnClickListener(v->offerWorkProfileCreation(host));
         android.widget.Button openWork=action(host,"系统设置 · 工作资料");
         content.addView(openWork);
         openWork.setOnClickListener(v->launchSystemSettings(host,"工作资料、工作空间、工作应用"));
