@@ -857,6 +857,7 @@ final class IsolatedGeckoBrowser {
         try{
             Class<?> progress=Class.forName(
                 "org.mozilla.geckoview.GeckoSession$ProgressDelegate");
+            final long[] pageStartElapsedMs={-1L};
             Object observer=java.lang.reflect.Proxy.newProxyInstance(
                 progress.getClassLoader(),new Class<?>[]{progress},(proxy,method,args)->{
                     String event=method.getName();
@@ -865,6 +866,7 @@ final class IsolatedGeckoBrowser {
                     if("toString".equals(event))return "OmniGateClaudeLoadStatus";
                     if(args==null||args.length<2)return null;
                     if("onPageStart".equals(event)){
+                        pageStartElapsedMs[0]=android.os.SystemClock.elapsedRealtime();
                         host.runOnUiThread(()->{
                             if(session==ownedSession && dialog.isShowing())
                                 state.setText("Claude 页面正在加载 · 右上角本地账号空间可立即使用");
@@ -878,11 +880,17 @@ final class IsolatedGeckoBrowser {
                         });
                     }else if("onPageStop".equals(event) && args[1] instanceof Boolean){
                         boolean success=(Boolean)args[1];
+                        long elapsed=pageStartElapsedMs[0]>=0
+                            ?Math.max(0,android.os.SystemClock.elapsedRealtime()-pageStartElapsedMs[0])
+                            :-1;
+                        String duration=elapsed>=0?String.format(
+                            java.util.Locale.ROOT,"%.1fs",elapsed/1000.0):"未记录";
                         host.runOnUiThread(()->{
                             if(session==ownedSession && dialog.isShowing())
                                 state.setText(success
-                                    ?"Claude 基础页面加载结束；网站头像可能稍后显示，账号空间入口已可使用"
-                                    :"Claude 页面加载未成功；可手动刷新或检查网络，不自动重试登录");
+                                    ?"Claude 基础页面耗时 "+duration+
+                                        "；网站头像可能稍后显示（不代表登录成功）"
+                                    :"Claude 页面加载失败（"+duration+"）；未自动重试或切换账号");
                         });
                     }
                     return null;
