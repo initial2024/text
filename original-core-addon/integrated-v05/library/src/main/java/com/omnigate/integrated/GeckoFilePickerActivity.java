@@ -102,9 +102,28 @@ public final class GeckoFilePickerActivity extends Activity {
                     "不会自动发送聊天消息，也不会授予整个存储空间权限。")
                 .setNegativeButton("取消",(d,w)->cancel())
                 .setPositiveButton("交给当前网页",(d,w)->{
+                    // Prior versions closed silently even when Gecko's
+                    // confirm() / GeckoResult.complete() had failed.
+                    // Show explicit native result; this does not claim that
+                    // the site has uploaded the file.
+                    String status=GeckoBrowserTransfers.finish(token,this,uris);
                     completed=true;
-                    GeckoBrowserTransfers.finish(token,this,uris);
-                    finish();
+                    if("GECKO_FILE_INPUT_CONFIRMED".equals(status)){
+                        android.widget.Toast.makeText(this,
+                            "文件已交给当前网页输入控件；请在网页确认附件是否显示",
+                            android.widget.Toast.LENGTH_LONG).show();
+                        finish();
+                        return;
+                    }
+                    new AlertDialog.Builder(this)
+                        .setTitle("文件未能交给网页")
+                        .setMessage("系统选择文件已经完成，但 Gecko 文件确认失败。"+
+                            "\n状态："+status+
+                            "\n没有自动发送文件，也没有共享其他账号数据。"+
+                            "\n请返回网页重新点击添加文件；若再次失败，请把状态码发给开发者。")
+                        .setPositiveButton("返回网页",(x,y)->finish())
+                        .setOnCancelListener(x->finish())
+                        .show();
                 })
                 .setOnCancelListener(d->cancel())
                 .show();
