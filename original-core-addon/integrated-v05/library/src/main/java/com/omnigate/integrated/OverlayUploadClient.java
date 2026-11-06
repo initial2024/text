@@ -176,7 +176,7 @@ public final class OverlayUploadClient {
                 // native server unexpectedly closes the response stream.
                 conn.setUseCaches(false);
                 conn.setRequestProperty("Connection","close");
-                conn.setRequestProperty("Authorization","Bearer test");
+                conn.setRequestProperty("Authorization",GatewayApp.localApiHeader());
                 conn.setRequestProperty("Content-Type","application/json");
                 conn.setDoOutput(true);
                 conn.setFixedLengthStreamingMode(body.length);
