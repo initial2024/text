@@ -1307,6 +1307,8 @@ final class IsolatedGeckoBrowser {
             display.addView((View)visual,0,new FrameLayout.LayoutParams(-1,-1));
             followCurrentLocation(created,sessionClass);
             followClaudePageProgress(created,sessionClass);
+            GeckoBrowserTransfers.attachFilePrompt(host,created,
+                ()->session==created&&dialog.isShowing()&&activeBrowser==this);
             navigateTo(AccountBrowserSlots.home(provider));
             if(!guestWindow)AccountBrowserStore.select(host,provider,index);
             selected=guestWindow?-1:index;
@@ -1329,6 +1331,7 @@ final class IsolatedGeckoBrowser {
     }
     private void releaseSession(){
         Object prior=session,view=geckoView;
+        GeckoBrowserTransfers.cancelSession(host,prior);
         String guestId=guestContextId;
         session=null;geckoView=null;selected=-1;currentUrl=null;guestContextId=null;
         if(view!=null){
