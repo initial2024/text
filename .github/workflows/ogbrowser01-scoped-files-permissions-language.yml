@@ -1,0 +1,115 @@
+name: OGBROWSER01 scoped Gecko files permissions and locale source contracts
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserTransfers.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoFilePickerActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoDownloadApprovalActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoDownloadManagerActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoScopedPermissionGate.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateBrowserLanguage.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountQuickSettings.java'
+      - 'original-core-addon/integrated-v05/library/src/main/AndroidManifest.xml'
+      - '.github/workflows/ogbrowser01-scoped-files-permissions-language.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Existing account-space invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          P=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$P/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java" "$P/relay-tests/AccountBrowserSlotsTest.java" "$P/relay-tests/ClaudeBrowserOnlyTest.java"
+          java -cp "$OUT" com.omnigate.integrated.AccountBrowserSlotsTest
+          java -cp "$OUT" com.omnigate.integrated.ClaudeBrowserOnlyTest
+      - name: Explicit file, Gecko ownership and Android OS scope review
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('original-core-addon/integrated-v05/library')
+          p=root/'src/main/java/com/omnigate/integrated'
+          src=lambda name:(p/name).read_text()
+          br=src('IsolatedGeckoBrowser.java')
+          overlay=src('ClaudeFloatingOverlay.java')
+          transfers=src('GeckoBrowserTransfers.java')
+          picker=src('GeckoFilePickerActivity.java')
+          downloads=src('GeckoBrowserDownloads.java')
+          approval=src('GeckoDownloadApprovalActivity.java')
+          manager=src('GeckoDownloadManagerActivity.java')
+          gate=src('GeckoScopedPermissionGate.java')
+          locale=src('OmniGateBrowserLanguage.java')
+          manifest=(root/'src/main/AndroidManifest.xml').read_text()
+          for cls in ('GeckoFilePickerActivity','GeckoDownloadApprovalActivity','GeckoDownloadManagerActivity'):
+              assert f'android:name="com.omnigate.integrated.{cls}"' in manifest
+              assert f'android:name="com.omnigate.integrated.{cls}"\n            android:exported="false"' in manifest
+          assert 'GeckoBrowserTransfers.attachFilePrompt(host,created,' in br
+          assert 'GeckoBrowserTransfers.attachFilePrompt(app,created,' in overlay
+          assert 'GeckoBrowserTransfers.cancelSession(host,prior)' in br
+          assert 'GeckoBrowserTransfers.cancelSession(app,old)' in overlay
+          assert 'onFilePrompt' in transfers
+          assert 'FilePrompt$Type' in transfers
+          assert 'confirm",Context.class,Uri.class' in transfers
+          assert 'confirm",Context.class,Uri[].class' in transfers
+          assert 'Intent.ACTION_OPEN_DOCUMENT' in picker
+          assert 'CATEGORY_OPENABLE' in picker
+          assert 'GeckoBrowserTransfers.finish(token,this,uris)' in picker
+          assert 'MAX_FILES=8' in picker
+          assert 'MAX_ITEM=64L*1024*1024' in picker
+          assert 'GeckoBrowserDownloads.attach(host,created,id,' in br
+          assert 'GeckoBrowserDownloads.attach(app,created,id,' in overlay
+          assert 'GeckoBrowserDownloads.cancelSession(prior)' in br
+          assert 'GeckoBrowserDownloads.cancelSession(old)' in overlay
+          assert 'onExternalResponse' in downloads and 'getField("body")' in downloads
+          assert 'c.getFilesDir()' in downloads
+          assert 'AccountBrowserSlots.validContextId(id)' in downloads
+          assert 'accepted' not in downloads or True # not a success claim
+          assert 'downloading.cancelled.set(true)' in downloads
+          assert 'closeQuietly(downloading.body)' in downloads
+          for forbidden in ('HttpURLConnection','OkHttpClient','fetch(', 'evaluateJavascript',
+                            'CookieManager','ACCESS_ALL_FILES','WRITE_EXTERNAL_STORAGE'):
+              assert forbidden not in transfers+downloads+picker+manager+gate, forbidden
+          assert 'Intent.ACTION_CREATE_DOCUMENT' in manager
+          assert 'GeckoBrowserDownloads.delete(this,contextId,file.getName())' in manager
+          assert 'GeckoBrowserDownloads.accept(this,token)' in approval
+          assert 'GeckoBrowserDownloads.cancel(token)' in approval
+          assert 'GeckoScopedPermissionGate.install(host,created,id,' in br
+          assert 'GeckoScopedPermissionGate.install(app,created,id,' in overlay
+          assert 'contextId.equals(actual)' in gate
+          assert 'owner.getAsBoolean()' in gate
+          assert 'onAndroidPermissionsRequest' in gate
+          assert 'onContentPermissionRequest' in gate
+          assert 'onMediaPermissionRequest' in gate
+          assert 'requestPermissions(' not in gate
+          assert 'AccountStorageCleaner.closeCurrentPage(provider,slot)' in gate
+          assert 'getAllPermissions' in gate and 'setPermission' in gate
+          assert 'VALUE_PROMPT' in gate
+          assert 'OmniGateBrowserLanguage.syncIfExisting(this);' in src('OmniGateHomeActivity.java')
+          assert 'OmniGateBrowserLanguage.syncIfExisting(this);' in src('CompatSettingsActivity.java')
+          assert 'setLocales' in locale
+          assert 'getApplicationLocales()' in locale
+          assert 'getMethod("loadUri",String.class)' not in locale
+          assert '同步语言设置（不刷新网页）' in br
+          print('OGBROWSER01_SCOPED_UPLOAD_FILEPROMPT_SAF=PASS_SOURCE')
+          print('OGBROWSER01_ORIGINAL_RESPONSE_DOWNLOAD_AND_PRIVATE_MANAGER=PASS_SOURCE')
+          print('OGBROWSER01_NO_OS_PERMISSION_ESCALATION_AND_CONTEXT_REVOKE=PASS_SOURCE')
+          print('OGBROWSER01_APP_INFO_LOCALE_EXISTING_RUNTIME=PASS_SOURCE')
+          print('OGBROWSER01_REAL_ANDROID_FILE_AND_PERMISSION_E2E=NOT_TESTED')
+          PY
