@@ -465,7 +465,7 @@ final class AccountManagerUi {
             if(list.isEmpty()){toast("先勾选账号；可使用全选当前结果或反选");return;}
             String title=erase?"清空 "+list.size()+" 个账号存档？":"关闭 "+list.size()+" 个当前网页？";
             String detail=erase
-                ?"逐个关闭网页并请求清理对应 Gecko 账号空间，随后轮换空间标识。此操作会使登录失效，但无法证明底层磁盘已经完成物理擦除；如果会话关闭失败，将拒绝清理并提示失败。不会清理其他账号或平台。"
+                ?"逐个关闭网页、清理对应 Gecko 账号存储并删除该空间的私有下载文件，随后轮换空间标识。此操作会使登录失效并永久删除这些下载文件，但不能证明底层磁盘完成物理擦除；任何删除失败将拒绝轮换并提示。不会清理手机公共下载文件夹或其他账号平台。"
                 :"只关闭这些账号当前打开的网页会话，不清除 Cookie、账号存储或其他网页；并不会自动打开其他账号。";
             new AlertDialog.Builder(host).setTitle(title).setMessage(detail)
                 .setNegativeButton("取消",null)
