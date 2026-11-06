@@ -11,7 +11,8 @@ manifest=(root/"library/src/main/AndroidManifest.xml").read_text()
 tags=["offerWorkProfileCreation(Activity host)", "canProvisionHere(Activity host)",
       "isProvisioningAllowed(", "FEATURE_MANAGED_USERS", "SHELTER_OFFICIAL",
       "https://f-droid.org/packages/net.typeblog.shelter/",
-      "getLaunchIntentForPackage(SHELTER_PACKAGE)", 
+      "getLaunchIntentForPackage(SHELTER_PACKAGE)",
+      '"net.typeblog.shelter.ui.MainActivity"', 
       "创建工作资料 · 手机端系统授权",
       "打开/获取 Shelter", "Vivo XSpace（666）", "应用分身（999）",
       "不通过 root/ADB", "保留现有资料"]
