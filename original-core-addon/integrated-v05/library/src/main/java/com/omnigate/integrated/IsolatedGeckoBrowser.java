@@ -673,6 +673,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,4,3,"刷新当前网页（手动）");
         menu.getMenu().add(0,5,4,"当前空间 · 下载管理");
         menu.getMenu().add(0,6,5,"网页语言偏好 · 查看");
+        menu.getMenu().add(0,7,6,"系统分身与隔离说明");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showPicker(host);return true;
@@ -684,6 +685,7 @@ final class IsolatedGeckoBrowser {
                 case 4:callSession("reload");return true;
                 case 5:showDownloads();return true;
                 case 6:showWebLanguagePreference();return true;
+                case 7:AndroidProfileSafetyCenter.show(host);return true;
                 default:return false;
             }
         });
@@ -1309,6 +1311,8 @@ final class IsolatedGeckoBrowser {
             Object builder=builderClass.getConstructor().newInstance();
             // Never use the null/default shared-storage session context.
             builderClass.getMethod("contextId",String.class).invoke(builder,id);
+            builderClass.getMethod("useTrackingProtection",boolean.class).invoke(builder,
+                guestWindow || AccountBrowserStore.trackingProtection(host,provider,index));
             if(guestWindow){
                 // Fail closed if this Gecko build cannot provide private mode;
                 // never silently fall back to a persisted login context.
