@@ -462,26 +462,57 @@ final class AccountManagerUi {
         }
         private void confirm(boolean erase){
             ArrayList<Target> list=targets();
-            if(list.isEmpty()){toast("先勾选账号；可使用全选当前结果或反选");return;}
-            String title=erase?"清空 "+list.size()+" 个账号存档？":"关闭 "+list.size()+" 个当前网页？";
-            String detail=erase
-                ?"逐个关闭网页、清理对应 Gecko 账号存储并删除该空间的私有下载文件，随后轮换空间标识。此操作会使登录失效并永久删除这些下载文件，但不能证明底层磁盘完成物理擦除；任何删除失败将拒绝轮换并提示。不会清理手机公共下载文件夹或其他账号平台。"
-                :"只关闭这些账号当前打开的网页会话，不清除 Cookie、账号存储或其他网页；并不会自动打开其他账号。";
-            new AlertDialog.Builder(host).setTitle(title).setMessage(detail)
+            if(list.isEmpty()){toast("先选择一个账号");return;}
+            if(erase){
+                // Removing saved logins can never be a bulk operation.
+                if(list.size()!=1){
+                    toast("禁止批量清除已登录空间；请只选择一个账号");
+                    return;
+                }
+                Target only=list.get(0);
+                String phrase=only.provider+"/"+(only.slot+1);
+                EditText typed=new EditText(host);
+                typed.setSingleLine(true);
+                typed.setTextColor(Color.BLACK);
+                typed.setHint("输入 "+phrase+" 确认");
+                new AlertDialog.Builder(host)
+                    .setTitle("危险：永久清理 "+phrase+" 登录与下载？")
+                    .setMessage("会清除指定 Gecko 账号的 Cookie、站点数据及私有下载。"+
+                        "普通切换、关闭、更新 APK 不需要此操作。"+
+                        "原有账号不能在新工作资料自动迁移；其他空间不受影响。")
+                    .setView(typed)
+                    .setNegativeButton("保留当前账号",null)
+                    .setPositiveButton("确认清理",(d,w)->{
+                        if(!phrase.equals(typed.getText().toString().trim())){
+                            toast("确认文字不匹配，账号数据保持原状");
+                            return;
+                        }
+                        try{
+                            AccountStorageCleaner.clearWholeContext(
+                                host,only.provider,only.slot);
+                            toast("该空间的清理已提交；不代表物理擦除完成");
+                        }catch(Exception error){
+                            toast("清理失败；没有自动替换其它空间");
+                        }
+                        selected.clear();
+                        render();
+                    }).show();
+                return;
+            }
+            new AlertDialog.Builder(host)
+                .setTitle("关闭 "+list.size()+" 个网页，但保留登录")
+                .setMessage("只关闭页面会话，不清 Cookie、contextId、站点数据库、下载或账号标签。")
                 .setNegativeButton("取消",null)
-                .setPositiveButton(erase?"确认删除存档":"确认关闭网页",(d,w)->{
+                .setPositiveButton("确认仅关闭",(d,w)->{
                     int done=0,failed=0;
                     for(Target t:list){
                         try{
-                            if(erase)AccountStorageCleaner.clearWholeContext(host,t.provider,t.slot);
-                            else AccountStorageCleaner.closeCurrentPage(t.provider,t.slot);
+                            AccountStorageCleaner.closeCurrentPage(t.provider,t.slot);
                             done++;
-                        }catch(Exception ex){failed++;}
+                        }catch(Exception error){failed++;}
                     }
                     selected.clear();
-                    toast(erase
-                        ?"已接受空间清理请求 "+done+" 项，失败 "+failed+" 项；非物理擦除证明"
-                        :"已处理网页关闭请求 "+done+" 项，失败 "+failed+" 项");
+                    toast("已处理网页 "+done+" 个，失败 "+failed+" 个；未清除账号登录");
                     render();
                 }).show();
         }
