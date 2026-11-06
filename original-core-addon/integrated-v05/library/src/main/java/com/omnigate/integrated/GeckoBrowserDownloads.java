@@ -28,6 +28,7 @@ final class GeckoBrowserDownloads {
     static final long MAX_CONTEXT_TOTAL=512L*1024*1024;
     private static final Object LOCK=new Object();
     private static Transfer pending;
+    private static Transfer active;
     private GeckoBrowserDownloads(){}
 
     private static final class Transfer {
@@ -130,9 +131,16 @@ final class GeckoBrowserDownloads {
         }
     }
     static void cancelSession(Object session){
-        Transfer t;
-        synchronized(LOCK){t=pending!=null&&pending.session==session?pending:null;}
-        if(t!=null)cancel(t.token);
+        Transfer queued,downloading;
+        synchronized(LOCK){
+            queued=pending!=null&&pending.session==session?pending:null;
+            downloading=active!=null&&active.session==session?active:null;
+        }
+        if(queued!=null)cancel(queued.token);
+        if(downloading!=null){
+            downloading.cancelled.set(true);
+            closeQuietly(downloading.body);
+        }
     }
     static void cancel(String token){
         Transfer t;
@@ -149,6 +157,14 @@ final class GeckoBrowserDownloads {
             if(t==null||!t.owner.getAsBoolean()||!t.taken.compareAndSet(false,true))
                 return false;
             pending=null;
+            // One accepted stream at a time. Never let a second account
+            // replace an in-progress owner without cancelling first.
+            Transfer previous=active;
+            active=t;
+            if(previous!=null){
+                previous.cancelled.set(true);
+                closeQuietly(previous.body);
+            }
         }
         final Context app=c.getApplicationContext();
         new Thread(()->copyStream(app,t),"omnigate-gecko-download").start();
@@ -216,6 +232,7 @@ final class GeckoBrowserDownloads {
             Log.w(TAG,"download_not_saved_"+failure.getClass().getSimpleName());
         }finally{
             if(temporary!=null)temporary.delete();
+            synchronized(LOCK){if(active==t)active=null;}
         }
     }
     private static void closeQuietly(InputStream in){
