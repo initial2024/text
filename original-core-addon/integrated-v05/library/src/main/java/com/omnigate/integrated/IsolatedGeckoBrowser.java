@@ -327,7 +327,21 @@ final class IsolatedGeckoBrowser {
         info.setTypeface(null,android.graphics.Typeface.BOLD);
         info.setPadding(dp(host,8),dp(host,5),dp(host,8),dp(host,9));
         info.setTextColor(0xFFF3F4FF);
-        root.addView(info);
+        // Always-visible native account entry: Claude's own avatar/menu may
+        // appear later because the site hydrates asynchronously. This control
+        // never asserts login success, touches site DOM, or loads a second page.
+        LinearLayout nativeHeader=new LinearLayout(host);
+        nativeHeader.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        nativeHeader.addView(info,new LinearLayout.LayoutParams(0,-2,1f));
+        if(!guestWindow){
+            Button accountEntry=button("账号空间 ▾");
+            accountEntry.setContentDescription(
+                "OmniGate 本地账号空间菜单，不是网站登录头像");
+            accountEntry.setOnClickListener(v->showNativeAccountMenu(accountEntry));
+            nativeHeader.addView(accountEntry,
+                new LinearLayout.LayoutParams(dp(host,102),dp(host,44)));
+        }
+        root.addView(nativeHeader);
         HorizontalScrollView scroll=new HorizontalScrollView(host);
         tabs=new LinearLayout(host);tabs.setOrientation(LinearLayout.HORIZONTAL);
         scroll.addView(tabs);
@@ -645,6 +659,33 @@ final class IsolatedGeckoBrowser {
         }
     }
 
+    /**
+     * Native account controls do not depend on provider login widgets. The
+     * account picker is read-only until the user explicitly chooses a slot.
+     * Never infer account authentication from a Gecko navigation event.
+     */
+    private void showNativeAccountMenu(View anchor){
+        if(guestWindow)return;
+        PopupMenu menu=new PopupMenu(host,anchor);
+        menu.getMenu().add(0,1,0,"切换账号空间（手动）");
+        menu.getMenu().add(0,2,1,"当前空间设置");
+        menu.getMenu().add(0,3,2,"浏览器环境检查");
+        menu.getMenu().add(0,4,3,"刷新当前网页（手动）");
+        menu.setOnMenuItemClickListener(item->{
+            switch(item.getItemId()){
+                case 1:showPicker(host);return true;
+                case 2:
+                    if(selected>=0)AccountQuickSettings.show(host,provider,selected);
+                    else state.setText("本地空间尚未打开；未改变任何账号登录");
+                    return true;
+                case 3:showBrowserEnvironment();return true;
+                case 4:callSession("reload");return true;
+                default:return false;
+            }
+        });
+        menu.show();
+    }
+
     private void showFullscreenActions(){
         if(!fullscreenMode)return;
         PopupMenu menu=new PopupMenu(host,fullscreenExit);
@@ -685,7 +726,7 @@ final class IsolatedGeckoBrowser {
         String link=currentUrl==null?AccountBrowserSlots.home(provider):currentUrl;
         if(!(link.startsWith("https://") || link.startsWith("http://")))return;
         new AlertDialog.Builder(host).setTitle("切换至系统浏览器")
-            .setMessage("将手动打开当前网页。系统浏览器与 OmniGate 隔离账号不共享 Cookie，可能需要重新登录。")
+            .setMessage("将手动打开当前网页。外部应用可能由 Android 工作资料或个人资料中的浏览器处理，不能保证仍处于此账号空间；不传递 Cookie，但外部浏览器可能要求重新登录。请自行核对目标应用。")
             .setNegativeButton("取消",null)
             .setPositiveButton("打开",(d,which)->{
                 try{
@@ -770,6 +811,56 @@ final class IsolatedGeckoBrowser {
         });
         diagnostics.show();
     }
+    /**
+     * Gecko native progress only. The website controls when its account
+     * avatar and hydrated UI appear; a successful page-stop is NOT a claim
+     * that Claude authentication, SSO or client-side hydration completed.
+     * No injection, polling DOM, silent reload or login-state inference.
+     */
+    private void followClaudePageProgress(Object ownedSession,Class<?> sessionClass){
+        if(!"claude".equals(provider))return;
+        try{
+            Class<?> progress=Class.forName(
+                "org.mozilla.geckoview.GeckoSession$ProgressDelegate");
+            Object observer=java.lang.reflect.Proxy.newProxyInstance(
+                progress.getClassLoader(),new Class<?>[]{progress},(proxy,method,args)->{
+                    String event=method.getName();
+                    if("hashCode".equals(event))return System.identityHashCode(proxy);
+                    if("equals".equals(event))return proxy==args[0];
+                    if("toString".equals(event))return "OmniGateClaudeLoadStatus";
+                    if(args==null||args.length<2)return null;
+                    if("onPageStart".equals(event)){
+                        host.runOnUiThread(()->{
+                            if(session==ownedSession && dialog.isShowing())
+                                state.setText("Claude 页面正在加载 · 右上角本地账号空间可立即使用");
+                        });
+                    }else if("onProgressChange".equals(event) && args[1] instanceof Integer){
+                        int percent=(Integer)args[1];
+                        if(percent>=0&&percent<=100)host.runOnUiThread(()->{
+                            if(session==ownedSession && dialog.isShowing())
+                                state.setText("Claude 网页加载 "+percent+
+                                    "% · 不代表登录完成；本地账号入口已就绪");
+                        });
+                    }else if("onPageStop".equals(event) && args[1] instanceof Boolean){
+                        boolean success=(Boolean)args[1];
+                        host.runOnUiThread(()->{
+                            if(session==ownedSession && dialog.isShowing())
+                                state.setText(success
+                                    ?"Claude 基础页面加载结束；网站头像可能稍后显示，账号空间入口已可使用"
+                                    :"Claude 页面加载未成功；可手动刷新或检查网络，不自动重试登录");
+                        });
+                    }
+                    return null;
+                });
+            sessionClass.getMethod("setProgressDelegate",progress)
+                .invoke(ownedSession,observer);
+        }catch(Throwable unsupported){
+            // Compatibility with older bundled Gecko; never replace its
+            // progress events with guessed login/session state.
+            android.util.Log.i("OmniGateBrowser","claude_progress_delegate_unavailable");
+        }
+    }
+
     private void navigateTo(String typed){
         if(session==null){state.setText("未打开账号浏览器，不进行后台导航");return;}
         String raw=typed==null?"":typed.trim();
@@ -1215,6 +1306,7 @@ final class IsolatedGeckoBrowser {
             viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
             display.addView((View)visual,0,new FrameLayout.LayoutParams(-1,-1));
             followCurrentLocation(created,sessionClass);
+            followClaudePageProgress(created,sessionClass);
             navigateTo(AccountBrowserSlots.home(provider));
             if(!guestWindow)AccountBrowserStore.select(host,provider,index);
             selected=guestWindow?-1:index;
@@ -1222,7 +1314,7 @@ final class IsolatedGeckoBrowser {
             state.setText(guestWindow
                 ? "临时访客已打开：关闭后清除此空间站点数据；未保存账号登录"
                 : AccountBrowserSlots.browserOnly(provider)
-                ? "Claude 账号 "+(index+1)+" 已按需打开 · 不支持 API；关闭即停止此网页会话"
+                ? "Claude 账号 "+(index+1)+" 已按需打开 · 网页正在连接；右上角账号空间入口可立即使用"
                 : "账号 "+(index+1)+"：隔离浏览器已打开（不影响原版 API）");
         }catch(Throwable failed){
             releaseSession();
