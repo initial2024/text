@@ -83,6 +83,16 @@ jobs:
           assert 'GeckoBrowserTransfers.cancelSession(app,owned);' in overlay
           assert 'GeckoBrowserTransfers.blockSessionFileUploads(ownedSession)' in br
           assert 'GeckoBrowserTransfers.blockSessionFileUploads(owned)' in overlay
+          assert '"onPageStart".equals(event)' in br
+          assert '"onPageStart".equals(m.getName())' in overlay
+          assert 'onLoginSelect' in transfers and 'onLoginSave' in transfers
+          assert 'onAddressSelect' in transfers and 'onAddressSave' in transfers
+          assert 'onCreditCardSelect' in transfers and 'onCreditCardSave' in transfers
+          assert 'onRequestCertificate' in transfers
+          assert 'getPromptDelegate' in transfers
+          assert 'getContentDelegate' in downloads
+          assert 'gecko_file_and_autofill_gate_unavailable' in transfers
+          assert 'gecko_download_gate_unavailable' in downloads
           assert 'setNavigationDelegate' in br and 'setNavigationDelegate' in overlay
           assert 'MAX_ITEM=64L*1024*1024' in picker
           assert 'GeckoBrowserDownloads.attach(host,created,id,' in br
@@ -90,7 +100,7 @@ jobs:
           assert 'GeckoBrowserDownloads.cancelSession(prior)' in br
           assert 'GeckoBrowserDownloads.cancelSession(old)' in overlay
           assert 'onExternalResponse' in downloads and 'getField("body")' in downloads
-          assert 'c.getFilesDir()' in downloads
+          assert 'c.getNoBackupFilesDir()' in downloads
           assert 'AccountBrowserSlots.validContextId(id)' in downloads
           assert 'private static Transfer active;' in downloads
           assert 'downloading.cancelled.set(true)' in downloads
