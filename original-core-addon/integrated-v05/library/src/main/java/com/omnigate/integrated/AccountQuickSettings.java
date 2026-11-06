@@ -37,7 +37,8 @@ final class AccountQuickSettings {
                 "修改名称 / 账号标签 / 备注",
                 "额度状态与恢复时间",
                 status.isEmpty()?"当前未标记额度":"解除额度状态 · "+status,
-                "打开完整账号管理"
+                "打开完整账号管理",
+                "重置当前空间的网页权限（不清登录）"
             },(d,which)->{
                 if(which==0)edit(a,provider,slot);
                 if(which==1)quota(a,provider,slot);
@@ -49,6 +50,7 @@ final class AccountQuickSettings {
                     }catch(RuntimeException ex){feedback(a,"解除额度标记失败");}
                 }
                 if(which==3)AccountManagerUi.show(a);
+                if(which==4)GeckoScopedPermissionGate.offerReset(a,provider,slot);
             }).setNegativeButton("取消",null).show();
     }
     private static LinearLayout form(Activity a){
