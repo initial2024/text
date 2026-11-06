@@ -10,6 +10,8 @@ public final class GatewayApp {
     // No user-owned domain or credential is embedded in the public APK.
     // Explicitly supplied HTTPS relay endpoint is kept only on the device.
     private static volatile Context context;
+    // Process-only cache; Keystore-backed source remains non-exportable.
+    private static volatile String cachedLocalApiKey;
     private static volatile String localApiStatus = "未启动";
     private static volatile String tunnelStatus = "未启动";
     private GatewayApp() {}
@@ -63,6 +65,7 @@ public final class GatewayApp {
      * independently guaranteed as distinct instances.
      */
     public static synchronized String localApiKey(){
+        if(cachedLocalApiKey!=null)return cachedLocalApiKey;
         try{
             final String alias="omnigate.local8787.hmac.v1";
             java.security.KeyStore store=java.security.KeyStore.getInstance("AndroidKeyStore");
@@ -81,10 +84,12 @@ public final class GatewayApp {
             byte[] digest=mac.doFinal(
                 "OmniGate local API bearer key v1 / this Android keystore owner"
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            return "oglocal-"+android.util.Base64.encodeToString(digest,
+            cachedLocalApiKey="oglocal-"+android.util.Base64.encodeToString(digest,
                 android.util.Base64.URL_SAFE|
                 android.util.Base64.NO_WRAP|
                 android.util.Base64.NO_PADDING);
+            java.util.Arrays.fill(digest,(byte)0);
+            return cachedLocalApiKey;
         }catch(java.security.GeneralSecurityException|java.io.IOException failure){
             // A missing owner key must never reopen localhost-any-nonempty.
             throw new IllegalStateException("local_auth_keystore_unavailable",failure);
