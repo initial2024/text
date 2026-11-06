@@ -38,7 +38,9 @@ final class AccountQuickSettings {
                 "额度状态与恢复时间",
                 status.isEmpty()?"当前未标记额度":"解除额度状态 · "+status,
                 "打开完整账号管理",
-                "重置当前空间的网页权限（不清登录）"
+                "重置当前空间的网页权限（不清登录）",
+                AccountBrowserStore.trackingProtection(a,provider,slot)
+                    ?"跟踪保护：开启（逐空间）":"跟踪保护：兼容模式（逐空间）"
             },(d,which)->{
                 if(which==0)edit(a,provider,slot);
                 if(which==1)quota(a,provider,slot);
@@ -51,8 +53,28 @@ final class AccountQuickSettings {
                 }
                 if(which==3)AccountManagerUi.show(a);
                 if(which==4)GeckoScopedPermissionGate.offerReset(a,provider,slot);
+                if(which==5)toggleTracking(a,provider,slot);
             }).setNegativeButton("取消",null).show();
     }
+    private static void toggleTracking(Activity a,String provider,int slot){
+        boolean enabled=AccountBrowserStore.trackingProtection(a,provider,slot);
+        new AlertDialog.Builder(a)
+            .setTitle(enabled?"关闭此空间的跟踪保护？":"启用此空间的跟踪保护？")
+            .setMessage(enabled
+                ?"仅修改这个 Gecko 账号空间的下次浏览设置，可能提高网站兼容性但降低跟踪防护。"+
+                  "不伪造设备、不自动切换账号、不删除登录信息。"
+                :"下一次重新打开此账号空间时将启用 Gecko 原生跟踪防护。"+
+                  "部分网站的单点登录或第三方资源可能受影响。"+
+                  "当前已打开的网页不会自动关闭、刷新或改变权限。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("保存设置",(d,w)->{
+                try{
+                    AccountBrowserStore.setTrackingProtection(a,provider,slot,!enabled);
+                    feedback(a,"已保存该空间的跟踪保护偏好；关闭并手动重新打开网页后生效");
+                }catch(RuntimeException failure){feedback(a,"保存失败，设置未改变");}
+            }).show();
+    }
+
     private static LinearLayout form(Activity a){
         LinearLayout content=new LinearLayout(a);
         content.setOrientation(LinearLayout.VERTICAL);
