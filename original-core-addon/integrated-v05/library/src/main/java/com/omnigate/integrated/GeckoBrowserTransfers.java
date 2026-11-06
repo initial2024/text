@@ -27,7 +27,15 @@ final class GeckoBrowserTransfers {
     private static final String TAG="OmniGateWebFiles";
     private static final Object LOCK=new Object();
     private static Pending pending;
+    private static final java.util.Set<Object> blockedSessions=
+        java.util.Collections.newSetFromMap(new java.util.WeakHashMap<Object,Boolean>());
     private GeckoBrowserTransfers(){}
+    static void blockSessionFileUploads(Object session){
+        synchronized(LOCK){blockedSessions.add(session);}
+    }
+    private static boolean uploadEnabled(Object session){
+        synchronized(LOCK){return !blockedSessions.contains(session);}
+    }
 
     private static final class Pending {
         final Object session, prompt, result;
@@ -54,7 +62,7 @@ final class GeckoBrowserTransfers {
                     if(!"onFilePrompt".equals(m.getName())||args==null||args.length<2)
                         return null;
                     Object s=args[0],p=args[1];
-                    if(s!=ownedSession||!ownerCurrent.getAsBoolean())
+                    if(s!=ownedSession||!ownerCurrent.getAsBoolean()||!uploadEnabled(s))
                         return immediateDismiss(p);
                     return launchPicker(context,s,p,ownerCurrent);
                 });
