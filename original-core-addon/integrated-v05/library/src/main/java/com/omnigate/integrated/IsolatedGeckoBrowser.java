@@ -968,7 +968,11 @@ final class IsolatedGeckoBrowser {
                 });
             sessionClass.getMethod("setNavigationDelegate",nav).invoke(ownedSession,listener);
         }catch(Throwable unsupported){
-            // The address bar still navigates on older Gecko builds.
+            // Without a proven navigation observer, file selection cannot
+            // safely be completed after a same-session page redirect.
+            GeckoBrowserTransfers.blockSessionFileUploads(ownedSession);
+            android.util.Log.w("OmniGateWebFiles",
+                "manual_navigation_upload_gate_unavailable",unsupported);
         }
     }
     private Button button(String name){
