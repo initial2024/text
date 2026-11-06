@@ -1,5 +1,8 @@
 name: 'OmniGate APK official local verification toolchain (no secrets)'
 on:
+  pull_request:
+    branches: [original-core-addon]
+    paths: ['.github/workflows/omnigate-apk-tools35.yml']
   push:
     branches: [work/omnigate-integrated-v05]
     paths: ['.github/workflows/omnigate-apk-tools35.yml']
