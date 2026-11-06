@@ -710,6 +710,7 @@ public final class CompatSettingsActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        OmniGateBrowserLanguage.syncIfExisting(this);
         if (localBadge != null && upstreamBadge != null) updateState();
         refreshRelayStatus();
     }
