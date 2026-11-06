@@ -817,6 +817,25 @@ public final class ClaudeFloatingOverlay {
                     return null;
                 });
             gecko.getMethod("setNavigationDelegate",nav).invoke(owned,proxy);
+            if(gecko.getMethod("getNavigationDelegate").invoke(owned)!=proxy)
+                throw new IllegalStateException("overlay_navigation_owner_mismatch");
+            Class<?> progress=Class.forName(
+                "org.mozilla.geckoview.GeckoSession$ProgressDelegate");
+            Object pageStart=java.lang.reflect.Proxy.newProxyInstance(
+                progress.getClassLoader(),new Class<?>[]{progress},(p,m,args)->{
+                    if("hashCode".equals(m.getName()))return System.identityHashCode(p);
+                    if("equals".equals(m.getName()))
+                        return args!=null&&args.length>0&&p==args[0];
+                    if("toString".equals(m.getName()))
+                        return "OmniGateOverlayUploadPageStartGate";
+                    if("onPageStart".equals(m.getName())&&args!=null&&
+                        args.length>1&&args[0]==owned&&app!=null&&session==owned)
+                        GeckoBrowserTransfers.cancelSession(app,owned);
+                    return null;
+                });
+            gecko.getMethod("setProgressDelegate",progress).invoke(owned,pageStart);
+            if(gecko.getMethod("getProgressDelegate").invoke(owned)!=pageStart)
+                throw new IllegalStateException("overlay_page_start_owner_mismatch");
         }catch(Throwable failure){
             // If Gecko navigation cannot be observed, prevent file completion:
             // a failed observer is not a proof that the selected page stayed put.
