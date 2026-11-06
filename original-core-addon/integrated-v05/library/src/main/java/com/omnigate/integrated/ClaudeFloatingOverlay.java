@@ -693,7 +693,18 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,103,103,
             tallWindow?"窗口大小 · 恢复标准高度":"窗口大小 · 加高阅读区");
         menu.getMenu().add(0,104,104,"无刷新译文阅读层 / 返回原文");
+        menu.getMenu().add(0,105,105,"当前账号空间 · 下载管理");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==105){
+                if(app!=null&&selected>=0){
+                    Intent intent=new Intent(app,GeckoDownloadManagerActivity.class);
+                    intent.putExtra(GeckoDownloadManagerActivity.EXTRA_CONTEXT,
+                        AccountBrowserStore.contextId(app,selectedProvider,selected));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    app.startActivity(intent);
+                }
+                return true;
+            }
             if(item.getItemId()==104){
                 requestTranslation(account);
                 return true;
@@ -758,6 +769,10 @@ public final class ClaudeFloatingOverlay {
         GeckoPageTranslate.prepareSession(created);
         sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
         GeckoBrowserTransfers.attachFilePrompt(app,created,
+            ()->session==created&&showing());
+        GeckoScopedPermissionGate.install(app,created,id,
+            ()->session==created&&showing());
+        GeckoBrowserDownloads.attach(app,created,id,
             ()->session==created&&showing());
         Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
         Object visual=viewClass.getConstructor(Context.class).newInstance(app);
@@ -900,6 +915,7 @@ public final class ClaudeFloatingOverlay {
     private static void releaseSession(){
         Object old=session,visual=geckoView;
         if(app!=null)GeckoBrowserTransfers.cancelSession(app,old);
+        GeckoBrowserDownloads.cancelSession(old);
         session=null;geckoView=null;
         if(visual!=null){
             try{visual.getClass().getMethod("releaseSession").invoke(visual);}
