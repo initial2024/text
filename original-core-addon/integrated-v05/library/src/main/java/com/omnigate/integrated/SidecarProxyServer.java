@@ -853,7 +853,8 @@ public final class SidecarProxyServer {
                         || "authorization".equals(lower)
                         || "x-api-key".equals(lower)
                         || "x-dsh-gateway-token".equals(lower)
-                        || "x-omnigate-public-relay".equals(lower)) {
+                        || "x-omnigate-public-relay".equals(lower)
+                        || "x-omnigate-instance-key".equals(lower)) {
                     continue;
                 }
                 upstream.setRequestProperty(name, entry.getValue());
