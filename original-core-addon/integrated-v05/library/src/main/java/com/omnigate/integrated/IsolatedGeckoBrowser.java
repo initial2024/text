@@ -672,6 +672,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,3,2,"浏览器环境检查");
         menu.getMenu().add(0,4,3,"刷新当前网页（手动）");
         menu.getMenu().add(0,5,4,"当前空间 · 下载管理");
+        menu.getMenu().add(0,6,5,"网页语言偏好 · 查看");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showPicker(host);return true;
@@ -682,10 +683,27 @@ final class IsolatedGeckoBrowser {
                 case 3:showBrowserEnvironment();return true;
                 case 4:callSession("reload");return true;
                 case 5:showDownloads();return true;
+                case 6:showWebLanguagePreference();return true;
                 default:return false;
             }
         });
         menu.show();
+    }
+
+    private void showWebLanguagePreference(){
+        String locale=OmniGateBrowserLanguage.requestedLocale(host);
+        new AlertDialog.Builder(host).setTitle("当前网页语言偏好")
+            .setMessage("Android 应用信息选择的语言："+locale+
+                "\nGecko 只将它设置为浏览器后续请求的首选语言。"+
+                "不同网站可能保存账号语言设置、忽略 Accept-Language，"+
+                "或在登录后延迟渲染页面；本功能不修改 Cookie、UA、网页脚本，也不自动刷新。")
+            .setNegativeButton("关闭",null)
+            .setPositiveButton("同步语言设置（不刷新网页）",(d,w)->{
+                boolean applied=OmniGateBrowserLanguage.syncIfExisting(host);
+                state.setText(applied
+                    ?"Gecko 语言偏好已同步："+locale+"；页面本身不会自动刷新"
+                    :"原版 Gecko 不支持此语言同步；已保留原网页和账号数据");
+            }).show();
     }
 
     private void showDownloads(){
