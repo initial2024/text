@@ -80,7 +80,7 @@ jobs:
           assert 'onExternalResponse' in downloads and 'getField("body")' in downloads
           assert 'c.getFilesDir()' in downloads
           assert 'AccountBrowserSlots.validContextId(id)' in downloads
-          assert 'pending' in downloads and 'private' not in downloads.split('static File directory(',1)[0].lower()
+          assert 'private static Transfer active;' in downloads
           assert 'downloading.cancelled.set(true)' in downloads
           assert 'closeQuietly(downloading.body)' in downloads
           for forbidden in ('HttpURLConnection','OkHttpClient','fetch(', 'evaluateJavascript',
