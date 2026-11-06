@@ -610,13 +610,13 @@ public final class ApiQuickPanel {
             });
             TextView clientInfo=text("Minis/DSH 统一推荐：本机 127.0.0.1:8787/v1，"+
                 "公网 "+GatewayApp.effectivePublicUrl()+"/v1。"+
-                "两者均使用 OmniGate 客户端 Key；原版 "+nativePort+
-                " 和内部 Key 仅用于上游，不要填写到客户端。",
+                "本地需当前 Android 安装的专用 Local Key；公网需公网 API Key。"+
+                "原版 "+nativePort+" 和上游 Key 不填入客户端。",
                 10,0xFF596387,false);
             add(body,clientInfo,6);
             LinearLayout credentials=horizontal(body,6);
             Button copyPublic=button("复制公网地址",false);
-            Button copyClientKey=button("复制客户端 Key",false);
+            Button copyClientKey=button("复制 API Key（选择）",false);
             addHalf(credentials,copyPublic);addHalf(credentials,copyClientKey);
             copyPublic.setOnClickListener(v->{
                 ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
@@ -624,15 +624,26 @@ public final class ApiQuickPanel {
                     GatewayApp.effectivePublicUrl()+"/v1"));
             });
             copyClientKey.setOnClickListener(v->new android.app.AlertDialog.Builder(activity)
-                .setTitle("复制 OmniGate 客户端 Key")
-                .setMessage("仅复制给你信任的 Minis/DSH。剪贴板可能被其他应用读取。"+
-                    "它不是原版内部 API Key，也不是 Relay 配对 Key。")
-                .setNegativeButton("取消",null)
-                .setPositiveButton("复制",(d,w)->{
-                    ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
-                    if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText("OmniGate 客户端 Key",
-                        GatewayApp.apiKey()));
-                }).show());
+                .setTitle("选择需要复制的 API Key")
+                .setItems(new String[]{"当前安装的本地 8787 Key","公网 Relay API Key"},(d,which)->
+                    new android.app.AlertDialog.Builder(activity)
+                        .setTitle(which==0?"本地 8787 Local Key":"公网 Relay API Key")
+                        .setMessage(which==0
+                            ?"本地 Key 绑定当前 Android Keystore 实例。其它分身/工作资料需要分别获取自己的 Key。剪贴板可能被其他应用读取。"
+                            :"公网 Key 用于已授权的 Cloudflare Relay 客户端，不能代替本地 8787 Key。剪贴板可能被其他应用读取。")
+                        .setNegativeButton("取消",null)
+                        .setPositiveButton("复制",(dialog,w)->{
+                            try{
+                                String key=which==0?GatewayApp.localApiKey():GatewayApp.apiKey();
+                                ClipboardManager cb=(ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE);
+                                if(cb!=null)cb.setPrimaryClip(ClipData.newPlainText(
+                                    which==0?"OmniGate Local Key":"OmniGate 公网 API Key",key));
+                            }catch(RuntimeException unavailable){
+                                android.widget.Toast.makeText(activity,
+                                    "无法安全读取当前密钥，请检查 Android Keystore",
+                                    android.widget.Toast.LENGTH_LONG).show();
+                            }
+                        }).show()).show());
             TextView note=text("端口连通和 Relay 已连接不能证明模型已回复。"+
                 "收到原版完整回执前不要重复提交；附件单独验收。",
                 10,0xFF78829C,false);
