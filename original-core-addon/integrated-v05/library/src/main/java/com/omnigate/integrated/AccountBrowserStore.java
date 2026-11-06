@@ -28,6 +28,26 @@ final class AccountBrowserStore {
                 enabled).commit())
             throw new IllegalStateException("tracking_preference_not_saved");
     }
+    /**
+     * Never replace, reassign or silently repair a persisted Gecko context.
+     * Before using a slot, ensure no OTHER saved slot has the same ID:
+     * duplicate ownership could expose a second login to the first account.
+     * A broken registry is read-only blocked, not auto-rotated.
+     */
+    private static void assertUniqueOwner(SharedPreferences p,String owner,
+            int slot,String contextId){
+        for(String provider:AccountBrowserSlots.PROVIDERS){
+            int n=p.getInt(provider+".count",2);
+            if(n<1||n>AccountBrowserSlots.MAX_SLOTS)
+                throw new IllegalStateException("invalid_saved_slot_count");
+            for(int i=0;i<n;i++){
+                if(provider.equals(owner)&&i==slot)continue;
+                String other=p.getString(provider+"."+i,null);
+                if(contextId.equals(other))
+                    throw new IllegalStateException("duplicate_gecko_context_owner");
+            }
+        }
+    }
     static synchronized String contextId(Context c,String provider,int index){
         if(index<0||index>=count(c,provider))
             throw new IllegalArgumentException("slot_index");
@@ -37,9 +57,16 @@ final class AccountBrowserStore {
         if(value!=null){
             if(!AccountBrowserSlots.validContextId(value))
                 throw new IllegalStateException("invalid_stored_context");
+            assertUniqueOwner(p,provider,index,value);
             return value;
         }
+        // A previously selected account must never silently receive a NEW
+        // context on restoration/corruption, leaving its login inaccessible.
+        if(p.contains(provider+".selected") &&
+            p.getInt(provider+".selected",-1)==index)
+            throw new IllegalStateException("selected_login_context_missing_preserve_data");
         String created=AccountBrowserSlots.newContextId();
+        assertUniqueOwner(p,provider,index,created);
         if(!p.edit().putString(key,created).commit())
             throw new IllegalStateException("context_persistence_failed");
         return created;
@@ -66,9 +93,20 @@ final class AccountBrowserStore {
         int n=count(c,provider);
         if(n>=AccountBrowserSlots.MAX_SLOTS)
             throw new IllegalStateException("slot_capacity_reached");
-        if(!prefs(c).edit().putInt(provider+".count",n+1).commit())
-            throw new IllegalStateException("slot_persistence_failed");
-        contextId(c,provider,n);
+        SharedPreferences p=prefs(c);
+        String key=provider+"."+n;
+        // Preserve a valid orphaned slot ID from an interrupted legacy
+        // two-stage create; do not discard potentially recoverable data.
+        String saved=p.getString(key,null);
+        if(saved!=null&&!AccountBrowserSlots.validContextId(saved))
+            throw new IllegalStateException("orphaned_context_invalid_preserve_data");
+        String id=saved!=null?saved:AccountBrowserSlots.newContextId();
+        assertUniqueOwner(p,provider,n,id);
+        // Single atomic preference transaction: capacity and context owner
+        // cannot be persisted independently. Existing slots are untouched.
+        if(!p.edit().putInt(provider+".count",n+1)
+                .putString(key,id).commit())
+            throw new IllegalStateException("slot_context_atomic_persistence_failed");
         return n;
     }
     static synchronized int selected(Context c,String provider){
