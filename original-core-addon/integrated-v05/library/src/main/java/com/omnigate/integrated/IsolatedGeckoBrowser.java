@@ -781,6 +781,7 @@ final class IsolatedGeckoBrowser {
                 case 5:showDownloads();return true;
                 case 6:showWebLanguagePreference();return true;
                 case 7:AndroidProfileSafetyCenter.show(host);return true;
+                case 9:GeckoWorkProfileDnsDiagnostics.show(host);return true;
                 default:return false;
             }
         });
