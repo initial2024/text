@@ -2,6 +2,9 @@ package com.omnigate.integrated;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Intent;
+import android.provider.Settings;
+import android.widget.ScrollView;
 import android.os.Build;
 import android.os.UserManager;
 import android.widget.TextView;
@@ -58,9 +61,20 @@ final class GeckoWorkProfileDnsDiagnostics {
         result.setText(currentProfile(host)+
             "\n\n正在通过当前 Android 资料的系统 DNS 解析五个固定平台域名。"+
             "\n不会登录、读取 Cookie、上传文件、切换账号、覆盖系统 DNS 或进行 VPN 分流。");
+        ScrollView scroll=new ScrollView(host);
+        scroll.addView(result);
         AlertDialog dialog=new AlertDialog.Builder(host)
             .setTitle("OmniGate · 工作资料 DNS 只读检测")
-            .setView(result).setPositiveButton("关闭",null).create();
+            .setView(scroll)
+            .setNeutralButton("系统 VPN 设置",(d,w)->{
+                try{host.startActivity(new Intent(Settings.ACTION_VPN_SETTINGS));}
+                catch(RuntimeException unsupported){
+                    android.widget.Toast.makeText(host,
+                        "无法打开 VPN 设置；请在系统设置的工作资料部分操作",
+                        android.widget.Toast.LENGTH_LONG).show();
+                }
+            })
+            .setPositiveButton("关闭",null).create();
         dialog.show();
 
         Thread worker=new Thread(()->{
