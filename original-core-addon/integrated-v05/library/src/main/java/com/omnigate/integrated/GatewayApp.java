@@ -55,6 +55,50 @@ public final class GatewayApp {
         if(s.indexOf('\n')>=0||s.indexOf('\r')>=0)throw new IllegalArgumentException("Newlines forbidden");
         prefs().edit().putString("relay_key",s).apply();
     }
+    /**
+     * Per-Android-UID local 8787 credential. HMAC key is non-exportable in
+     * AndroidKeyStore and differs across real OS users/work profiles.
+     * Do not store the derived token in SharedPreferences/Android backup.
+     * OEM clone wrappers that reuse a UID/keystore namespace cannot be
+     * independently guaranteed as distinct instances.
+     */
+    public static synchronized String localApiKey(){
+        try{
+            final String alias="omnigate.local8787.hmac.v1";
+            java.security.KeyStore store=java.security.KeyStore.getInstance("AndroidKeyStore");
+            store.load(null);
+            javax.crypto.SecretKey key=(javax.crypto.SecretKey)store.getKey(alias,null);
+            if(key==null){
+                javax.crypto.KeyGenerator generator=javax.crypto.KeyGenerator.getInstance(
+                    android.security.keystore.KeyProperties.KEY_ALGORITHM_HMAC_SHA256,
+                    "AndroidKeyStore");
+                generator.init(new android.security.keystore.KeyGenParameterSpec.Builder(
+                    alias,android.security.keystore.KeyProperties.PURPOSE_SIGN).build());
+                key=generator.generateKey();
+            }
+            javax.crypto.Mac mac=javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(key);
+            byte[] digest=mac.doFinal(
+                "OmniGate local API bearer key v1 / this Android keystore owner"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return "oglocal-"+android.util.Base64.encodeToString(digest,
+                android.util.Base64.URL_SAFE|
+                android.util.Base64.NO_WRAP|
+                android.util.Base64.NO_PADDING);
+        }catch(java.security.GeneralSecurityException|java.io.IOException failure){
+            // A missing owner key must never reopen localhost-any-nonempty.
+            throw new IllegalStateException("local_auth_keystore_unavailable",failure);
+        }
+    }
+    public static String localApiHeader(){return "Bearer "+localApiKey();}
+    public static boolean localApiKeyMatches(String candidate){
+        if(candidate==null||candidate.length()<20||candidate.length()>100)return false;
+        String expected=localApiKey();
+        return java.security.MessageDigest.isEqual(
+            expected.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+            candidate.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     public static String apiKey(){
         String s=prefs().getString("api_key","");
         if(s.length()>=12)return s;
