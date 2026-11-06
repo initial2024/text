@@ -179,6 +179,19 @@ final class AndroidProfileSafetyCenter {
                 return;
             }
         }catch(RuntimeException noLauncher){}
+        // The old original APK's binary Manifest may not yet contain
+        // <queries>; Android package visibility can make
+        // getLaunchIntentForPackage() return null despite an installation.
+        // Explicitly target Shelter's published launcher component instead;
+        // Android itself still validates package installation/exported state.
+        try{
+            Intent explicit=new Intent(Intent.ACTION_MAIN);
+            explicit.addCategory(Intent.CATEGORY_LAUNCHER);
+            explicit.setComponent(new android.content.ComponentName(
+                SHELTER_PACKAGE,"net.typeblog.shelter.ui.MainActivity"));
+            host.startActivity(explicit);
+            return;
+        }catch(RuntimeException missingShelter){}
         try{
             host.startActivity(new Intent(Intent.ACTION_VIEW,
                 Uri.parse(SHELTER_OFFICIAL)));
