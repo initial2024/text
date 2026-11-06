@@ -9,8 +9,11 @@ import android.content.Context;
 final class AccountStorageCleaner {
     private AccountStorageCleaner(){}
     static boolean closeCurrentPage(String provider,int slot){
-        boolean closed=IsolatedGeckoBrowser.closeIfMatches(provider,slot);
-        return ClaudeFloatingOverlay.closeIfMatches(provider,slot)||closed;
+        boolean closed=IsolatedGeckoBrowser.closeIfMatchesForErase(provider,slot);
+        boolean overlay=ClaudeFloatingOverlay.closeIfMatchesForErase(provider,slot);
+        if(!IsolatedGeckoBrowser.ownerHealthy()||!ClaudeFloatingOverlay.ownerHealthy())
+            throw new IllegalStateException("gecko_session_owner_unverified");
+        return overlay||closed;
     }
     static void clearWholeContext(Context c,String provider,int slot) throws Exception{
         final String oldId=AccountBrowserStore.contextId(c,provider,slot);
@@ -28,9 +31,10 @@ final class AccountStorageCleaner {
         Object storage=runtimeClass.getMethod("getStorageController").invoke(runtime);
         storage.getClass().getMethod("clearDataForSessionContext",String.class)
             .invoke(storage,oldId);
-        // Retire the old context ID after Gecko accepts the delete command.
-        // Even if deletion internally takes time, the old ID cannot be
-        // opened again by this account on the next login.
+        // GeckoView's clearDataForSessionContext has a void API, not an
+        // independently verifiable disk-erasure receipt. This is a submitted
+        // per-context deletion, NOT certified secure erasure. Rotate the ID
+        // so the deleted context cannot be re-opened through this slot.
         AccountBrowserStore.rotateContext(c,provider,slot,oldId);
     }
 }

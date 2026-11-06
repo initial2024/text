@@ -68,6 +68,8 @@ public final class ClaudeFloatingOverlay {
         return Math.max(dp(app,300),Math.min(target,dp(app,tallWindow?720:540)));
     }
     private static Object session,geckoView;
+    private static boolean sessionCloseFailed;
+    static boolean ownerHealthy(){return !sessionCloseFailed;}
     private static int selected=-1;
     private static String selectedProvider="";
     private static boolean minimized;
@@ -108,6 +110,10 @@ public final class ClaudeFloatingOverlay {
         // No concurrent auxiliary session: an existing manual login dialog
         // is explicitly dismissed before the floating GeckoSession opens.
         IsolatedGeckoBrowser.closeActiveBrowser();
+        if(!IsolatedGeckoBrowser.ownerHealthy()||sessionCloseFailed){
+            Toast.makeText(host,"旧网页会话关闭异常；已禁止打开新账号空间，请重启检查",Toast.LENGTH_LONG).show();
+            return;
+        }
         try{
             if(!showing())create(host.getApplicationContext());
             // All providers share one overlay owner; never preloads another.
@@ -874,18 +880,24 @@ public final class ClaudeFloatingOverlay {
         close();
         return true;
     }
+    static boolean closeIfMatchesForErase(String provider,int slot){
+        boolean matches=showing()&&provider.equals(selectedProvider)&&selected==slot;
+        if(matches)close();
+        if(sessionCloseFailed)throw new IllegalStateException("gecko_overlay_close_failed");
+        return matches;
+    }
     private static void releaseSession(){
         Object old=session,visual=geckoView;
         session=null;geckoView=null;
         if(visual!=null){
             try{visual.getClass().getMethod("releaseSession").invoke(visual);}
-            catch(Throwable ignored){}
+            catch(Throwable failure){sessionCloseFailed=true;}
             if(visual instanceof View && viewport!=null)
                 viewport.removeView((View)visual);
         }
         if(old!=null){
             try{old.getClass().getMethod("close").invoke(old);}
-            catch(Throwable ignored){}
+            catch(Throwable failure){sessionCloseFailed=true;}
         }
     }
     public static void close(){

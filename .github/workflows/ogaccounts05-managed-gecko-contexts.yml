@@ -76,6 +76,9 @@ jobs:
           assert 'AccountBrowserStore.contextId(c,provider,slot)' in cleaner
           assert 'closeCurrentPage(provider,slot);' in cleaner
           assert 'clearDataForSessionContext' in cleaner
+          assert 'gecko_session_owner_unverified' in cleaner
+          assert 'closeIfMatchesForErase' in cleaner
+          assert '非物理擦除证明' in manager
           assert 'AccountBrowserStore.rotateContext' in cleaner
           forbidden=['clearDataFromHost','clearDataFromBaseDomain','clearData(long.class)',
                      'getCookieManager','deleteAll','CookieManager.getInstance']
@@ -83,7 +86,12 @@ jobs:
               assert phrase not in cleaner, phrase
           assert 'prior.releaseSession();' in browser
           assert 'static boolean closeIfMatches(String provider,int slot)' in browser
+          assert 'static boolean closeIfMatchesForErase(String provider,int slot)' in browser
+          assert 'sessionCloseFailed=true;' in browser
+          assert 'if(sessionCloseFailed)' in browser
           assert 'static boolean closeIfMatches(String provider,int slot)' in overlay
+          assert 'static boolean closeIfMatchesForErase(String provider,int slot)' in overlay
+          assert 'sessionCloseFailed=true;' in overlay
           assert 'public static void show(Activity host,String provider,int slot)' in overlay
           assert 'if(!provider.equals(selectedProvider)||selected!=slot||session==null)' in overlay
           assert 'AccountBrowserStore.contextId(app,selectedProvider,slot)' in overlay

@@ -32,6 +32,10 @@ final class IsolatedGeckoBrowser {
     // Same-owner rule borrowed from DSH browser ownership: no two auxiliary
     // Gecko sessions run silently in parallel, even across providers.
     private static IsolatedGeckoBrowser activeBrowser;
+    // Sticky fail-closed gate: a failed Gecko close must never authorize reuse
+    // of another account context until a fresh, audited application process.
+    private static boolean sessionCloseFailed;
+    static boolean ownerHealthy(){return !sessionCloseFailed;}
     private final Activity host;
     private final String provider;
     private final int startingSlot;
@@ -85,6 +89,14 @@ final class IsolatedGeckoBrowser {
             running.guestWindow||running.selected!=slot)return false;
         closeActiveBrowser();
         return true;
+    }
+    static boolean closeIfMatchesForErase(String provider,int slot){
+        IsolatedGeckoBrowser running=activeBrowser;
+        if(running!=null&&running.provider.equals(provider)&&
+                !running.guestWindow&&running.selected==slot)closeActiveBrowser();
+        if(sessionCloseFailed)throw new IllegalStateException("gecko_session_close_failed");
+        return running!=null&&running.provider.equals(provider)&&
+            !running.guestWindow&&running.selected==slot;
     }
     static void showPicker(Activity host){
         // Merely opening the account list must not refresh or close an
@@ -274,6 +286,8 @@ final class IsolatedGeckoBrowser {
     private static void openOwnedBrowser(Activity host,String provider,int slot){
         ClaudeFloatingOverlay.close();
         closeActiveBrowser();
+        if(sessionCloseFailed||!ClaudeFloatingOverlay.ownerHealthy())
+            throw new IllegalStateException("previous_gecko_close_failed");
         IsolatedGeckoBrowser next=new IsolatedGeckoBrowser(host,provider,slot);
         activeBrowser=next;
         try{next.show();}
@@ -1148,6 +1162,10 @@ final class IsolatedGeckoBrowser {
     }
     private void open(int index){
         releaseSession();
+        if(sessionCloseFailed){
+            state.setText("旧网页会话关闭失败；已禁止切换账号空间。请重启应用后检查登录状态。");
+            return;
+        }
         try{
             if(guestWindow!=(index==-1))
                 throw new IllegalArgumentException("session_mode_mismatch");
@@ -1223,7 +1241,7 @@ final class IsolatedGeckoBrowser {
         session=null;geckoView=null;selected=-1;currentUrl=null;guestContextId=null;
         if(view!=null){
             try{view.getClass().getMethod("releaseSession").invoke(view);}
-            catch(Throwable ignored){}
+            catch(Throwable failure){sessionCloseFailed=true;}
         }
         boolean closed=prior==null;
         if(prior!=null){
@@ -1231,6 +1249,7 @@ final class IsolatedGeckoBrowser {
                 prior.getClass().getMethod("close").invoke(prior);
                 closed=true;
             }catch(Throwable failure){
+                sessionCloseFailed=true;
                 android.util.Log.w("OmniGateBrowser","guest_session_close_failed");
             }
         }
