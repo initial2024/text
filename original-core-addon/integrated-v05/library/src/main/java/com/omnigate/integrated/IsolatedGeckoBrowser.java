@@ -1356,6 +1356,17 @@ final class IsolatedGeckoBrowser {
             Class<?> runtimeClass=Class.forName(
                 "org.mozilla.geckoview.GeckoRuntime");
             Object created=sessionClass.getConstructor(settingsClass).newInstance(settings);
+            // Verify Gecko actually owns the intended persistent context
+            // BEFORE opening any network page. Never open a null/default
+            // context or rotate saved account IDs as an error fallback.
+            Object effective=sessionClass.getMethod("getSettings").invoke(created);
+            Object effectiveId=effective.getClass().getMethod("getContextId")
+                .invoke(effective);
+            Object privateMode=effective.getClass().getMethod("getUsePrivateMode")
+                .invoke(effective);
+            if(!id.equals(effectiveId)||
+                !Boolean.valueOf(guestWindow).equals(privateMode))
+                throw new IllegalStateException("gecko_session_context_owner_mismatch");
             // Register cleanup ownership before opening; any reflection or
             // display failure must close the original GeckoSession.
             session=created;
