@@ -92,11 +92,11 @@ final class IsolatedGeckoBrowser {
     }
     static boolean closeIfMatchesForErase(String provider,int slot){
         IsolatedGeckoBrowser running=activeBrowser;
-        if(running!=null&&running.provider.equals(provider)&&
-                !running.guestWindow&&running.selected==slot)closeActiveBrowser();
-        if(sessionCloseFailed)throw new IllegalStateException("gecko_session_close_failed");
-        return running!=null&&running.provider.equals(provider)&&
+        boolean matches=running!=null&&running.provider.equals(provider)&&
             !running.guestWindow&&running.selected==slot;
+        if(matches)closeActiveBrowser();
+        if(sessionCloseFailed)throw new IllegalStateException("gecko_session_close_failed");
+        return matches;
     }
     static void showPicker(Activity host){
         // Merely opening the account list must not refresh or close an
