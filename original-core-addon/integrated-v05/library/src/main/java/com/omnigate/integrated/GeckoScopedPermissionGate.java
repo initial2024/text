@@ -152,6 +152,86 @@ final class GeckoScopedPermissionGate {
             throw new IllegalStateException("gecko_permission_gate_unavailable",unavailable);
         }
     }
+
+    /**
+     * Reset only persisted Gecko website permissions belonging to this slot.
+     * No site cookies, authentication state or Android OS permissions are
+     * deleted; the matching open session is closed first to stop active media.
+     */
+    static void offerReset(Activity activity,String provider,int slot){
+        if(activity==null||activity.isFinishing()||activity.isDestroyed()||
+            !AccountBrowserSlots.supported(provider)||
+            slot<0||slot>=AccountBrowserStore.count(activity,provider))return;
+        final String id=AccountBrowserStore.contextId(activity,provider,slot);
+        new AlertDialog.Builder(activity)
+            .setTitle("重置当前账号空间的网页权限")
+            .setMessage("仅重置此 Gecko 账号空间已保存的网页允许/拒绝记录，"+
+                "不清除 Cookie、登录数据、下载文件或其他账号空间。"+
+                "\\n为停止正在进行的网页相机、麦克风等操作，当前网页会话将被关闭；"+
+                "需要你再次手动打开。Android 系统权限仍须在系统设置中管理。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("关闭当前网页并重置",(d,w)->resetStored(activity,id,provider,slot))
+            .show();
+    }
+    private static void resetStored(Activity activity,String id,String provider,int slot){
+        try{
+            AccountStorageCleaner.closeCurrentPage(provider,slot);
+            Class<?> runtime=load("org.mozilla.geckoview.GeckoRuntime");
+            java.lang.reflect.Method getter=runtime.getDeclaredMethod("getInstance");
+            getter.setAccessible(true);
+            Object existing=getter.invoke(null);
+            if(existing==null)throw new IllegalStateException("gecko_runtime_not_ready");
+            Object storage=runtime.getMethod("getStorageController").invoke(existing);
+            Object result=storage.getClass().getMethod("getAllPermissions").invoke(storage);
+            Class<?> listener=load("org.mozilla.geckoview.GeckoResult$Consumer");
+            Class<?> content=load(
+                "org.mozilla.geckoview.GeckoSession$PermissionDelegate$ContentPermission");
+            int prompt=constant(content,"VALUE_PROMPT");
+            Object ok=Proxy.newProxyInstance(listener.getClassLoader(),
+                new Class<?>[]{listener},(proxy,method,args)->{
+                    if(!"accept".equals(method.getName()))return null;
+                    int count=0;
+                    try{
+                        if(args==null||args.length!=1||!(args[0] instanceof java.util.List))
+                            throw new IllegalStateException("invalid_permission_list");
+                        java.util.List<?> perms=(java.util.List<?>)args[0];
+                        if(perms.size()>4096)throw new IllegalStateException("permission_list_too_large");
+                        for(Object p:perms){
+                            if(p==null||!content.isInstance(p))continue;
+                            String actual=(String)content.getField("contextId").get(p);
+                            if(!id.equals(actual))continue;
+                            storage.getClass().getMethod("setPermission",content,int.class)
+                                .invoke(storage,p,prompt);
+                            count++;
+                        }
+                        final int updated=count;
+                        activity.runOnUiThread(()->Toast.makeText(activity,
+                            "仅当前空间已提交 "+updated+" 项网页权限重置；系统权限没有变化",
+                            Toast.LENGTH_LONG).show());
+                    }catch(Throwable failure){
+                        activity.runOnUiThread(()->Toast.makeText(activity,
+                            "权限重置未全部完成："+failure.getClass().getSimpleName(),
+                            Toast.LENGTH_LONG).show());
+                    }
+                    return null;
+                });
+            Object fail=Proxy.newProxyInstance(listener.getClassLoader(),
+                new Class<?>[]{listener},(proxy,method,args)->{
+                    if("accept".equals(method.getName()))
+                        activity.runOnUiThread(()->Toast.makeText(activity,
+                            "读取 Gecko 网页权限失败，未尝试跨账号清除",
+                            Toast.LENGTH_LONG).show());
+                    return null;
+                });
+            result.getClass().getMethod("accept",listener,listener)
+                .invoke(result,ok,fail);
+        }catch(Throwable error){
+            Toast.makeText(activity,"无法安全重置："+
+                error.getClass().getSimpleName()+"；不会清除其他账号",
+                Toast.LENGTH_LONG).show();
+        }
+    }
+
     private static void finish(Object result,Object decision){
         try{result.getClass().getMethod("complete",Object.class).invoke(result,decision);}
         catch(Throwable ignored){}
