@@ -185,6 +185,24 @@ final class GeckoBrowserDownloads {
         if(!sanitized.equals(name))return false;
         return new File(directory(c,contextId),sanitized).delete();
     }
+    /** Delete only the given private Gecko context's download directory.
+     * No symlinks, no global downloads folder and no other account context. */
+    static void clearContextFiles(Context c,String contextId)throws IOException{
+        File dir=directory(c,contextId);
+        if(!dir.exists())return;
+        java.nio.file.Path root=dir.toPath();
+        if(java.nio.file.Files.isSymbolicLink(root) || !dir.isDirectory())
+            throw new IOException("download_directory_invalid");
+        File[] children=dir.listFiles();
+        if(children==null)throw new IOException("download_directory_not_readable");
+        for(File child:children){
+            if(java.nio.file.Files.isSymbolicLink(child.toPath())||!child.isFile())
+                throw new IOException("unexpected_download_entry");
+            if(!child.delete())throw new IOException("download_delete_failed");
+        }
+        if(!dir.delete())throw new IOException("download_directory_cleanup_failed");
+    }
+
     private static long existingBytes(Context c,String id){
         long total=0;
         for(File file:files(c,id)){
