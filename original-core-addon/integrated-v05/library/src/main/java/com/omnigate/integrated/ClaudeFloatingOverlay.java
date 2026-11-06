@@ -758,6 +758,8 @@ public final class ClaudeFloatingOverlay {
         Class<?> builderClass=Class.forName("org.mozilla.geckoview.GeckoSessionSettings$Builder");
         Object builder=builderClass.getConstructor().newInstance();
         builderClass.getMethod("contextId",String.class).invoke(builder,id);
+        builderClass.getMethod("useTrackingProtection",boolean.class).invoke(builder,
+            AccountBrowserStore.trackingProtection(app,selectedProvider,slot));
         builderClass.getMethod("userAgentMode",int.class).invoke(builder,0);
         builderClass.getMethod("viewportMode",int.class).invoke(builder,0);
         Object settings=builderClass.getMethod("build").invoke(builder);
