@@ -315,6 +315,15 @@ public final class SidecarProxyServer {
                 CURRENT_TRACE.set(trace);
             }
 
+            if ("GET".equals(request.method) &&
+                ("/health".equals(request.path)||
+                 "/__sidecar_health".equals(request.path)) &&
+                !hasExactLocalKey(request)){
+                writeJson(out,401,new JSONObject()
+                    .put("error","local_instance_auth_required")
+                    .put("message","Use this installation's separate Android Keystore local API key"));
+                return;
+            }
             if ("GET".equals(request.method)
                     && ("/health".equals(request.path)
                     || "/__sidecar_health".equals(request.path))) {
@@ -401,18 +410,20 @@ public final class SidecarProxyServer {
                     "1".equals(cleanHeader(request.headers.get("x-omnigate-public-relay")));
 
             if (publicRequest) {
-                if (!exactPublicKey(request)) {
+                if (!exactPublicKey(request)||
+                    !GatewayApp.localApiKeyMatches(cleanHeader(
+                        request.headers.get("x-omnigate-instance-key")))) {
                     writeJson(out, 401, new JSONObject()
                             .put("error", "unauthorized")
                             .put("message", "Invalid OmniGate public API key")
                             .put("authMode", "public-exact"));
                     return;
                 }
-            } else if (!hasAnyLocalKey(request)) {
+            } else if (!hasExactLocalKey(request)) {
                 writeJson(out, 401, new JSONObject()
                         .put("error", "unauthorized")
-                        .put("message", "API key required")
-                        .put("authMode", "localhost-any-nonempty"));
+                        .put("message", "This Android installation requires its unique local API key")
+                        .put("authMode", "localhost-keystore-exact"));
                 return;
             }
 
@@ -1041,23 +1052,19 @@ public final class SidecarProxyServer {
         return OriginalCoreBridge.isListening();
     }
 
-    private boolean hasAnyLocalKey(Request request) {
-        String auth = cleanHeader(request.headers.get("authorization"));
-        if (!auth.isEmpty()) {
-            int space = auth.indexOf(' ');
-            if (space > 0) {
-                String scheme = auth.substring(0, space).trim();
-                String token = cleanHeader(auth.substring(space + 1));
-                if ("bearer".equalsIgnoreCase(scheme) && !token.isEmpty()) {
-                    return true;
-                }
-            } else {
-                return true;
-            }
-        }
-
-        return !cleanHeader(request.headers.get("x-api-key")).isEmpty()
-                || !cleanHeader(request.headers.get("x-dsh-gateway-token")).isEmpty();
+    private boolean hasExactLocalKey(Request request) {
+        String auth=cleanHeader(request.headers.get("authorization"));
+        String token="";
+        int space=auth.indexOf(' ');
+        if(space>0 && "bearer".equalsIgnoreCase(auth.substring(0,space).trim()))
+            token=cleanHeader(auth.substring(space+1));
+        // Do not accept arbitrary nonempty keys, Basic auth, or the
+        // potentially cloned/public Relay API key for localhost.
+        return GatewayApp.localApiKeyMatches(token)
+            || GatewayApp.localApiKeyMatches(
+                cleanHeader(request.headers.get("x-api-key")))
+            || GatewayApp.localApiKeyMatches(
+                cleanHeader(request.headers.get("x-dsh-gateway-token")));
     }
 
     private boolean exactPublicKey(Request request) {
