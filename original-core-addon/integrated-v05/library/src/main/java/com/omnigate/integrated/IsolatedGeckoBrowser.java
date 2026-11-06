@@ -1410,6 +1410,11 @@ final class IsolatedGeckoBrowser {
             }catch(Throwable unavailable){
                 android.util.Log.w("OmniGateBrowser","guest_context_clear_unavailable");
             }
+            try{
+                GeckoBrowserDownloads.clearContextFiles(host,guestId);
+            }catch(java.io.IOException cannotErase){
+                android.util.Log.w("OmniGateBrowser","guest_download_erase_failed");
+            }
         }
         if(view instanceof View)display.removeView((View)view);
     }
