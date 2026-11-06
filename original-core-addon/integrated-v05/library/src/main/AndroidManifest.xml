@@ -26,5 +26,7 @@
             android:exported="false"/>
         <activity android:name="com.omnigate.integrated.OverlayDocumentPickerActivity"
             android:exported="false"/>
+        <activity android:name="com.omnigate.integrated.GeckoFilePickerActivity"
+            android:exported="false"/>
     </application>
 </manifest>
