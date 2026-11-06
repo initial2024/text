@@ -1,0 +1,59 @@
+name: 'OGRISK18 request path admission and sanitized audit'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeDirectAdapter.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java'
+      - '.github/workflows/ogrisk18-request-wiring.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-invariants:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Provider circuit and actual Android source checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$R/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java" \
+            "$R/relay-tests/UpstreamRiskCircuitTest.java"
+          java -cp "$OUT" com.omnigate.integrated.UpstreamRiskCircuitTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          s=(p/'SidecarProxyServer.java').read_text()
+          c=(p/'ClaudeDirectAdapter.java').read_text()
+          assert 'new UpstreamRiskCircuit("native",1' in s
+          assert 'new UpstreamRiskCircuit("claude",1' in s
+          assert 'activeRisk.enter(' in s
+          assert 'if(!admit.allowed)' in s
+          assert 'riskAdmitted=true' in s
+          assert 'if(riskAdmitted && activeRisk!=null)activeRisk.exit()' in s
+          assert 'proxyToFrozenCore(request, out, titleRequest, activeRisk)' in s
+          assert 'activeRisk.observe(statusCode' in s
+          assert 'upstream.getHeaderField("Retry-After")' in s
+          assert 'upstream.getHeaderField("cf-mitigated")' in s
+          assert 'ClaudeDirectAdapter.invoke(' in s
+          assert 'risk.observe(status,connection.getHeaderField("Retry-After")' in c
+          assert 'anthropic-ratelimit-requests-reset' in c
+          assert 'UpstreamRiskCircuit.quotaCode(errorCode)' in c
+          assert 'lastSubmissionSequence' in s
+          assert 'while((n=upstream.read(buffer))!=-1)' in s
+          assert 'provider_challenge' in (p/'UpstreamRiskCircuit.java').read_text()
+          assert 'channel=' in s and 'until_ms=' in s
+          print('OGRISK18_REQUEST_BEFORE_NATIVE_POST_GUARD=PASS_STATIC')
+          print('OGRISK18_NO_AUTH_OR_CHALLENGE_RETRY=PASS_STATIC')
+          print('OGRISK18_REAL_PROVIDER_CALLS=NOT_TESTED')
+          PY

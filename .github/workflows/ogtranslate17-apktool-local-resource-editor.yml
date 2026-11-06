@@ -1,0 +1,36 @@
+name: OGTRANSLATE17 offline APK resource editor tool (NO PRIVATE APP)
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths: ['.github/workflows/ogtranslate17-apktool-local-resource-editor.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  tool:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Fetch official Apktool v3.0.3 for private local resource edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tooling
+          curl --fail --location --retry 3 \
+            https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar \
+            --output tooling/apktool_3.0.3.jar
+          test -s tooling/apktool_3.0.3.jar
+          java -jar tooling/apktool_3.0.3.jar --version
+          sha256sum tooling/apktool_3.0.3.jar > tooling/SHA256SUMS.txt
+          printf 'OFFICIAL_TOOL_ONLY=YES\nUSER_APK_INCLUDED=NO\nSIGNING_KEY_INCLUDED=NO\n' \
+            > tooling/README.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OGTRANSLATE17-OFFICIAL-APKTOOL-ONLY-NOT-APK
+          path: tooling/
+          retention-days: 3
+          if-no-files-found: error

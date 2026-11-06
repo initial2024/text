@@ -1,0 +1,49 @@
+name: 'OGRELAY03 generation isolation - no stale WebSocket response'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/RelayConnectionEpoch.java'
+      - 'original-core-addon/integrated-v05/relay-tests/RelayConnectionEpochTest.java'
+      - '.github/workflows/ogrelay03-generation-isolation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generation-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Run pure JVM owner-epoch tests without network or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$ROOT/library/src/main/java/com/omnigate/integrated/RelayConnectionEpoch.java" \
+            "$ROOT/relay-tests/RelayConnectionEpochTest.java"
+          java -cp "$OUT" com.omnigate.integrated.RelayConnectionEpochTest
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java').read_text()
+          assert 'epochs.ended(generation, webSocket)' in s
+          assert 'epochs.claimReconnect(generation)' in s
+          assert 'epochs.isCurrent(generation, owner)' in s
+          assert 'send(frame, generation, owner)' in s
+          assert 'send(start, generation, owner)' in s
+          assert 'handleRequest(msg, generation, owner)' in s
+          assert 'requestPool.execute(() ->' in s
+          assert 'private void send(JSONObject json)' not in s
+          print('OGRELAY03_NO_STALE_WEBSOCKET_SEND_OR_REPLAY=PASS_STATIC')
+          print('OGRELAY03_REAL_ANDROID_MODEL_STREAM=NOT_TESTED')
+          PY

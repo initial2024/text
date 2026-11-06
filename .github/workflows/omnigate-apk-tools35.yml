@@ -1,0 +1,67 @@
+name: 'OmniGate APK official local verification toolchain (no secrets)'
+on:
+  pull_request:
+    branches: [original-core-addon]
+    paths: ['.github/workflows/omnigate-apk-tools35.yml']
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths: ['.github/workflows/omnigate-apk-tools35.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  toolchain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Stage official Android APK validation tools only
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="$ANDROID_HOME"
+          BT="$SDK_ROOT/build-tools/35.0.0"
+          if [ ! -s "$BT/lib/apksigner.jar" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort | tail -1)"
+            test -x "$SDKMANAGER"
+            "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'build-tools;35.0.0'
+          fi
+          test -s "$BT/lib/apksigner.jar"
+          test -x "$BT/zipalign"
+          test -x "$BT/aapt2"
+          mkdir -p tmp-apk-tools/lib
+          cp "$BT/lib/apksigner.jar" tmp-apk-tools/lib/apksigner.jar
+          cp "$BT/apksigner" "$BT/zipalign" "$BT/aapt2" tmp-apk-tools/
+          LIBCXX="$(find "$BT" -type f -name 'libc++.so' -print -quit)"
+          test -n "$LIBCXX"
+          cp "$LIBCXX" tmp-apk-tools/libc++.so
+          "$BT/apksigner" --version
+          sha256sum tmp-apk-tools/lib/apksigner.jar > tmp-apk-tools/SHA256SUMS.txt
+          printf '%s\n' 'Android SDK Build-Tools 35.0.0: validation tooling only; no keystore, APK or user data.' > tmp-apk-tools/README.txt
+      - name: Stage pinned public DEX assembler/disassembler (no private APK)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd tmp-apk-tools
+          curl -fL --retry 3 --connect-timeout 20 \
+            https://github.com/baksmali/smali/releases/download/3.0.10/baksmali-3.0.10-fat-release.jar \
+            -o baksmali-fat.jar
+          curl -fL --retry 3 --connect-timeout 20 \
+            https://github.com/baksmali/smali/releases/download/3.0.10/smali-3.0.10-fat-release.jar \
+            -o smali-fat.jar
+          echo '37ae4a41a8886e15c20b8362fa4250f96bbdb55e1a608199ad8b5dff068b588f  baksmali-fat.jar' | sha256sum -c -
+          echo '32fa0e88a6c397b3922201adf5f3e534fbaed5a663c71d0c558c3ddce0af844a  smali-fat.jar' | sha256sum -c -
+          java -jar baksmali-fat.jar --version
+          java -jar smali-fat.jar --version
+          printf '\n%s\n' 'smali/baksmali 3.0.10 fat jars: pinned public release checksums; no user data or private keys.' >> README.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniGate-Official-Apk-Tools35-Validation-ONLY
+          path: tmp-apk-tools/
+          retention-days: 1
+          if-no-files-found: error
+
+# Validation-tool refresh for private, offline APK integration at HEAD c2de9adb; never upload signing secrets or user APK.

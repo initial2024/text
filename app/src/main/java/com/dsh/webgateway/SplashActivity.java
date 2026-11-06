@@ -140,7 +140,7 @@ public final class SplashActivity extends Activity {
                     .alpha(0f)
                     .setDuration(220)
                     .withEndAction(() -> {
-                        Intent intent = new Intent(this, MainActivity.class);
+                        Intent intent = new Intent(this, SidecarActivity.class);
                         startActivity(intent);
                         overridePendingTransition(0, 0);
                         finish();

@@ -1,0 +1,46 @@
+name: 'OGBRAND01 launch UI and real standalone splash compile'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'app/src/main/**'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserStore.java'
+      - '.github/workflows/ogbrand01-launch-ui.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - name: Compile real addon DEX source and standalone Android launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p original-core-addon/integrated-v05 :library:assembleDebug --no-daemon
+          gradle :app:assembleDebug --no-daemon
+      - name: Verify launcher/splash and no false account transfer promise
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest=Path('app/src/main/AndroidManifest.xml').read_text()
+          splash=Path('app/src/main/java/com/dsh/webgateway/SplashActivity.java').read_text()
+          home=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java').read_text()
+          assert 'android:name=".SplashActivity"' in manifest
+          assert 'new Intent(this, SidecarActivity.class)' in splash
+          assert '一键切换独立账号' in home
+          assert '主执行账号 · 前往原版模型页' in home
+          assert '未确认前不得视为已切换 API 发送账号' in home
+          print('OGBRAND01_BUILD_AND_CONTRACT=PASS')
+          print('OGBRAND01_PRIVATE_FULL_APK_REPACKAGING=NOT_DONE')
+          PY

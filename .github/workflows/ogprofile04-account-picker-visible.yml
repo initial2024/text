@@ -1,0 +1,62 @@
+name: 'OGPROFILE04 directly switch provider and account in visible Android list'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountQuickSwitchRows.java'
+      - 'original-core-addon/integrated-v05/relay-tests/AccountQuickSwitchRowsTest.java'
+      - '.github/workflows/ogprofile04-account-picker-visible.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  visible-picker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Validate direct account slots and Android AlertDialog content contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$R/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java" \
+            "$R/library/src/main/java/com/omnigate/integrated/AccountQuickSwitchRows.java" \
+            "$R/relay-tests/AccountQuickSwitchRowsTest.java"
+          java -cp "$OUT" com.omnigate.integrated.AccountQuickSwitchRowsTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          src=(p/'IsolatedGeckoBrowser.java').read_text()
+          picker=src[src.index('static void showPicker(Activity host)'):
+                     src.index('static void show(Activity host,String provider)')]
+          assert 'Dialog picker=new Dialog(host)' in picker
+          assert 'ScrollView scroll=new ScrollView(host)' in picker
+          # Compact per-provider accordion, with every slot still reachable.
+          assert 'final int providerCount=AccountBrowserSlots.PROVIDERS.length;' in picker
+          assert 'for(int p=0;p<providerCount;p++)' in picker
+          assert 'for(int slot:AccountMetadataStore.sorted(host,provider,' in picker
+          assert 'group.setVisibility(p==initialOpen?View.VISIBLE:View.GONE);' in picker
+          assert 'groups[i].setVisibility(' in picker
+          assert 'line.addView(entry,new LinearLayout.LayoutParams(0,-1,1f));' in picker
+          assert 'ClaudeFloatingOverlay.show(host,provider,index);' in picker
+          assert 'guest.setOnClickListener(v->{picker.dismiss();showPrivateGuest(host,provider);});' in picker
+          assert 'closeActiveBrowser();' not in picker.split('try{',1)[0]
+          assert 'entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});' in picker
+          assert 'switchTo(startingSlot)' in src
+          assert 'AccountBrowserStore.contextId(host,provider,index)' in src
+          assert 'getMethod("contextId",String.class)' in src
+          assert 'new GeckoRuntime(' not in src
+          home=(p/'OmniGateHomeActivity.java').read_text()
+          assert 'button(main,"一键切换独立账号",true' in home
+          assert '未确认前不得视为已切换 API 发送账号' in home
+          print('OGPROFILE04_COMPACT_PROVIDER_ACCORDION_ACCOUNT_CHOICES=PASS_STATIC')
+          print('OGPROFILE04_NO_SHARED_COOKIES_NO_AUTOMATIC_MODEL_REPOST=PASS_STATIC')
+          print('OGPROFILE04_REAL_ANDROID_NAVIGATION=NOT_TESTED')
+          PY

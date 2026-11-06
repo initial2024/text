@@ -1,0 +1,159 @@
+name: OGCLAUDE browser-only lazy login + fullscreen
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/MainAccountTargetStore.java'
+      - 'original-core-addon/integrated-v05/relay-tests/ClaudeBrowserOnlyTest.java'
+      - '.github/workflows/ogclaude01-browser-only-lazy-fullscreen.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Pure Java Claude browser-only model isolation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java" "$R/relay-tests/ClaudeBrowserOnlyTest.java"
+          java -cp "$OUT" com.omnigate.integrated.ClaudeBrowserOnlyTest
+      - name: Static manual-only and full-screen Gecko contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          browser=(p/'IsolatedGeckoBrowser.java').read_text()
+          floating=(p/'ClaudeFloatingOverlay.java').read_text()
+          assert 'FLAG_NOT_FOCUSABLE' in floating
+          assert 'FLAG_WATCH_OUTSIDE_TOUCH' in floating
+          assert 'MotionEvent.ACTION_OUTSIDE' in floating
+          assert 'setOverlayFocusable(false)' in floating
+          assert 'setOverlayFocusable(true)' in floating
+          assert 'setMinimized(true); // Open as a small, non-IME-stealing bubble.' in floating
+          assert 'private static final int BUBBLE_SIZE_DP=52;' in floating
+          assert 'root.setPadding(dp(app,2),dp(app,2),dp(app,2),dp(app,2));' in floating
+          assert 'menu.setOnDismissListener(popup->setOverlayFocusable(false));' in floating
+          open_handler=floating.split('public static void show(Activity host,String provider,int slot)',1)[1].split('private static void create(Context context)',1)[0]
+          assert 'if(minimized)setMinimized(false)' not in open_handler
+          assert 'AccountBrowserStore.contextId(app,selectedProvider,slot)' in floating
+          assert 'AccountMetadataStore.sorted(app,selectedProvider,' in floating
+          assert 'window.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in floating
+          assert 'window.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in floating
+          # Full-window toggle MUST keep the existing GeckoView/GeckoSession.
+          assert 'fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow))' in floating
+          assert 'fullscreenControl=button(app,"全屏")' in floating
+          assert 'fullscreenFooter=button(app,"全屏")' in floating
+          assert 'fullscreenFooter.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow))' in floating
+          assert 'caption.setText(selectedProvider.toUpperCase(java.util.Locale.ROOT)+" · 网页悬浮窗")' in floating
+          assert 'fullscreenFooter.setText(fullscreenWindow?"还原":"全屏")' in floating
+          assert 'fullscreenControl=button(app,"全屏");' in floating
+          assert 'fullscreenControl.setText(fullscreenWindow?"还原":"全屏");' in floating
+          assert 'menu.getMenu().add(0,101,101,' in floating
+          assert 'if(item.getItemId()==101)' in floating
+          assert 'setFullscreenWindow(!fullscreenWindow);' in floating
+          assert 'private static void setFullscreenWindow(boolean enabled)' in floating
+          assert 'private static void applyWindowGeometry()' in floating
+          assert 'window.width=WindowManager.LayoutParams.MATCH_PARENT;' in floating
+          assert 'window.height=WindowManager.LayoutParams.MATCH_PARENT;' in floating
+          assert 'if(!provider.equals(selectedProvider)||selected!=slot||session==null)' in floating
+          fullscreen=floating.split('private static void setFullscreenWindow(boolean enabled)',1)[1].split('private static void setMinimized(boolean value)',1)[0]
+          assert 'loadUri' not in fullscreen
+          assert 'openAccount(' not in fullscreen
+          assert 'releaseSession(' not in fullscreen
+          assert 'setSession' not in fullscreen
+          assert 'manager.updateViewLayout(root,window);' in fullscreen
+          assert 'fullscreenControl.setVisibility(value?View.GONE:View.VISIBLE);' in floating
+          settings=(p/'CompatSettingsActivity.java').read_text()
+          slots=(p/'AccountBrowserSlots.java').read_text()
+          main=(p/'MainAccountTargetStore.java').read_text()
+          risk=(p/'ProviderRiskScopes.java').read_text()
+          assert browser.count('getMethod("loadUri",String.class)') == 1
+          picker=browser.split('static void showPicker(Activity host)',1)[1].split('static void show(Activity host,String provider)',1)[0]
+          assert 'loadUri' not in picker and 'existingRuntime' not in picker and 'new GeckoSession' not in picker
+          assert 'entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});' in picker
+          assert 'dialog.setOnDismissListener(v->{' in browser
+          assert 'releaseSession();' in browser
+          assert 'getMethod("close").invoke(prior)' in browser
+          assert 'private void setFullscreen(boolean enabled)' in browser
+          assert 'fullscreenExit.setOnClickListener(v->showFullscreenActions())' in browser
+          assert 'fullscreenExit.setOnTouchListener' in browser
+          assert 'private void showFullscreenActions()' in browser
+          assert 'private void confirmExternalBrowser()' in browser
+          assert 'fullscreenAddress' not in browser
+          assert 'setFullscreen(false);return true' in browser
+          assert 'if(!movingEdgeControl)v.performClick()' in browser
+          # P191-inspired single-owner auxiliary browser + one-shot Gecko private context.
+          assert 'private static IsolatedGeckoBrowser activeBrowser;' in browser
+          assert 'static void closeActiveBrowser()' in browser
+          assert 'if(prior.dialog.isShowing())prior.dialog.dismiss()' in browser
+          assert 'if(activeBrowser==this)activeBrowser=null' in browser
+          assert 'guest.setOnClickListener(v->{picker.dismiss();showPrivateGuest(host,provider);});' in browser
+          assert 'String id=guestWindow?AccountBrowserSlots.newContextId():' in browser
+          assert 'builderClass.getMethod("usePrivateMode",boolean.class).invoke(builder,true)' in browser
+          assert 'builderClass.getMethod("useTrackingProtection",boolean.class)' in browser
+          assert '.getMethod("clearDataForSessionContext",String.class)' in browser
+          assert 'if(!guestWindow)AccountBrowserStore.select(host,provider,index);' in browser
+          assert 'if(guestWindow)return;' in browser
+          assert 'if(guestWindow!=(index==-1))' in browser
+          assert 'if(guestWindow)open(-1);' in browser
+          assert 'switchTo(startingSlot);' in browser
+          assert 'if(guestId!=null && closed)' in browser
+          assert 'clearData(long.class)' not in browser
+          assert 'userAgentOverride' not in browser.split('private void open(int index)',1)[1].split('private void callSession(',1)[0]
+          assert 'View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY' in browser
+          assert 'Dialog(host,android.R.style.Theme_Material_NoActionBar)' in browser
+          assert 'WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE' in browser
+          assert 'controller.hide(WindowInsets.Type.systemBars())' in browser
+          assert 'controller.show(WindowInsets.Type.systemBars())' in browser
+          assert 'w.setDecorFitsSystemWindows(false)' in browser
+          assert 'LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS' in browser
+          assert 'root.setOnApplyWindowInsetsListener' in browser
+          assert 'private void applyBrowserInsets(WindowInsets insets)' in browser
+          assert 'root.setPadding(0,0,0,0)' in browser
+          assert 'View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN' in browser
+          assert 'display.addView((View)visual,0' in browser
+          assert 'fullscreenExit.setContentDescription("全屏工具菜单，可上下拖动")' in browser
+          # Gecko-native identity without UA/WebGL/sensor/client-hint spoofing.
+          assert 'builderClass.getMethod("userAgentMode",int.class).invoke(builder,0)' in browser
+          assert 'builderClass.getMethod("viewportMode",int.class).invoke(builder,0)' in browser
+          assert 'getDefaultUserAgent' in browser
+          assert 'getUserAgentOverride' in browser
+          assert 'setNeutralButton("浏览器检查"' in browser
+          assert 'builderClass.getMethod("userAgentOverride"' not in browser
+          assert 'evaluateJavascript' not in browser
+          assert 'setJavaScriptEnabled' not in browser
+          assert 'display.addView((View)visual,0' in browser
+          assert 'if(AccountBrowserSlots.nativeExecutorSupported(provider)&&!guestWindow)' in browser
+          assert 'if(!AccountBrowserSlots.nativeExecutorSupported(provider))' in browser
+          assert 'if(AccountBrowserSlots.browserOnly(provider))' in browser
+          assert 'IsolatedGeckoBrowser.show(this,"claude")' in settings
+          assert 'Claude 网页登录 · 手动选择隔离账号（不支持 API）' in settings
+          claude_entry=settings.split('Button claudeWeb=',1)[1].split('LinearLayout api =',1)[0]
+          assert 'Intent.ACTION_VIEW' not in claude_entry
+          assert 'startActivity(' not in claude_entry
+          print('OGCLAUDE_SETTINGS_ENTRY_ISOLATED_GECkO_NOT_EXTERNAL_BROWSER=PASS_STATIC')
+
+          assert 'private void switchTo(int index)' in browser
+          switching=browser.split('private void switchTo(int index)',1)[1].split('private static Object existingRuntime()',1)[0]
+          assert 'open(index);' in switching and 'new AlertDialog' not in switching
+          assert main.count('AccountBrowserSlots.nativeExecutorSupported(provider)') >= 2
+          assert '"claude".equals(provider)' in slots
+          assert '"claude"' not in risk.split('static final String[] WEB=',1)[1].split(';',1)[0]
+          assert '"claude"' in risk.split('static final String[] ALL=',1)[1].split(';',1)[0]
+          print('OGCLAUDE_LAZY_ONLY_SELECTED_PROVIDER_LOADS_AND_FULLSCREEN=PASS')
+          PY

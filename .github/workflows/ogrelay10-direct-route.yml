@@ -1,0 +1,47 @@
+name: 'OGRELAY10 IPv4 IPv6 direct-route triage offline tests'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/relay-tests/omnigate_direct_route_probe.mjs'
+      - 'original-core-addon/integrated-v05/relay-tests/omnigate_direct_route_probe.test.mjs'
+      - '.github/workflows/ogrelay10-direct-route.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-direct-route:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - name: Syntax, offline state and secretless default behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05/relay-tests
+          node --check "$R/omnigate_direct_route_probe.mjs"
+          node --test "$R/omnigate_direct_route_probe.test.mjs"
+          node "$R/omnigate_direct_route_probe.mjs" > dry.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('dry.json').read_text())
+          assert x['verdict']=='DRY_RUN_NO_NETWORK'
+          assert x['post_attempts']==0 and x['get_attempts']==0
+          src=Path('original-core-addon/integrated-v05/relay-tests/omnigate_direct_route_probe.mjs').read_text()
+          assert "HOST='gw-33e850180248.claua.de'" in src
+          assert "path:'/health',method:'GET'" in src
+          assert "req=httpsRequest" in src
+          assert "rejectUnauthorized:true" in src
+          assert "autoSelectFamily:false" in src
+          assert "await Promise.all([4,6]" in src
+          assert "post_attempts:0" in src
+          assert "JSON.stringify(report)" in src
+          assert "authorization" not in src.lower()
+          print('OGRELAY10_FIXED_DOMAIN_NO_POST_NO_CREDENTIALS=PASS_STATIC')
+          print('OGRELAY10_REAL_WINDOWS_PATH=NOT_TESTED')
+          PY

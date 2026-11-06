@@ -1,0 +1,58 @@
+name: 'OGRELAY13 bounded relay resources and redacted errors'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/RelayQueuePacer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/RelayRequestLimiter.java'
+      - 'original-core-addon/integrated-v05/relay-tests/RelayResourceBoundsTest.java'
+      - '.github/workflows/ogrelay13-resource-bounds.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  resource-gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: JVM pressure and source integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$R/library/src/main/java/com/omnigate/integrated/RelayQueuePacer.java" \
+            "$R/library/src/main/java/com/omnigate/integrated/RelayRequestLimiter.java" \
+            "$R/relay-tests/RelayResourceBoundsTest.java"
+          java -cp "$OUT" com.omnigate.integrated.RelayResourceBoundsTest
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java').read_text()
+          a=s.index('private void handleRequest(JSONObject msg')
+          b=s.index('private static String readSmall(',a)
+          active=s[a:b]
+          assert 'new RelayRequestLimiter(6)' in s
+          assert 'if(!requestLimit.tryEnter())' in s
+          assert 'requestLimit.leave()' in s
+          assert 'relay_local_capacity_exceeded' in s
+          assert 'RelayQueuePacer queuePacer=new RelayQueuePacer()' in active
+          assert 'awaitRelayQueueRoom(generation, owner, queuePacer)' in active
+          assert 'owner.queueSize()' in active
+          assert 'Thread.sleep(75L)' in active
+          assert 'delivery.recordChunk(false)' in active
+          assert 'while ((n = response.read(buffer)) >= 0)' in active
+          assert 'local_upstream_transport_failed' in active
+          assert 'e.getMessage()' not in active
+          assert 'return owner.send(json.toString())' in active
+          assert 'if(completion!=null && !completion.complete())' in active
+          print('OGRELAY13_ANDROID_WIRING_AND_REDACTION=PASS_STATIC')
+          print('OGRELAY13_NO_AUTOMATIC_MODEL_RETRY=PASS_STATIC')
+          print('OGRELAY13_REAL_ANDROID_SATURATION=NOT_TESTED')
+          PY

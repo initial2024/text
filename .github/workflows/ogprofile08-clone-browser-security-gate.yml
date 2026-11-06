@@ -1,0 +1,91 @@
+name: OGPROFILE08 Android clone and Gecko browser-security source gate
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AndroidProfileSafetyCenter.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountQuickSettings.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountStorageCleaner.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountManagerUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoScopedPermissionGate.java'
+      - 'original-core-addon/integrated-v05/OGPROFILE08_SECURITY_AND_BINARY_HANDOFF.md'
+      - '.github/workflows/ogprofile08-clone-browser-security-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-invariants:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify boundaries (source checks, NOT device E2E)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          read=lambda f:(p/f).read_text()
+          profile=read('AndroidProfileSafetyCenter.java')
+          store=read('AccountBrowserStore.java')
+          quick=read('AccountQuickSettings.java')
+          browser=read('IsolatedGeckoBrowser.java')
+          overlay=read('ClaudeFloatingOverlay.java')
+          downloads=read('GeckoBrowserDownloads.java')
+          clean=read('AccountStorageCleaner.java')
+          accounts=read('AccountManagerUi.java')
+          perms=read('GeckoScopedPermissionGate.java')
+          assert 'getSerialNumberForUser(current)' in profile
+          assert 'getUserProfiles()' in profile
+          assert 'UUID.randomUUID()' in profile
+          assert 'Context.MODE_PRIVATE' in profile
+          assert 'Settings.ACTION_SETTINGS' in profile
+          assert 'AndroidProfileSafetyCenter.show(this)' in read('OmniGateHomeActivity.java')
+          assert 'createAndManageUser' not in profile
+          assert 'ACTION_PROVISION_MANAGED_PROFILE' not in profile
+          assert 'getIdentifier()' not in profile
+          for forbidden in ('android.permission.MANAGE_USERS','android.permission.MANAGE_DEVICE_ADMINS',
+                            'DevicePolicyManager','su -c','RootShell','Build.SERIAL','HttpURLConnection','https://'):
+              assert forbidden not in profile, forbidden
+          assert 'trackingProtection(Context c,String provider,int slot)' in store
+          assert 'getBoolean(provider+"."+slot+".tracking_protection",true)' in store
+          assert 'setTrackingProtection(Context c,String provider,' in store
+          assert 'builderClass.getMethod("useTrackingProtection",boolean.class)' in browser
+          assert 'builderClass.getMethod("useTrackingProtection",boolean.class)' in overlay
+          assert 'AccountBrowserStore.trackingProtection' in browser
+          assert 'AccountBrowserStore.trackingProtection' in overlay
+          assert 'toggleTracking(a,provider,slot)' in quick
+          assert 'GeckoDownloadManagerActivity.class' in quick
+          assert 'getMethod("contextId",String.class).invoke(builder,id)' in browser
+          assert 'getMethod("contextId",String.class).invoke(builder,id)' in overlay
+          assert 'owner.getAsBoolean()' in perms
+          assert 'onAndroidPermissionsRequest' in perms
+          assert 'onMediaPermissionRequest' in perms
+          assert 'onContentPermissionRequest' in perms
+          assert 'callback.getClass().getMethod("reject").invoke(callback)' in perms
+          assert 'GeckoBrowserDownloads.clearContextFiles(host,guestId)' in browser
+          assert 'GeckoBrowserDownloads.clearContextFiles(c,oldId)' in clean
+          assert 'GeckoBrowserDownloads.delete(this,contextId,file.getName())' in read('GeckoDownloadManagerActivity.java')
+          assert 'retiredContexts.add(contextId)' in downloads
+          assert 'retiredContexts.contains(t.contextId)' in downloads
+          assert 'if(active==t)active=null' in downloads
+          assert 'java.nio.file.Files.isSymbolicLink' in downloads
+          assert '删除该空间的私有下载文件' in accounts
+          assert 'onPageStop' in browser and 'elapsedRealtime()' in browser
+          assert 'getMethod("loadUri",String.class)' not in read('OmniGateBrowserLanguage.java')
+          assert 'APPROVAL' not in profile
+          print('OGPROFILE08_SYSTEM_CLONE_INFORMATION_NO_PRIVILEGE_ESCALATION=PASS_SOURCE')
+          print('OGPROFILE08_PER_SLOT_TRACKING_AND_CONTEXT_OWNERSHIP=PASS_SOURCE')
+          print('OGPROFILE08_DOWNLOAD_CONTEXT_TOMBSTONES_AND_SCOPE_ERASE=PASS_SOURCE')
+          print('OGPROFILE08_SITE_PERMISSION_FAIL_CLOSED=PASS_SOURCE')
+          print('OGPROFILE08_CLAUDE_ELAPSED_TIME_NOT_LOGIN_ATTESTATION=PASS_SOURCE')
+          print('OGPROFILE08_ANDROID_DEVICE_E2E=NOT_TESTED')
+          print('OGPROFILE08_SIGNED_UPDATED_APK=NOT_BUILT')
+          PY
