@@ -116,6 +116,11 @@ public final class ClaudeFloatingOverlay {
         }
         try{
             if(!showing())create(host.getApplicationContext());
+            // A manually requested login must start in a usable viewport,
+            // not load a responsive provider website inside the 52dp bubble.
+            // Expand BEFORE GeckoSession.open/loadUri; this neither signs in
+            // another account nor adds a second navigation.
+            if(minimized)setMinimized(false);
             // All providers share one overlay owner; never preloads another.
             if(!provider.equals(selectedProvider)||selected!=slot||session==null){
                 hideQuickSettings();
@@ -724,6 +729,10 @@ public final class ClaudeFloatingOverlay {
         hideTranslationPanel();
         releaseSession();
         selected=-1;
+        // A failed native GeckoSession.close must never allow a second
+        // account to open in this process, including menu-triggered swaps.
+        if(sessionCloseFailed||!IsolatedGeckoBrowser.ownerHealthy())
+            throw new IllegalStateException("previous_gecko_session_close_failed");
         String id=AccountBrowserStore.contextId(app,selectedProvider,slot);
         if(!AccountBrowserSlots.validContextId(id))
             throw new IllegalStateException("context_invalid");

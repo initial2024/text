@@ -97,6 +97,11 @@ jobs:
           assert 'AccountBrowserStore.contextId(app,selectedProvider,slot)' in overlay
           assert 'AccountBrowserSlots.home(selectedProvider)' in overlay
           assert 'IsolatedGeckoBrowser.closeActiveBrowser();' in overlay
+          assert 'if(minimized)setMinimized(false);' in overlay
+          assert overlay.index('if(minimized)setMinimized(false);') < overlay.index('openAccount(slot);')
+          assert 'previous_gecko_session_close_failed' in overlay
+          assert overlay.index('releaseSession();\n        selected=-1;') < overlay.index('previous_gecko_session_close_failed')
+          assert 'setMinimized(false);' in overlay
           assert 'FLAG_NOT_FOCUSABLE' in overlay
           assert 'private static void setFullscreenWindow(boolean enabled)' in overlay
           assert 'setOverlayFocusable(false)' in overlay
