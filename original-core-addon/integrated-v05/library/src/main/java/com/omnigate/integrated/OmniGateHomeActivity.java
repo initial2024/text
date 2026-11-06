@@ -142,6 +142,8 @@ public final class OmniGateHomeActivity extends Activity {
             ()->IsolatedGeckoBrowser.showPicker(this));
         button(main,"多账号管理 · 搜索 / 筛选 / 备注 / 清理",false,
             ()->AccountManagerUi.show(this));
+        button(main,"系统隔离 / 应用分身安全检查",false,
+            ()->AndroidProfileSafetyCenter.show(this));
         button(main,"主执行账号 · 前往原版模型页",false,
             ()->openOriginal("com.deepseek2.app.ui.MainActivity"));
         button(main,"清除主执行目标 · 恢复原版登录路由",false,()->
