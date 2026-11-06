@@ -59,6 +59,13 @@ final class GeckoBrowserTransfers {
                     if("hashCode".equals(m.getName()))return System.identityHashCode(o);
                     if("equals".equals(m.getName()))return args!=null&&args.length>0&&o==args[0];
                     if("toString".equals(m.getName()))return "OmniGateFilePrompt";
+                    if("onFolderUploadPrompt".equals(m.getName())){
+                        // Folder selection could expose an unbounded recursive
+                        // tree and bypass the 8-file / 128 MiB file-input
+                        // cap; do not fall back to Gecko's default picker.
+                        return args!=null&&args.length>=2
+                            ?immediateDismiss(args[1]):null;
+                    }
                     if(!"onFilePrompt".equals(m.getName())||args==null||args.length<2)
                         return null;
                     Object s=args[0],p=args[1];
