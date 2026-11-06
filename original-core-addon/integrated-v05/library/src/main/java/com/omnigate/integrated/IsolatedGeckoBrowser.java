@@ -36,6 +36,11 @@ final class IsolatedGeckoBrowser {
     // of another account context until a fresh, audited application process.
     private static boolean sessionCloseFailed;
     static boolean ownerHealthy(){return !sessionCloseFailed;}
+    static boolean ownsLiveSession(Object expected){
+        IsolatedGeckoBrowser current=activeBrowser;
+        return current!=null && current.session==expected && 
+            current.dialog.isShowing() && !sessionCloseFailed;
+    }
     private final Activity host;
     private final String provider;
     private final int startingSlot;
@@ -297,6 +302,90 @@ final class IsolatedGeckoBrowser {
             throw failure;
         }
     }
+    /**
+     * Source owner of a LIVE GeckoSession. No loadUri/reload or cookie move.
+     * The old dialog must lose its session reference BEFORE dismissal.
+     */
+    private void handoffToFloatingWindow(){
+        if(guestWindow||selected<0||session==null||geckoView==null||
+            activeBrowser!=this||!dialog.isShowing()){
+            state.setText("当前没有可安全转移的持久账号网页");
+            return;
+        }
+        Object oldView=geckoView;
+        if(!ClaudeFloatingOverlay.adoptLiveBrowser(host,provider,selected,
+                session,oldView)){
+            state.setText("无刷新转移未完成；原网页保留，请检查悬浮窗权限或窗口状态");
+            return;
+        }
+        // On success the SAME GeckoSession is now attached to the overlay.
+        // Do not call GeckoSession.close() from Dialog.onDismiss.
+        session=null;
+        geckoView=null;
+        selected=-1;
+        currentUrl=null;
+        if(oldView instanceof View)display.removeView((View)oldView);
+        if(activeBrowser==this)activeBrowser=null;
+        dialog.dismiss();
+    }
+
+    /**
+     * Target owner when a live overlay is explicitly returned to the full
+     * account browser. A newly created GeckoView receives the existing
+     * GeckoSession. No new GeckoRuntime, session or navigation is created.
+     */
+    static boolean adoptLiveOverlay(Activity host,String provider,int slot,
+            Object existingSession,Object oldOverlayView){
+        if(host==null||host.isFinishing()||host.isDestroyed()||
+           !AccountBrowserSlots.supported(provider)||slot<0||
+           slot>=AccountBrowserStore.count(host,provider)||activeBrowser!=null||
+           sessionCloseFailed || !ClaudeFloatingOverlay.ownsLiveSession(existingSession))
+            return false;
+        IsolatedGeckoBrowser target=null;
+        boolean moved=false;
+        try{
+            String id=AccountBrowserStore.contextId(host,provider,slot);
+            GeckoLiveWindowHandoff.verify(existingSession,id);
+            target=new IsolatedGeckoBrowser(host,provider,slot);
+            target.showFrameOnly();
+            Class<?> geckoViewType=Class.forName("org.mozilla.geckoview.GeckoView");
+            Object newView=geckoViewType.getConstructor(Context.class).newInstance(host);
+            if(!(newView instanceof View))throw new IllegalStateException("new_gecko_view_invalid");
+            target.display.addView((View)newView,0,
+                new FrameLayout.LayoutParams(-1,-1));
+            // Source still holds live ownership until a verified transfer.
+            GeckoLiveWindowHandoff.move(oldOverlayView,newView,existingSession,id);
+            moved=true;
+            target.session=existingSession;
+            target.geckoView=newView;
+            target.selected=slot;
+            activeBrowser=target;
+            target.followCurrentLocation(existingSession,
+                Class.forName("org.mozilla.geckoview.GeckoSession"));
+            target.followClaudePageProgress(existingSession,
+                Class.forName("org.mozilla.geckoview.GeckoSession"));
+            target.renderTabs();
+            target.refreshLocalBudget();
+            target.state.setText("已无刷新返回当前账号网页；登录和编辑中的内容仍在原 GeckoSession");
+            return true;
+        }catch(Throwable failure){
+            android.util.Log.w("OmniGateBrowser","overlay_to_page_handoff_rejected",
+                failure);
+            if(target!=null){
+                if(moved){
+                    // No destructive fallback: a failed late UI operation
+                    // must not close the live Gecko session.
+                    target.state.setText("网页转移后界面更新异常；请勿清理账号数据");
+                    return true;
+                }
+                target.session=null;target.geckoView=null;
+                if(activeBrowser==target)activeBrowser=null;
+                if(target.dialog.isShowing())target.dialog.dismiss();
+            }
+            return false;
+        }
+    }
+
     private IsolatedGeckoBrowser(Activity host,String provider,int slot){
         this.host=host;this.provider=provider;this.startingSlot=slot;
         this.guestWindow=slot==-1;
@@ -501,7 +590,7 @@ final class IsolatedGeckoBrowser {
             LinearLayout accountActions=new LinearLayout(host);
             Button floatOpen=button("↗ 当前账号 · 悬浮窗");
             floatOpen.setOnClickListener(v->{
-                if(selected>=0)ClaudeFloatingOverlay.show(host,provider,selected);
+                if(selected>=0)handoffToFloatingWindow();
             });
             accountActions.addView(floatOpen,new LinearLayout.LayoutParams(0,dp(host,42),1));
             Button quick=button("⚙ 账号设置");
@@ -743,7 +832,7 @@ final class IsolatedGeckoBrowser {
                 case 8:showDownloads();return true;
                 case 6:
                     if(!guestWindow&&selected>=0)
-                        ClaudeFloatingOverlay.show(host,provider,selected);
+                        handoffToFloatingWindow();
                     return true;
                 default:return false;
             }
@@ -992,7 +1081,7 @@ final class IsolatedGeckoBrowser {
         b.setMinHeight(dp(host,43));
         return b;
     }
-    private void show(){
+    private void showFrameOnly(){
         dialog.show();
         Window w=dialog.getWindow();
         if(w!=null){
@@ -1007,6 +1096,9 @@ final class IsolatedGeckoBrowser {
             w.getDecorView().requestApplyInsets();
         }
         renderTabs();
+    }
+    private void show(){
+        showFrameOnly();
         if(guestWindow)open(-1);
         else{
             refreshLocalBudget();
@@ -1381,11 +1473,11 @@ final class IsolatedGeckoBrowser {
             followCurrentLocation(created,sessionClass);
             followClaudePageProgress(created,sessionClass);
             GeckoBrowserTransfers.attachFilePrompt(host,created,
-                ()->session==created&&dialog.isShowing()&&activeBrowser==this);
+                ()->GeckoLiveWindowHandoff.owns(created));
             GeckoScopedPermissionGate.install(host,created,id,
-                ()->session==created&&dialog.isShowing()&&activeBrowser==this);
+                ()->GeckoLiveWindowHandoff.owns(created));
             GeckoBrowserDownloads.attach(host,created,id,
-                ()->session==created&&dialog.isShowing()&&activeBrowser==this);
+                ()->GeckoLiveWindowHandoff.owns(created));
             navigateTo(AccountBrowserSlots.home(provider));
             if(!guestWindow)AccountBrowserStore.select(host,provider,index);
             selected=guestWindow?-1:index;
