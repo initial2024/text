@@ -60,3 +60,5 @@ jobs:
           path: tmp-apk-tools/
           retention-days: 1
           if-no-files-found: error
+
+# Validation-tool refresh for private, offline APK integration at HEAD c2de9adb; never upload signing secrets or user APK.
