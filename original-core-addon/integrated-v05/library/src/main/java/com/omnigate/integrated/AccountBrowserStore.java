@@ -16,6 +16,18 @@ final class AccountBrowserStore {
             throw new IllegalStateException("invalid_slot_count");
         return count;
     }
+    /** Per-slot anti-tracking preference; does not change Gecko device identity. */
+    static synchronized boolean trackingProtection(Context c,String provider,int slot){
+        contextId(c,provider,slot);
+        return prefs(c).getBoolean(provider+"."+slot+".tracking_protection",true);
+    }
+    static synchronized void setTrackingProtection(Context c,String provider,
+            int slot,boolean enabled){
+        contextId(c,provider,slot);
+        if(!prefs(c).edit().putBoolean(provider+"."+slot+".tracking_protection",
+                enabled).commit())
+            throw new IllegalStateException("tracking_preference_not_saved");
+    }
     static synchronized String contextId(Context c,String provider,int index){
         if(index<0||index>=count(c,provider))
             throw new IllegalArgumentException("slot_index");
