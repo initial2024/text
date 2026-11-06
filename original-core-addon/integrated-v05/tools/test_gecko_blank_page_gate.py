@@ -71,6 +71,19 @@ public final class BlankPageTest {
       check(!uri.contains("oauth")&&!uri.contains("cookie"),"no sensitive URI");
       check(uri.length()<9000,"bounded HTML");
     }
+    final class DnsError{
+      public final int category=5;
+      public final int code=37;
+    }
+    check(GeckoPageFailureUi.explain(new DnsError()).contains("DNS_UNKNOWN_HOST"),
+      "category5 code37 must resolve to DNS unknown host");
+    check(GeckoPageFailureUi.explain(new DnsError()).contains("工作资料"),
+      "work-profile guidance exists");
+    for(String provider:AccountBrowserSlots.PROVIDERS){
+      Object response=GeckoPageFailureUi.response(provider,new DnsError());
+      String uri=(String)((org.mozilla.geckoview.GeckoResult<?>)response).value;
+      check(uri.contains("DNS_UNKNOWN_HOST")||uri.contains("DNS"),"dns signal visible");
+    }
     String detail=GeckoPageFailureUi.detail(new SampleError());
     check("GECKO_NETWORK_ERROR(category=7,code=112)".equals(detail),"error code");
     check("GECKO_NETWORK_ERROR(category=-1,code=-1)".equals(
