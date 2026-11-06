@@ -71,6 +71,8 @@ public final class ClaudeFloatingOverlay {
     }
     private static Object session,geckoView;
     private static boolean sessionCloseFailed;
+    private static boolean contentProcessTerminated;
+    private static String lastLoadFailure;
     static boolean ownerHealthy(){return !sessionCloseFailed;}
     static boolean ownsLiveSession(Object expected){
         return expected!=null && session==expected && showing() && !sessionCloseFailed;
@@ -815,8 +817,23 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,104,104,"无刷新译文阅读层 / 返回原文");
         menu.getMenu().add(0,105,105,"当前账号空间 · 下载管理");
         menu.getMenu().add(0,106,106,"回到账号空间全页（无刷新）");
+        menu.getMenu().add(0,107,107,"手动重开当前网页（保留账号 Cookie）");
         menu.setOnMenuItemClickListener(item->{
             if(item.getItemId()==106){returnLivePage();return true;}
+            if(item.getItemId()==107){
+                if(selected>=0){
+                    int previous=selected;
+                    // This is an EXPLICIT user request. No automatic site
+                    // retry, account rotation or credential copying.
+                    try{openAccount(previous);}
+                    catch(Throwable failed){
+                        if(caption!=null)caption.setText(
+                            "网页重开失败："+failed.getClass().getSimpleName()+
+                            "；未删除登录资料");
+                    }
+                }
+                return true;
+            }
             if(item.getItemId()==105){
                 if(app!=null&&selected>=0){
                     Intent intent=new Intent(app,GeckoDownloadManagerActivity.class);
@@ -905,7 +922,14 @@ public final class ClaudeFloatingOverlay {
         GeckoScopedPermissionGate.install(app,created,id,
             ()->GeckoLiveWindowHandoff.owns(created));
         GeckoBrowserDownloads.attach(app,created,id,
-            ()->GeckoLiveWindowHandoff.owns(created));
+            ()->GeckoLiveWindowHandoff.owns(created),
+            event->{
+                if(session!=created||!showing())return;
+                contentProcessTerminated=true;
+                lastLoadFailure=event;
+                if(caption!=null)
+                    caption.setText(event+" · 点击账号菜单手动重开；Cookie 仍保留");
+            });
         Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
         Object visual=viewClass.getConstructor(Context.class).newInstance(app);
         if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
@@ -938,6 +962,17 @@ public final class ClaudeFloatingOverlay {
                     if("hashCode".equals(m.getName()))return System.identityHashCode(p);
                     if("equals".equals(m.getName()))return args!=null&&args.length>0&&p==args[0];
                     if("toString".equals(m.getName()))return "OmniGateOverlayUploadNavigation";
+                    if("onLoadError".equals(m.getName())&&args!=null&&
+                            args.length>=3&&args[0]==owned){
+                        Object err=args[2];
+                        String reason=GeckoPageFailureUi.detail(err);
+                        if(session==owned){
+                            lastLoadFailure=reason;
+                            if(caption!=null)caption.setText(
+                                "网页加载失败："+reason+" · 手动重开");
+                        }
+                        return GeckoPageFailureUi.response(selectedProvider,err);
+                    }
                     if("onLocationChange".equals(m.getName())&&args!=null&&
                         args.length>1&&args[0]==owned){
                         if(app!=null&&session==owned)
@@ -958,8 +993,22 @@ public final class ClaudeFloatingOverlay {
                     if("toString".equals(m.getName()))
                         return "OmniGateOverlayUploadPageStartGate";
                     if("onPageStart".equals(m.getName())&&args!=null&&
-                        args.length>1&&args[0]==owned&&app!=null&&session==owned)
+                        args.length>1&&args[0]==owned&&app!=null&&session==owned){
+                        lastLoadFailure=null;
+                        contentProcessTerminated=false;
                         GeckoBrowserTransfers.cancelSession(app,owned);
+                    }else if("onPageStop".equals(m.getName())&&args!=null&&
+                        args.length>1&&args[0]==owned&&session==owned&&
+                        args[1] instanceof Boolean){
+                        if(caption!=null){
+                            caption.setText(lastLoadFailure!=null
+                                ?"网页未加载："+lastLoadFailure
+                                :Boolean.TRUE.equals(args[1])
+                                    ?selectedProvider.toUpperCase(java.util.Locale.ROOT)+
+                                        " · 基础加载结束（不代表登录成功）"
+                                    :"基础页面失败 · 可在账号菜单手动重开");
+                        }
+                    }
                     return null;
                 });
             gecko.getMethod("setProgressDelegate",progress).invoke(owned,pageStart);
@@ -1107,9 +1156,13 @@ public final class ClaudeFloatingOverlay {
                 viewport.removeView((View)visual);
         }
         if(old!=null){
-            try{old.getClass().getMethod("close").invoke(old);}
-            catch(Throwable failure){sessionCloseFailed=true;}
+            try{
+                boolean open=Boolean.TRUE.equals(
+                    old.getClass().getMethod("isOpen").invoke(old));
+                if(open)old.getClass().getMethod("close").invoke(old);
+            }catch(Throwable failure){sessionCloseFailed=true;}
         }
+        contentProcessTerminated=false;lastLoadFailure=null;
     }
     public static void close(){
         hideTranslationPanel();
