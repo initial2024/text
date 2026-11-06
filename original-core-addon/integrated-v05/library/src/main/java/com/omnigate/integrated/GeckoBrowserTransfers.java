@@ -59,6 +59,21 @@ final class GeckoBrowserTransfers {
                     if("hashCode".equals(m.getName()))return System.identityHashCode(o);
                     if("equals".equals(m.getName()))return args!=null&&args.length>0&&o==args[0];
                     if("toString".equals(m.getName()))return "OmniGateFilePrompt";
+                    // Never expose the original GeckoRuntime's possibly
+                    // shared autofill credential/address/card store to a
+                    // different auxiliary account context. Manual form entry
+                    // still works; only cross-profile autofill is suppressed.
+                    String callback=m.getName();
+                    if("onLoginSave".equals(callback)||
+                       "onLoginSelect".equals(callback)||
+                       "onAddressSave".equals(callback)||
+                       "onAddressSelect".equals(callback)||
+                       "onCreditCardSave".equals(callback)||
+                       "onCreditCardSelect".equals(callback)||
+                       "onRequestCertificate".equals(callback)){
+                        return args!=null&&args.length>=2
+                            ?immediateDismiss(args[1]):null;
+                    }
                     if("onFolderUploadPrompt".equals(m.getName())){
                         // Folder selection could expose an unbounded recursive
                         // tree and bypass the 8-file / 128 MiB file-input
@@ -75,9 +90,17 @@ final class GeckoBrowserTransfers {
                 });
             ownedSession.getClass().getMethod("setPromptDelegate",promptDelegate)
                 .invoke(ownedSession,proxy);
+            Object actual=ownedSession.getClass().getMethod("getPromptDelegate")
+                .invoke(ownedSession);
+            if(actual!=proxy)
+                throw new IllegalStateException("gecko_prompt_delegate_owner_mismatch");
         } catch(Throwable unsupported) {
-            Log.w(TAG,"file_prompt_hook_unavailable",unsupported);
-            // No alternate browser, no fake upload receipt.
+            Log.w(TAG,"file_and_autofill_gate_unavailable",unsupported);
+            // If a sensitive prompt hook is missing, the original runtime
+            // could offer credentials or file inputs from a different slot.
+            // Abort this auxiliary session instead of a silent fallback.
+            throw new IllegalStateException(
+                "gecko_file_and_autofill_gate_unavailable",unsupported);
         }
     }
     private static Object newGeckoResult()throws Exception {
