@@ -820,6 +820,15 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,107,107,"手动重开当前网页（保留账号 Cookie）");
         menu.getMenu().add(0,108,108,"工作资料 DNS 检查（手动）");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==108){
+                Activity host=handoffActivity==null?null:handoffActivity.get();
+                if(host!=null&&!host.isFinishing()&&!host.isDestroyed())
+                    GeckoWorkProfileDnsDiagnostics.show(host);
+                else if(app!=null)
+                    Toast.makeText(app,"请回到 OmniGate 主界面再运行 DNS 检查",
+                        Toast.LENGTH_LONG).show();
+                return true;
+            }
             if(item.getItemId()==106){returnLivePage();return true;}
             if(item.getItemId()==107){
                 if(selected>=0){
