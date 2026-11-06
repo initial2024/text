@@ -931,6 +931,7 @@ final class IsolatedGeckoBrowser {
             return;
         }
         try{
+            GeckoBrowserTransfers.cancelSession(host,session);
             session.getClass().getMethod("loadUri",String.class).invoke(session,url);
             currentUrl=url;
             addressInput.setText(url);
@@ -956,6 +957,8 @@ final class IsolatedGeckoBrowser {
                         host.runOnUiThread(()->{
                             if(session==ownedSession &&
                               (current.startsWith("http://")||current.startsWith("https://"))){
+                                if(currentUrl!=null&&!currentUrl.equals(current))
+                                    GeckoBrowserTransfers.cancelSession(host,ownedSession);
                                 currentUrl=current;
                                 if(!addressInput.hasFocus())addressInput.setText(current);
                             }
