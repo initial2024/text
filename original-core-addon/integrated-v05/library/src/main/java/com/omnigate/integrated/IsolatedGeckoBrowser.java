@@ -853,7 +853,8 @@ final class IsolatedGeckoBrowser {
      * No injection, polling DOM, silent reload or login-state inference.
      */
     private void followClaudePageProgress(Object ownedSession,Class<?> sessionClass){
-        if(!"claude".equals(provider))return;
+        // Install for every provider: page-start is an earlier cancellation
+        // boundary than onLocationChange for pending document pickers.
         try{
             Class<?> progress=Class.forName(
                 "org.mozilla.geckoview.GeckoSession$ProgressDelegate");
@@ -866,19 +867,22 @@ final class IsolatedGeckoBrowser {
                     if("toString".equals(event))return "OmniGateClaudeLoadStatus";
                     if(args==null||args.length<2)return null;
                     if("onPageStart".equals(event)){
+                        if(session==ownedSession)
+                            GeckoBrowserTransfers.cancelSession(host,ownedSession);
                         pageStartElapsedMs[0]=android.os.SystemClock.elapsedRealtime();
+                        if(!"claude".equals(provider))return null;
                         host.runOnUiThread(()->{
                             if(session==ownedSession && dialog.isShowing())
                                 state.setText("Claude 页面正在加载 · 右上角本地账号空间可立即使用");
                         });
-                    }else if("onProgressChange".equals(event) && args[1] instanceof Integer){
+                    }else if("claude".equals(provider)&&"onProgressChange".equals(event) && args[1] instanceof Integer){
                         int percent=(Integer)args[1];
                         if(percent>=0&&percent<=100)host.runOnUiThread(()->{
                             if(session==ownedSession && dialog.isShowing())
                                 state.setText("Claude 网页加载 "+percent+
                                     "% · 不代表登录完成；本地账号入口已就绪");
                         });
-                    }else if("onPageStop".equals(event) && args[1] instanceof Boolean){
+                    }else if("claude".equals(provider)&&"onPageStop".equals(event) && args[1] instanceof Boolean){
                         boolean success=(Boolean)args[1];
                         long elapsed=pageStartElapsedMs[0]>=0
                             ?Math.max(0,android.os.SystemClock.elapsedRealtime()-pageStartElapsedMs[0])
@@ -897,10 +901,16 @@ final class IsolatedGeckoBrowser {
                 });
             sessionClass.getMethod("setProgressDelegate",progress)
                 .invoke(ownedSession,observer);
+            Object actual=sessionClass.getMethod("getProgressDelegate")
+                .invoke(ownedSession);
+            if(actual!=observer)
+                throw new IllegalStateException("page_start_gate_owner_mismatch");
         }catch(Throwable unsupported){
             // Compatibility with older bundled Gecko; never replace its
             // progress events with guessed login/session state.
-            android.util.Log.i("OmniGateBrowser","claude_progress_delegate_unavailable");
+            GeckoBrowserTransfers.blockSessionFileUploads(ownedSession);
+            android.util.Log.w("OmniGateBrowser",
+                "page_start_upload_gate_unavailable",unsupported);
         }
     }
 
