@@ -40,7 +40,8 @@ final class AccountQuickSettings {
                 "打开完整账号管理",
                 "重置当前空间的网页权限（不清登录）",
                 AccountBrowserStore.trackingProtection(a,provider,slot)
-                    ?"跟踪保护：开启（逐空间）":"跟踪保护：兼容模式（逐空间）"
+                    ?"跟踪保护：开启（逐空间）":"跟踪保护：兼容模式（逐空间）",
+                "当前账号空间 · 下载管理 / 删除文件"
             },(d,which)->{
                 if(which==0)edit(a,provider,slot);
                 if(which==1)quota(a,provider,slot);
@@ -54,6 +55,13 @@ final class AccountQuickSettings {
                 if(which==3)AccountManagerUi.show(a);
                 if(which==4)GeckoScopedPermissionGate.offerReset(a,provider,slot);
                 if(which==5)toggleTracking(a,provider,slot);
+                if(which==6){
+                    android.content.Intent intent=new android.content.Intent(a,
+                        GeckoDownloadManagerActivity.class);
+                    intent.putExtra(GeckoDownloadManagerActivity.EXTRA_CONTEXT,
+                        AccountBrowserStore.contextId(a,provider,slot));
+                    a.startActivity(intent);
+                }
             }).setNegativeButton("取消",null).show();
     }
     private static void toggleTracking(Activity a,String provider,int slot){
