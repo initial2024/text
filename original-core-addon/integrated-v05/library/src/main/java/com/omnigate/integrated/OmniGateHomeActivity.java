@@ -220,10 +220,12 @@ public final class OmniGateHomeActivity extends Activity {
     }
     @Override public void onConfigurationChanged(Configuration config){
         super.onConfigurationChanged(config);
+        OmniGateBrowserLanguage.syncIfExisting(this);
         if(pageScroll!=null)pageScroll.requestLayout();
     }
     @Override protected void onResume(){
         super.onResume();
+        OmniGateBrowserLanguage.syncIfExisting(this);
         AutoStartRuntime.onActivityVisible(this);
         refresh();
     }
