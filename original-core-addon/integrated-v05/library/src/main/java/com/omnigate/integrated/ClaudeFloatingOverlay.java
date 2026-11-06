@@ -767,6 +767,13 @@ public final class ClaudeFloatingOverlay {
         Object created=sessionClass.getConstructor(
             Class.forName("org.mozilla.geckoview.GeckoSessionSettings"))
             .newInstance(settings);
+        // Reuse the SAVED context ID, never a newly fabricated login.
+        // Refuse default/shared Gecko mode before any page is loaded.
+        Object effective=sessionClass.getMethod("getSettings").invoke(created);
+        if(!id.equals(effective.getClass().getMethod("getContextId").invoke(effective))
+                ||Boolean.TRUE.equals(effective.getClass()
+                    .getMethod("getUsePrivateMode").invoke(effective)))
+            throw new IllegalStateException("overlay_gecko_context_owner_mismatch");
         session=created;
         GeckoPageTranslate.prepareSession(created);
         sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
