@@ -45,7 +45,11 @@ final class AccountQuickSettings {
                 "本地上下文预警 / 复制交接摘要",
                 "账号隔离安全检查（只读）",
                 AccountBrowserStore.strictNavigation(a,provider,slot)
-                    ?"严格外部导航：已启用":"严格外部导航：未启用（兼容优先）"
+                    ?"严格外部导航：已启用":"严格外部导航：未启用（兼容优先）",
+                "当前账号 · 存储 MB / 运行内存 PSS（只读）",
+                AccountBrowserStore.lowMemoryOnFold(a,provider,slot)
+                    ?"收起悬浮窗省内存：开启（逐账号）"
+                    :"收起悬浮窗省内存：关闭（兼容优先）"
             },(d,which)->{
                 if(which==0)edit(a,provider,slot);
                 if(which==1)quota(a,provider,slot);
@@ -69,8 +73,35 @@ final class AccountQuickSettings {
                 if(which==7)LocalContextUi.show(a,provider,slot);
                 if(which==8)GeckoAccountIsolationAudit.show(a,provider,slot);
                 if(which==9)toggleStrictNavigation(a,provider,slot);
+                if(which==10)GeckoStorageMemoryUi.show(a,provider,slot);
+                if(which==11)toggleFoldMemory(a,provider,slot);
             }).setNegativeButton("取消",null).show();
     }
+    private static void toggleFoldMemory(Activity a,String provider,int slot){
+        boolean on=AccountBrowserStore.lowMemoryOnFold(a,provider,slot);
+        new AlertDialog.Builder(a)
+            .setTitle(on?"关闭收起省内存模式？":"给这个账号开启收起省内存模式？")
+            .setMessage(on
+                ?"关闭后，悬浮窗收起也会继续保持 GeckoSession 活跃。"+
+                  "已有账号数据不改变，不需要重新登录。"
+                :"仅当你主动把这个账号的悬浮窗收成小圆点时，"+
+                  "调用 GeckoSession.setActive(false) 降低隐藏页面内存。"+
+                  "再次展开会恢复同一个 GeckoSession，不调用刷新。"+
+                  "\n注意：可能暂停正在输出的 AI 回答、音频和网页计时器。"+
+                  "不要在模型生成中收起；默认关闭更适合连续运行。"+
+                  "\n不会清 Cookie、缓存、文件或另一个账号的数据。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("保存此账号设置",(d,w)->{
+                try{
+                    AccountBrowserStore.setLowMemoryOnFold(
+                        a,provider,slot,!on);
+                    feedback(a,"已保存；下次收起/展开本账号悬浮窗时应用");
+                }catch(RuntimeException rejected){
+                    feedback(a,"保存失败，未修改原账号");
+                }
+            }).show();
+    }
+
     private static void toggleStrictNavigation(Activity a,String provider,int slot){
         boolean current=AccountBrowserStore.strictNavigation(a,provider,slot);
         new AlertDialog.Builder(a)
