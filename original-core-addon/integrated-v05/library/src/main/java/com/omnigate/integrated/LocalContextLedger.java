@@ -43,9 +43,21 @@ final class LocalContextLedger {
             boolean value){
         if(!AccountBrowserSlots.supported(provider))
             throw new IllegalArgumentException("provider");
-        if(!preferences(c).edit().putBoolean(
-                "provider."+provider+".aggregate",value).commit())
-            throw new IllegalStateException("provider_aggregation_save_failed");
+        SharedPreferences.Editor edit=preferences(c).edit()
+            .putBoolean("provider."+provider+".aggregate",value);
+        if(!value){
+            // Revocation must be sticky. Re-enabling the provider does not
+            // silently reactivate accounts that consented months ago.
+            SharedPreferences saved=c.getApplicationContext().getSharedPreferences(
+                "omnigate_isolated_accounts_v1",Context.MODE_PRIVATE);
+            int n=AccountBrowserStore.count(c,provider);
+            for(int i=0;i<n;i++){
+                String id=saved.getString(provider+"."+i,null);
+                if(id!=null&&AccountBrowserSlots.validContextId(id))
+                    edit.putBoolean("context."+id+".include_provider",false);
+            }
+        }
+        if(!edit.commit())throw new IllegalStateException("provider_aggregation_save_failed");
     }
     static synchronized boolean participates(Context c,String provider,int slot){
         String k=key(c,provider,slot);
@@ -57,6 +69,8 @@ final class LocalContextLedger {
         String k=key(c,provider,slot);
         if(value&&!enabled(c,provider,slot))
             throw new IllegalStateException("enable_account_statistics_first");
+        if(value&&!providerAggregationEnabled(c,provider))
+            throw new IllegalStateException("enable_provider_aggregation_first");
         if(!preferences(c).edit().putBoolean(k+".include_provider",value).commit())
             throw new IllegalStateException("account_participation_save_failed");
     }
