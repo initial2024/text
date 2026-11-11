@@ -20,6 +20,93 @@ final class LocalContextLedger {
             throw new IllegalArgumentException("invalid_login_slot");
         return "context."+AccountBrowserStore.contextId(c,provider,slot);
     }
+
+    /** Statistics are OFF until the user explicitly opts in for this ID.
+     * Existing numeric notes (from older builds) are not silently enabled.
+     * Disabling never destroys Gecko cookies, sessions or account registry.
+     */
+    static synchronized boolean enabled(Context c,String provider,int slot){
+        return preferences(c).getBoolean(key(c,provider,slot)+".enabled",false);
+    }
+    static synchronized void setEnabled(Context c,String provider,int slot,boolean value){
+        String k=key(c,provider,slot);
+        SharedPreferences.Editor e=preferences(c).edit().putBoolean(k+".enabled",value);
+        if(!value)e.putBoolean(k+".include_provider",false);
+        if(!e.commit())throw new IllegalStateException("context_opt_in_save_failed");
+    }
+    static synchronized boolean providerAggregationEnabled(Context c,String provider){
+        if(!AccountBrowserSlots.supported(provider))
+            throw new IllegalArgumentException("provider");
+        return preferences(c).getBoolean("provider."+provider+".aggregate",false);
+    }
+    static synchronized void setProviderAggregationEnabled(Context c,String provider,
+            boolean value){
+        if(!AccountBrowserSlots.supported(provider))
+            throw new IllegalArgumentException("provider");
+        if(!preferences(c).edit().putBoolean(
+                "provider."+provider+".aggregate",value).commit())
+            throw new IllegalStateException("provider_aggregation_save_failed");
+    }
+    static synchronized boolean participates(Context c,String provider,int slot){
+        String k=key(c,provider,slot);
+        return enabled(c,provider,slot)&&
+            preferences(c).getBoolean(k+".include_provider",false);
+    }
+    static synchronized void setParticipates(Context c,String provider,int slot,
+            boolean value){
+        String k=key(c,provider,slot);
+        if(value&&!enabled(c,provider,slot))
+            throw new IllegalStateException("enable_account_statistics_first");
+        if(!preferences(c).edit().putBoolean(k+".include_provider",value).commit())
+            throw new IllegalStateException("account_participation_save_failed");
+    }
+    /** Provider aggregate is an explicitly consented VIEW over numeric records
+     * ONLY. It never reads Gecko DOM, account cookies, notes or chat text.
+     * An uninitialized slot must not get a new Gecko context ID here.
+     */
+    static synchronized java.util.List<Contribution> contributions(Context c,
+            String provider){
+        if(!providerAggregationEnabled(c,provider))
+            return java.util.Collections.emptyList();
+        java.util.ArrayList<Contribution> list=new java.util.ArrayList<>();
+        android.content.SharedPreferences registry=c.getApplicationContext()
+            .getSharedPreferences("omnigate_isolated_accounts_v1",Context.MODE_PRIVATE);
+        java.util.HashSet<String> seen=new java.util.HashSet<>();
+        int n=AccountBrowserStore.count(c,provider);
+        for(int i=0;i<n;i++){
+            String id=registry.getString(provider+"."+i,null);
+            if(id==null)continue;
+            if(!AccountBrowserSlots.validContextId(id)||!seen.add(id))
+                throw new IllegalStateException("unsafe_provider_context_registry");
+            String k="context."+id;
+            SharedPreferences pref=preferences(c);
+            if(pref.getBoolean(k+".enabled",false)&&
+               pref.getBoolean(k+".include_provider",false)){
+                long tokens=pref.getLong(k+".estimated",0);
+                int window=pref.getInt(k+".window",0);
+                if(tokens<0||window<0)
+                    throw new IllegalStateException("invalid_local_count");
+                list.add(new Contribution(i,tokens,window));
+            }
+        }
+        return list;
+    }
+    static final class Contribution {
+        final int slot;
+        final long estimated;
+        final int userWindow;
+        Contribution(int slot,long estimated,int userWindow){
+            this.slot=slot;this.estimated=estimated;this.userWindow=userWindow;
+        }
+    }
+    static synchronized long combinedEstimate(Context c,String provider){
+        long total=0;
+        for(Contribution entry:contributions(c,provider))
+            total=Long.MAX_VALUE-entry.estimated<total?
+                Long.MAX_VALUE:total+entry.estimated;
+        return total;
+    }
+
     static synchronized long used(Context c,String provider,int slot){
         return preferences(c).getLong(key(c,provider,slot)+".estimated",0);
     }
@@ -34,6 +121,8 @@ final class LocalContextLedger {
     }
     static synchronized long record(Context c,String provider,int slot,
             CharSequence suppliedText,boolean replaceSnapshot){
+        if(!enabled(c,provider,slot))
+            throw new IllegalStateException("manual_statistics_opt_in_required");
         long estimate=LocalContextEstimator.estimate(suppliedText);
         if(estimate<=0)throw new IllegalArgumentException("empty_manual_text");
         String k=key(c,provider,slot)+".estimated";
