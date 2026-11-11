@@ -1,0 +1,34 @@
+name: OGCOMPACT01 ABI-only Gecko compact preservation gate
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/tools/compact_arm64_only.py'
+      - 'original-core-addon/integrated-v05/tools/test_ogcompact01_abi_only.py'
+      - '.github/workflows/ogcompact01-arm64-only-preservation.yml'
+  pull_request:
+    branches: [original-core-addon]
+    paths:
+      - 'original-core-addon/integrated-v05/tools/compact_arm64_only.py'
+      - 'original-core-addon/integrated-v05/tools/test_ogcompact01_abi_only.py'
+      - '.github/workflows/ogcompact01-arm64-only-preservation.yml'
+permissions: {contents: read}
+jobs:
+  abi-preservation-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact payload preservation and native ABI negative tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_ogcompact01_abi_only.py
+          echo 'OGCOMPACT01_RUNTIME_LOGIN_OVERLAY_WORKPROFILE=NOT_TESTED'
+          echo 'OGCOMPACT01_ORIGINAL_SIGNING_PRIVATE_KEY=NOT_USED'
+          echo 'OGCOMPACT01_UNSIGNED_OUTPUT_MUST_NOT_BE_PUBLISHED=YES'
