@@ -73,7 +73,15 @@ final class GeckoLocalFootprint {
         if(!AccountBrowserSlots.supported(provider)||slot<0||
             slot>=AccountBrowserStore.count(c,provider))
             throw new IllegalArgumentException("account_slot_invalid");
-        String context=AccountBrowserStore.contextId(c,provider,slot);
+        // Read existing registration WITHOUT creating a Gecko context.
+        String context=c.getApplicationContext().getSharedPreferences(
+            "omnigate_isolated_accounts_v1",Context.MODE_PRIVATE)
+            .getString(provider+"."+slot,null);
+        if(context==null)
+            return "该账号空间尚未创建 Gecko 存储。"+
+                "\n本报告不会初始化账号、访问网站或创建下载目录。";
+        if(!AccountBrowserSlots.validContextId(context))
+            throw new IllegalStateException("invalid_existing_gecko_context");
         Usage downloads=measure(GeckoBrowserDownloads.directory(c,context));
         boolean active=GeckoBrowserDownloads.hasLiveTransferForContext(context);
         String stamp=(downloads.partial||downloads.unreadable)
