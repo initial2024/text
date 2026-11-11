@@ -386,7 +386,18 @@ public final class ClaudeFloatingOverlay {
         url.setHintTextColor(0xFFB8BFCE);url.setHint("输入 https:// 网址");
         url.setInputType(android.text.InputType.TYPE_CLASS_TEXT|
             android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        url.setLongClickable(true);
         addressBar.addView(url,new LinearLayout.LayoutParams(0,-1,1));
+        Button pasteUrl=button(app,"粘贴");
+        addressBar.addView(pasteUrl,
+            new LinearLayout.LayoutParams(dp(app,46),dp(app,38)));
+        pasteUrl.setOnClickListener(v->{
+            setOverlayFocusable(true);
+            url.requestFocus();
+            if(!url.onTextContextMenuItem(android.R.id.paste))
+                Toast.makeText(app,"剪贴板为空或工作资料禁止粘贴",
+                    Toast.LENGTH_SHORT).show();
+        });
         url.setOnTouchListener((v,event)->{
             if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
                 setOverlayFocusable(true);
