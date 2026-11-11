@@ -1,0 +1,31 @@
+name: OGCONTEXT01 per-account opt-in encrypted summaries and native clipboard contracts
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/**'
+      - 'original-core-addon/integrated-v05/tools/test_ogcontext01_opt_in_and_clipboard.py'
+      - '.github/workflows/ogcontext01-optin-summary-and-clipboard.yml'
+  pull_request:
+    branches: [original-core-addon]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/**'
+      - 'original-core-addon/integrated-v05/tools/test_ogcontext01_opt_in_and_clipboard.py'
+      - '.github/workflows/ogcontext01-optin-summary-and-clipboard.yml'
+permissions: {contents: read}
+jobs:
+  privacy-and-consent:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Actual Java tests for local opt-in, no cross-account auto reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_ogcontext01_opt_in_and_clipboard.py
+          echo 'OGCONTEXT01_ANDROID16_REAL_CLIPBOARD_E2E=NOT_TESTED'
+          echo 'OGCONTEXT01_PRIVATE_SIGNING_KEYS_REQUIRED=NO'

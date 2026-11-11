@@ -1,0 +1,122 @@
+name: OGACCOUNTS05 manual account manager / Gecko scope safety
+on:
+  push:
+    branches:
+      - work/omnigate-integrated-v05
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/Account*.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - '.github/workflows/ogaccounts05-managed-gecko-contexts.yml'
+  workflow_dispatch:
+
+jobs:
+  source-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify manual-only search, cooldowns, scoped deletion and provider overlays
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          get=lambda name:(p/name).read_text(encoding='utf-8')
+          slots=get('AccountBrowserSlots.java')
+          prefs=get('AccountBrowserStore.java')
+          metadata=get('AccountMetadataStore.java')
+          manager=get('AccountManagerUi.java')
+          cleaner=get('AccountStorageCleaner.java')
+          browser=get('IsolatedGeckoBrowser.java')
+          overlay=get('ClaudeFloatingOverlay.java')
+          home=get('OmniGateHomeActivity.java')
+          settings=get('CompatSettingsActivity.java')
+          assert 'MAX_SLOTS=5' in slots
+          assert 'newContextId()' in prefs and 'rotateContext(' in prefs
+          assert 'actual.equals(expectedOldId)' in prefs
+          assert 'Math.addExact(now,HOUR_MS*hours)' in metadata
+          assert 'if(hours< -1||hours>72)' in metadata
+          assert 'Arrays.sort(ids,' in metadata
+          assert 'return x==y?Integer.compare(a,b):(x?1:-1)' in metadata
+          assert 'quotaUntil(c,provider,slot,now)' in metadata
+          assert 'accountTags(Context c,String provider,int slot)' in metadata
+          assert 'setAccountInfo(Context c,String provider,int slot,' in metadata
+          assert 'setAccountTags(Context c,String provider,int slot,String raw)' in metadata
+          assert '.account_tags' in metadata
+          assert '.remove(base+".quota_label")' in metadata
+          assert '.remove(base+".account_tags")' not in metadata
+          assert 'static final class QuotaPreset' in metadata
+          assert 'String id(){return label+' in metadata
+          assert 'void saveQuotaPreset(' in metadata
+          assert 'void deleteQuotaPreset(' in metadata
+          assert 'String title(){' in metadata
+          assert 'replace(' in metadata and 'sanitize(' in metadata
+          assert 'search.addTextChangedListener(' in manager
+          assert 'accountTagFilter.addTextChangedListener(' in manager
+          assert 'hasAccountTag(host,provider,slot,tagFilter)' in manager
+          assert '账号标签：' in manager
+          assert '额度状态：' in manager
+          assert 'providerFilter.setOnItemSelectedListener(' in manager
+          assert 'statusFilter.setOnItemSelectedListener(' in manager
+          assert 'selected.retainAll(visibleKeys);' in manager
+          assert 'for(Target target:visible)' in manager
+          assert '"5 小时"' in manager
+          assert 'AccountMetadataStore.quotaPresets(host)' in manager
+          assert 'preset.label,preset.hours' in manager
+          assert 'choices[presets.length]="自定义状态及恢复时间…"' in manager
+          assert 'AccountMetadataStore.saveQuotaPreset(host,name,hours)' in manager
+          assert 'AccountMetadataStore.setQuotaMark(host,target.provider,' in manager
+          assert 'AccountMetadataStore.setAccountInfo' in manager
+          assert 'AccountStorageCleaner.clearWholeContext' in manager
+          assert 'AccountStorageCleaner.closeCurrentPage' in manager
+          assert 'AccountBrowserStore.contextId(c,provider,slot)' in cleaner
+          assert 'closeCurrentPage(provider,slot);' in cleaner
+          assert 'clearDataForSessionContext' in cleaner
+          assert 'gecko_session_owner_unverified' in cleaner
+          assert 'closeIfMatchesForErase' in cleaner
+          assert '非物理擦除证明' in manager
+          assert 'AccountBrowserStore.rotateContext' in cleaner
+          forbidden=['clearDataFromHost','clearDataFromBaseDomain','clearData(long.class)',
+                     'getCookieManager','deleteAll','CookieManager.getInstance']
+          for phrase in forbidden:
+              assert phrase not in cleaner, phrase
+          assert 'prior.releaseSession();' in browser
+          assert 'static boolean closeIfMatches(String provider,int slot)' in browser
+          assert 'static boolean closeIfMatchesForErase(String provider,int slot)' in browser
+          assert 'sessionCloseFailed=true;' in browser
+          assert 'if(sessionCloseFailed)' in browser
+          assert 'static boolean closeIfMatches(String provider,int slot)' in overlay
+          assert 'static boolean closeIfMatchesForErase(String provider,int slot)' in overlay
+          assert 'sessionCloseFailed=true;' in overlay
+          assert 'public static void show(Activity host,String provider,int slot)' in overlay
+          assert 'if(!provider.equals(selectedProvider)||selected!=slot||session==null)' in overlay
+          assert 'AccountBrowserStore.contextId(app,selectedProvider,slot)' in overlay
+          assert 'AccountBrowserSlots.home(selectedProvider)' in overlay
+          assert 'IsolatedGeckoBrowser.closeActiveBrowser();' in overlay
+          assert 'if(minimized)setMinimized(false);' in overlay
+          assert overlay.index('if(minimized)setMinimized(false);') < overlay.index('openAccount(slot);')
+          assert 'previous_gecko_session_close_failed' in overlay
+          assert overlay.index('releaseSession();\n        selected=-1;') < overlay.index('previous_gecko_session_close_failed')
+          assert 'setMinimized(false);' in overlay
+          assert 'FLAG_NOT_FOCUSABLE' in overlay
+          assert 'private static void setFullscreenWindow(boolean enabled)' in overlay
+          assert 'setOverlayFocusable(false)' in overlay
+          for source in (overlay,browser,metadata,manager,cleaner):
+              assert 'userAgentOverride(' not in source
+              assert 'evaluateJavascript(' not in source
+          assert 'AccountManagerUi.show(this)' in home
+          assert 'AccountManagerUi.show(this)' in settings
+          assert 'AccountMetadataStore.sorted(host,provider,' in browser
+          assert 'ClaudeFloatingOverlay.show(host,provider,index)' in browser
+          assert 'AccountManagerUi.show(host)' in browser
+          assert 'autoSwitchTo' not in manager
+          assert 'sendPrompt(' not in manager
+          print('OGACCOUNTS05_SEARCH_FILTER_METADATA_MANUAL_COOLDOWN=PASS')
+          print('OGACCOUNTS05_CONTEXT_ONLY_CLEAR_NO_HOST_WIDE_DELETION=PASS')
+          print('OGACCOUNTS05_ONE_MANUAL_GECKO_OVERLAY_ALL_PROVIDERS=PASS')
+          print('OGACCOUNTS05_NO_UA_SPOOF_OR_BACKGROUND_REQUEST=PASS')
+          PY

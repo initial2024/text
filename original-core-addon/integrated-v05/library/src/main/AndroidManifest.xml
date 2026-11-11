@@ -1,0 +1,41 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Android 11+ visibility only: discover the optional, independent DPC app.
+         Never request device admin, MANAGE_USERS or cross-user privileges. -->
+    <queries>
+        <package android:name="net.typeblog.shelter"/>
+    </queries>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <application android:localeConfig="@xml/omnigate_locale_config">
+        <provider android:name="com.omnigate.integrated.CompatBootstrapProvider"
+            android:authorities="com.deepseek2.app.omnigate.integrated.init"
+            android:exported="false" android:initOrder="20"/>
+        <service android:name="com.omnigate.integrated.SidecarService"
+            android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-started, local-only compatibility service forwarding 8787 to 1601"/>
+        </service>
+        <!-- The private full APK's binary Manifest transfers the sole
+             MAIN/LAUNCHER filter from original ProviderActivity to this
+             activity. Do not declare two launchers in the library manifest. -->
+        <!-- Launcher filter remains in the private original binary Manifest,
+             NEVER added twice by this library. Private integration should
+             atomically move MAIN/LAUNCHER from original ProviderActivity to
+             OmniGateSplashActivity and keep one exported entry. -->
+        <activity android:name="com.omnigate.integrated.OmniGateSplashActivity"
+            android:exported="true"/>
+        <activity android:name="com.omnigate.integrated.OmniGateHomeActivity"
+            android:exported="true"/>
+        <activity android:name="com.omnigate.integrated.CompatSettingsActivity"
+            android:exported="false"/>
+        <activity android:name="com.omnigate.integrated.OverlayDocumentPickerActivity"
+            android:exported="false"/>
+        <activity android:name="com.omnigate.integrated.GeckoFilePickerActivity"
+            android:exported="false"/>
+        <activity android:name="com.omnigate.integrated.GeckoDownloadApprovalActivity"
+            android:exported="false"/>
+        <activity android:name="com.omnigate.integrated.GeckoDownloadManagerActivity"
+            android:exported="false"/>
+    </application>
+</manifest>

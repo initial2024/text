@@ -1,0 +1,67 @@
+name: OGPROFILE05 Android user/work-profile and Claude native readiness contracts
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountStorageCleaner.java'
+      - 'original-core-addon/integrated-v05/OGPROFILE05_ANDROID_WORK_PROFILE_CLAUDE_READINESS_GATE.md'
+      - '.github/workflows/ogprofile05-android-profile-claude-readiness.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  source-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Strict source-only contracts (NOT real-device attestation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('original-core-addon/integrated-v05')
+          p=root/'library/src/main/java/com/omnigate/integrated'
+          browser=(p/'IsolatedGeckoBrowser.java').read_text()
+          store=(p/'AccountBrowserStore.java').read_text()
+          clean=(p/'AccountStorageCleaner.java').read_text()
+          slots=(p/'AccountBrowserSlots.java').read_text()
+          document=(root/'OGPROFILE05_ANDROID_WORK_PROFILE_CLAUDE_READINESS_GATE.md').read_text()
+          assert 'Button accountEntry=button("账号空间 ▾")' in browser
+          assert 'root.addView(nativeHeader);' in browser
+          assert browser.index('root.addView(nativeHeader);') < browser.index('navigateTo(AccountBrowserSlots.home(provider));')
+          assert 'showNativeAccountMenu(View anchor)' in browser
+          own=browser.split('private void showNativeAccountMenu(View anchor)',1)[1].split('private void showFullscreenActions()',1)[0]
+          assert 'showPicker(host)' in own and 'AccountQuickSettings.show' in own
+          assert 'callSession("reload")' in own
+          for forbidden in ('loadUri','evaluateJavascript','getCookie','setCookie','startActivity'):
+              assert forbidden not in own, f'Native account entry must be local: {forbidden}'
+          assert 'followClaudePageProgress(created,sessionClass);' in browser
+          progress=browser.split('private void followClaudePageProgress(',1)[1].split('private void navigateTo(',1)[0]
+          for value in ('setProgressDelegate','onPageStart','onProgressChange','onPageStop',
+                        'session==ownedSession', 'dialog.isShowing()', 'instanceof Boolean'):
+              assert value in progress, f'Missing native progress contract: {value}'
+          for forbidden in ('loadUri','evaluateJavascript','getCookie','setCookie','网页已登录','Thread.sleep'):
+              assert forbidden not in progress, f'No guessed login or DOM hacks: {forbidden}'
+          assert 'Context.MODE_PRIVATE' in store
+          assert 'AccountBrowserSlots.newContextId()' in store
+          assert 'clearDataForSessionContext' in clean
+          assert 'clearData(long.class)' not in clean
+          assert 'builderClass.getMethod("contextId",String.class).invoke(builder,id)' in browser
+          assert 'getMethod("releaseSession")' in browser
+          assert 'getMethod("close")' in browser
+          assert 'if(sessionCloseFailed)' in browser
+          assert 'browserOnly(String provider)' in slots
+          assert 'Android **secondary users**' in document
+          assert 'port 8787' in document
+          assert 'not a phone E2E acceptance' in document
+          print('OGPROFILE05_CLAUDE_ALWAYS_VISIBLE_NATIVE_ENTRY=PASS')
+          print('OGPROFILE05_GECKO_NATIVE_PROGRESS_NO_LOGIN_CLAIM=PASS')
+          print('OGPROFILE05_PER_CONTEXT_STORAGE_NO_CROSS_PROFILE_COPY=PASS_SOURCE_ONLY')
+          print('OGPROFILE05_ANDROID_WORK_PROFILE_REAL_DEVICE=NOT_TESTED')
+          print('OGPROFILE05_CLAUDE_REAL_LOGIN_AND_SITE_AVATAR=NOT_TESTED')
+          PY

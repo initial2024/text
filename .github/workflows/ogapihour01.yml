@@ -1,0 +1,49 @@
+name: 'OGAPIHOUR01 optional rolling API request limits'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/LocalHourlyApiQuota.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SlidingHourAcknowledgements.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - 'original-core-addon/integrated-v05/relay-tests/LocalApiHourContractTest.java'
+      - '.github/workflows/ogapihour01.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Model send reservation boundaries and no hidden replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/SlidingHourAcknowledgements.java" \
+            "$R/relay-tests/LocalApiHourContractTest.java"
+          java -cp "$OUT" com.omnigate.integrated.LocalApiHourContractTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          side=(p/'SidecarProxyServer.java').read_text()
+          ui=(p/'CompatSettingsActivity.java').read_text()
+          quota=(p/'LocalHourlyApiQuota.java').read_text()
+          assert side.count('if(!admitLocalHourlySubmission(out,localHourChannel))return;')==2
+          assert 'riskAdmitted && !admitLocalHourlySubmission(out,localHourChannel)' in side
+          assert 'riskForProvider(selection.channel)' in side
+          assert 'LocalHourlyApiQuota.setLimit(this,provider' in ui
+          assert 'getInt(provider+".limit",0)' in quota
+          assert 'int configured=limit(c,provider)' in quota
+          assert 'getString(key,"")' in quota
+          print('OGAPIHOUR01_BUDGET_AT_REAL_SUBMIT_POINTS=PASS_STATIC')
+          print('OGAPIHOUR01_PROVIDER_HEADERS_AND_401_403_429_GATES_UNCHANGED=PASS_STATIC')
+          print('OGAPIHOUR01_LIVE_PROVIDER_TOKEN_ACCOUNTING=NOT_CLAIMED')
+          PY

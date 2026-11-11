@@ -1,0 +1,35 @@
+name: OGMEM01 Gecko context MB and folded RAM safety tests
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoLocalFootprint.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoStorageMemoryUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoFoldMemoryController.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserStore.java'
+      - 'original-core-addon/integrated-v05/tools/test_ogmem01_storage_safety.py'
+      - '.github/workflows/ogmem01-gecko-storage-and-folded-ram.yml'
+  pull_request:
+    branches: [original-core-addon]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/**'
+      - 'original-core-addon/integrated-v05/tools/test_ogmem01_storage_safety.py'
+      - '.github/workflows/ogmem01-gecko-storage-and-folded-ram.yml'
+permissions: {contents: read}
+jobs:
+  no-cookie-damage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Verify bounded per-account disk usage and Gecko hidden session only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_ogmem01_storage_safety.py
+          echo 'OGMEM01_ANDROID16_APP_AND_GECKO_TOTAL_PSS=NOT_TESTED'

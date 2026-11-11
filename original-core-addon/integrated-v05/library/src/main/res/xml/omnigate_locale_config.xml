@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 13 static fallback. Does not magically update an existing
+     private APK: the packager MUST merge this resource and the manifest
+     android:localeConfig entry, then resign using the original key. -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="zh-CN"/>
+    <locale android:name="en-US"/>
+</locale-config>

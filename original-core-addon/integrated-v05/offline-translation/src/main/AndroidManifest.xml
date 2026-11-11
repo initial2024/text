@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Only language MODEL downloads need the network, after user consent. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <application/>
+</manifest>

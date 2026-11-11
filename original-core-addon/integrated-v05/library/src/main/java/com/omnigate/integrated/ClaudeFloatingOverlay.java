@@ -1,0 +1,1309 @@
+package com.omnigate.integrated;
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.PixelFormat;
+import android.net.Uri;
+import android.provider.Settings;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.PopupMenu;
+import android.widget.TextView;
+import android.widget.Toast;
+
+/**
+ * Explicitly opened one-session Gecko web overlay for allowlisted providers.
+ * Never connects to native 8787 execution or copies authentication state.
+ * Retains exactly one active GeckoSession, opened only by a user tap.
+ */
+public final class ClaudeFloatingOverlay {
+    private static Context app;
+    private static WindowManager manager;
+    private static WindowManager.LayoutParams window;
+    private static LinearLayout root,body,addressBar;
+    private static boolean addressExpanded,tallWindow;
+    private static Button addressControl;
+    private static android.widget.ScrollView quickPanel;
+    private static EditText quickName,quickTags,quickNote,quickQuotaLabel,quickQuotaHours;
+    private static android.widget.CheckBox quickIndefinite,quickSavePreset;
+    private static TextView quickStatus;
+    private static boolean quickOpen;
+    private static android.widget.ScrollView translationPanel;
+    private static TextView translationText;
+    private static Button translationConsent;
+    private static Button translationMirrorToggle;
+    private static PageMirrorApproximateView translationMirrorView;
+    private static LinearLayout translationMirrorAdjust;
+    private static String translationSucceededText;
+    private static android.graphics.Bitmap translationMirrorSnapshot;
+    private static boolean translationMirrorVisible=true;
+    private static boolean translationOpen;
+    private static int translationEpoch;
+    private static FrameLayout viewport;
+    private static TextView caption;
+    private static Button account,fold,closeControl,fullscreenControl,fullscreenFooter,quickControl;
+    private static Button returnToPageControl;
+    private static java.lang.ref.WeakReference<Activity> handoffActivity;
+    // Full-window is a geometry change of the SAME GeckoView and GeckoSession.
+    // Never reload the URL or close the session for a size/mode transition.
+    private static boolean fullscreenWindow;
+    private static int compactX,compactY;
+    private static boolean inputFocusHeld;
+    private static final int BUBBLE_SIZE_DP=52;
+    // Native window geometry only; never rewrite site CSS, DPR or JS viewport.
+    private static int compactWidth(){
+        int screen=app.getResources().getDisplayMetrics().widthPixels;
+        return Math.min(Math.round(screen*.94f),dp(app,440));
+    }
+    private static int compactHeight(){
+        int screen=app.getResources().getDisplayMetrics().heightPixels;
+        int target=Math.round(screen*(tallWindow?.70f:.51f));
+        return Math.max(dp(app,300),Math.min(target,dp(app,tallWindow?720:540)));
+    }
+    private static Object session,geckoView;
+    private static boolean sessionCloseFailed;
+    // Only this one exact GeckoSession may be parked, never other accounts.
+    private static Object foldedLowMemorySession;
+    private static boolean contentProcessTerminated;
+    private static String lastLoadFailure;
+    static boolean ownerHealthy(){return !sessionCloseFailed;}
+    static boolean ownsLiveSession(Object expected){
+        return expected!=null && session==expected && showing() && !sessionCloseFailed;
+    }
+    private static int selected=-1;
+    private static String selectedProvider="";
+    private static boolean minimized;
+    private ClaudeFloatingOverlay(){}
+    private static int dp(Context c,int v){
+        return Math.round(c.getResources().getDisplayMetrics().density*v);
+    }
+    private static Button button(Context c,String title){
+        Button b=new Button(c);
+        b.setAllCaps(false);b.setText(title);b.setTextSize(12);
+        b.setMinHeight(0);b.setMinimumHeight(0);
+        b.setTextColor(0xFFF7F9FF);b.setPadding(dp(c,3),0,dp(c,3),0);
+        b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF303858));
+        return b;
+    }
+    public static boolean showing(){return root!=null && manager!=null;}
+    public static void show(Activity host,int slot){show(host,"claude",slot);}
+    public static void show(Activity host,String provider,int slot){
+        if(host!=null&&!host.isFinishing()&&!host.isDestroyed())
+            handoffActivity=new java.lang.ref.WeakReference<>(host);
+        if(host==null||host.isDestroyed()||host.isFinishing()||
+            !AccountBrowserSlots.supported(provider))return;
+        if(slot<0||slot>=AccountBrowserStore.count(host,provider))return;
+        if(!Settings.canDrawOverlays(host)){
+            new AlertDialog.Builder(host).setTitle("开启网页悬浮窗")
+                .setMessage("需要你在 Android 系统中授予“显示在其他应用上层”权限。"+
+                    "授权后回到 OmniGate 再点一次悬浮窗。不会自动启动网页登录或发送请求。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("打开系统权限设置",(d,w)->{
+                    Intent i=new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:"+host.getPackageName()));
+                    try{host.startActivity(i);}
+                    catch(RuntimeException missing){
+                        Toast.makeText(host,"请在系统设置中手动启用悬浮窗权限",
+                            Toast.LENGTH_LONG).show();
+                    }
+                }).show();
+            return;
+        }
+        // No concurrent auxiliary session: an existing manual login dialog
+        // is explicitly dismissed before the floating GeckoSession opens.
+        IsolatedGeckoBrowser.closeActiveBrowser();
+        if(!IsolatedGeckoBrowser.ownerHealthy()||sessionCloseFailed){
+            Toast.makeText(host,"旧网页会话关闭异常；已禁止打开新账号空间，请重启检查",Toast.LENGTH_LONG).show();
+            return;
+        }
+        try{
+            if(!showing())create(host.getApplicationContext());
+            // A manually requested login must start in a usable viewport,
+            // not load a responsive provider website inside the 52dp bubble.
+            // Expand BEFORE GeckoSession.open/loadUri; this neither signs in
+            // another account nor adds a second navigation.
+            if(minimized)setMinimized(false);
+            // All providers share one overlay owner; never preloads another.
+            if(!provider.equals(selectedProvider)||selected!=slot||session==null){
+                hideQuickSettings();
+                hideTranslationPanel();
+                selectedProvider=provider;
+                openAccount(slot);
+            }
+        }catch(Throwable error){
+            close();
+            Toast.makeText(host,"网页悬浮窗不可用："+error.getClass().getSimpleName()+
+                "；原版账号与模型保持不变",Toast.LENGTH_LONG).show();
+        }
+    }
+    /**
+     * This is the ONLY non-reloading page -> overlay entry point.
+     * Ownership stays in the existing full-page Dialog until the new
+     * GeckoView has attached the EXACT GeckoSession. No loadUri/reload.
+     */
+    static boolean adoptLiveBrowser(Activity host,String provider,int slot,
+            Object existing,Object sourceView){
+        if(host==null||host.isFinishing()||host.isDestroyed()||
+            !AccountBrowserSlots.supported(provider)||slot<0||
+            slot>=AccountBrowserStore.count(host,provider)||
+            !IsolatedGeckoBrowser.ownsLiveSession(existing)||
+            !IsolatedGeckoBrowser.ownerHealthy()||sessionCloseFailed)
+            return false;
+        if(!Settings.canDrawOverlays(host)){
+            new AlertDialog.Builder(host).setTitle("需要悬浮窗权限")
+                .setMessage("请先允许 OmniGate 显示在其他应用上层。"+
+                    "本次没有关闭或刷新当前 Gecko 网页；授权后重新点击“悬浮窗”。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("打开系统权限",(d,w)->{
+                    try{host.startActivity(new Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:"+host.getPackageName())));}
+                    catch(RuntimeException ignored){}
+                }).show();
+            return false;
+        }
+        if(showing()&&session!=null){
+            Toast.makeText(host,"已有另一个悬浮窗会话；先手动关闭该会话",
+                Toast.LENGTH_LONG).show();
+            return false;
+        }
+        Object nextView=null;
+        try{
+            String id=AccountBrowserStore.contextId(host,provider,slot);
+            GeckoLiveWindowHandoff.verify(existing,id);
+            if(!showing())create(host.getApplicationContext());
+            if(minimized)setMinimized(false);
+            hideQuickSettings();
+            hideTranslationPanel();
+            Class<?> v=Class.forName("org.mozilla.geckoview.GeckoView");
+            nextView=v.getConstructor(Context.class).newInstance(app);
+            if(!(nextView instanceof View))
+                throw new IllegalStateException("overlay_gecko_view_invalid");
+            View visual=(View)nextView;
+            visual.setOnTouchListener((view,event)->{
+                if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
+                    setOverlayFocusable(true);
+                return false;
+            });
+            viewport.addView(visual,new FrameLayout.LayoutParams(-1,-1));
+            // GeckoView.releaseSession does NOT close or reload the session.
+            GeckoLiveWindowHandoff.move(sourceView,nextView,existing,id);
+            session=existing;
+            geckoView=nextView;
+            selectedProvider=provider;
+            selected=slot;
+            handoffActivity=new java.lang.ref.WeakReference<>(host);
+            account.setText(AccountMetadataStore.name(app,provider,slot)+" ▾");
+            caption.setText(provider.toUpperCase(java.util.Locale.ROOT)+" · 原网页未刷新");
+            followUploadNavigation(existing,Class.forName("org.mozilla.geckoview.GeckoSession"),slot);
+            GeckoSelectionControls.overlay(existing,account,
+                ()->GeckoLiveWindowHandoff.owns(existing),
+                ()->setOverlayFocusable(true));
+            // Do not navigate, create a session, change context ID, or use
+            // this method to copy cookies into another Android user/profile.
+            return true;
+        }catch(Throwable rejected){
+            android.util.Log.w("OmniGateOverlay","full_page_handoff_failed",rejected);
+            // If GeckoView.move threw, it already attempted source rollback.
+            // Never call close() on a session that may now be attached to us.
+            if(session==existing){
+                Toast.makeText(host,"窗口转移未完全完成；保留当前会话，请勿清理账号数据",
+                    Toast.LENGTH_LONG).show();
+                return true;
+            }
+            if(nextView instanceof View && viewport!=null)
+                viewport.removeView((View)nextView);
+            if(showing()&&session==null)close();
+            return false;
+        }
+    }
+
+    /** Explicitly return the SAME live GeckoSession to a full-page Dialog. */
+    private static void returnLivePage(){
+        Activity host=handoffActivity==null?null:handoffActivity.get();
+        if(host==null||host.isFinishing()||host.isDestroyed()||
+            session==null||geckoView==null||selected<0){
+            if(app!=null)Toast.makeText(app,
+                "原应用界面不可用；当前悬浮窗和网页未关闭，请返回 OmniGate 再操作",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        // Always reactivate a parked session BEFORE moving it into visible
+        // full-page GeckoView; never transfer an inactive view implicitly.
+        if(foldedLowMemorySession==session)updateFoldMemoryState(false);
+        if(foldedLowMemorySession==session){
+            Toast.makeText(app,"网页仍在低内存挂起状态；未转移或刷新",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+        final Object moving=session,oldView=geckoView;
+        // Prevent a delayed file selection result from being delivered into
+        // a different Android window even though sessionId stays unchanged.
+        GeckoBrowserTransfers.cancelSession(app,moving);
+        if(!IsolatedGeckoBrowser.adoptLiveOverlay(host,selectedProvider,selected,
+                moving,oldView)){
+            Toast.makeText(app,"无刷新返回失败；原悬浮窗与登录仍保留",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+        // Full-page Dialog now owns the SAME session and new GeckoView.
+        // Clear references before calling close(), so close never closes it.
+        session=null;geckoView=null;
+        if(oldView instanceof View && viewport!=null)
+            viewport.removeView((View)oldView);
+        close();
+    }
+
+    private static void create(Context context){
+        app=context;
+        manager=(WindowManager)app.getSystemService(Context.WINDOW_SERVICE);
+        if(manager==null)throw new IllegalStateException("window_manager_missing");
+        window=new WindowManager.LayoutParams(
+            compactWidth(),
+            compactHeight(),
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH|
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT);
+        window.gravity=Gravity.TOP|Gravity.START;
+        window.x=dp(app,10);
+        window.y=dp(app,75);
+        window.softInputMode=WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
+        root=new LinearLayout(app);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(app,2),dp(app,2),dp(app,2),dp(app,2));
+        root.setBackgroundColor(0xFF11192E);
+        // Tapping any other app always releases the IME focus previously
+        // acquired for the Claude address field or Gecko text input.
+        root.setOnTouchListener((v,event)->{
+            if(event.getActionMasked()==MotionEvent.ACTION_OUTSIDE){
+                setOverlayFocusable(false);
+                return true;
+            }
+            return false;
+        });
+        // Text-selection and Android paste menus temporarily steal focus.
+        // Do not revoke the editor's focus on transient focus change; doing
+        // so would close Copy/Paste before the user can select an action.
+        // Focus still releases on outside touch, fold, explicit navigation
+        // from address editor and overlay close.
+        LinearLayout title=new LinearLayout(app);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(title,new LinearLayout.LayoutParams(-1,dp(app,40)));
+        caption=new TextView(app);
+        caption.setText("⠿");
+        caption.setTextColor(0xFFE0E7FF);caption.setTextSize(15);
+        caption.setGravity(Gravity.CENTER);
+        caption.setSingleLine(true);
+        caption.setContentDescription("拖动悬浮窗位置");
+        title.addView(caption,new LinearLayout.LayoutParams(dp(app,28),-1));
+        final float[] drag=new float[2];
+        final int[] pos=new int[2];
+        caption.setOnTouchListener((v,event)->{
+            switch(event.getActionMasked()){
+                case MotionEvent.ACTION_DOWN:
+                    drag[0]=event.getRawX();drag[1]=event.getRawY();
+                    pos[0]=window.x;pos[1]=window.y;return true;
+                case MotionEvent.ACTION_MOVE:
+                    if(fullscreenWindow)return true;
+                    int maxX=Math.max(0,app.getResources().getDisplayMetrics().widthPixels-window.width);
+                    int maxY=Math.max(0,app.getResources().getDisplayMetrics().heightPixels-dp(app,80));
+                    window.x=Math.max(0,Math.min(maxX,pos[0]+Math.round(event.getRawX()-drag[0])));
+                    window.y=Math.max(0,Math.min(maxY,pos[1]+Math.round(event.getRawY()-drag[1])));
+                    if(manager!=null && root!=null)manager.updateViewLayout(root,window);
+                    return true;
+                default:return true;
+            }
+        });
+        account=button(app,"账号 ▾");
+        account.setSingleLine(true);
+        account.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        title.addView(account,new LinearLayout.LayoutParams(0,dp(app,38),1));
+        account.setOnClickListener(v->showAccounts());
+        quickControl=button(app,"设置");
+        quickControl.setContentDescription("仅管理当前账号的标签备注和额度记录");
+        title.addView(quickControl,new LinearLayout.LayoutParams(dp(app,42),dp(app,38)));
+        quickControl.setOnClickListener(v->{
+            if(quickOpen)hideQuickSettings();else showQuickSettings();
+        });
+        fullscreenControl=button(app,"全屏");
+        fullscreenControl.setContentDescription("返回全屏，保留当前网页");
+        title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,51),dp(app,38)));
+        fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
+        returnToPageControl=button(app,"回全页");
+        returnToPageControl.setContentDescription(
+            "返回原账号空间全屏网页，不刷新也不重新登录");
+        title.addView(returnToPageControl,
+            new LinearLayout.LayoutParams(dp(app,57),dp(app,38)));
+        returnToPageControl.setOnClickListener(v->returnLivePage());
+        fold=button(app,"—");
+        title.addView(fold,new LinearLayout.LayoutParams(dp(app,38),dp(app,38)));
+        fold.setContentDescription("收起或展开 Claude 悬浮窗");
+        // A collapsed bubble is draggable without forcing keyboard focus.
+        final float[] handleDown=new float[2];
+        final int[] handlePos=new int[2];
+        final boolean[] dragged=new boolean[1];
+        fold.setOnTouchListener((v,event)->{
+            switch(event.getActionMasked()){
+                case MotionEvent.ACTION_DOWN:
+                    handleDown[0]=event.getRawX();handleDown[1]=event.getRawY();
+                    handlePos[0]=window.x;handlePos[1]=window.y;
+                    dragged[0]=false;return true;
+                case MotionEvent.ACTION_MOVE:
+                    float dx=event.getRawX()-handleDown[0];
+                    float dy=event.getRawY()-handleDown[1];
+                    if(Math.abs(dx)>dp(app,7)||Math.abs(dy)>dp(app,7))
+                        dragged[0]=true;
+                    if(dragged[0]){
+                        int maxX=Math.max(0,app.getResources().getDisplayMetrics().widthPixels-window.width);
+                        int maxY=Math.max(0,app.getResources().getDisplayMetrics().heightPixels-window.height);
+                        window.x=Math.max(0,Math.min(maxX,handlePos[0]+Math.round(dx)));
+                        window.y=Math.max(0,Math.min(maxY,handlePos[1]+Math.round(dy)));
+                        manager.updateViewLayout(root,window);
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    if(!dragged[0])v.performClick();
+                    return true;
+                case MotionEvent.ACTION_CANCEL:return true;
+                default:return false;
+            }
+        });
+        fold.setOnClickListener(v->setMinimized(!minimized));
+        closeControl=button(app,"×");
+        title.addView(closeControl,new LinearLayout.LayoutParams(dp(app,34),dp(app,38)));
+        closeControl.setOnClickListener(v->close());
+        body=new LinearLayout(app);body.setOrientation(LinearLayout.VERTICAL);
+        root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
+        buildQuickPanel();
+        buildTranslationPanel();
+        addressBar=new LinearLayout(app);
+        addressBar.setVisibility(View.GONE);
+        body.addView(addressBar,new LinearLayout.LayoutParams(-1,dp(app,39)));
+        EditText url=new EditText(app);
+        url.setSingleLine(true);url.setTextSize(11);url.setTextColor(0xFFF1F4FF);
+        url.setHintTextColor(0xFFB8BFCE);url.setHint("输入 https:// 网址");
+        url.setInputType(android.text.InputType.TYPE_CLASS_TEXT|
+            android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        url.setLongClickable(true);
+        addressBar.addView(url,new LinearLayout.LayoutParams(0,-1,1));
+        Button pasteUrl=button(app,"粘贴");
+        addressBar.addView(pasteUrl,
+            new LinearLayout.LayoutParams(dp(app,46),dp(app,38)));
+        pasteUrl.setOnClickListener(v->{
+            setOverlayFocusable(true);
+            url.requestFocus();
+            if(!url.onTextContextMenuItem(android.R.id.paste))
+                Toast.makeText(app,"剪贴板为空或工作资料禁止粘贴",
+                    Toast.LENGTH_SHORT).show();
+        });
+        url.setOnTouchListener((v,event)->{
+            if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
+                setOverlayFocusable(true);
+            return false;
+        });
+        Button go=button(app,"前往");addressBar.addView(go,
+            new LinearLayout.LayoutParams(dp(app,52),dp(app,38)));
+        go.setOnClickListener(v->{
+            navigate(url.getText().toString());
+            addressExpanded=false;
+            addressBar.setVisibility(View.GONE);
+            setOverlayFocusable(false);
+        });
+        viewport=new FrameLayout(app);
+        body.addView(viewport,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout footer=new LinearLayout(app);
+        body.addView(footer,new LinearLayout.LayoutParams(-1,dp(app,39)));
+        Button back=button(app,"后退"),reload=button(app,"刷新"),home=button(app,"主页");
+        Button translate=button(app,"翻译");
+        translate.setContentDescription("手动本地翻译网页或恢复原文");
+        addressControl=button(app,"网址");
+        addressControl.setContentDescription("显示或隐藏网址输入栏，不刷新网页");
+        fullscreenFooter=button(app,"全屏");
+        fullscreenFooter.setContentDescription("全屏／还原当前网页，不刷新");
+        for(Button b:new Button[]{back,reload,home,translate,addressControl,fullscreenFooter})
+            footer.addView(b,new LinearLayout.LayoutParams(0,dp(app,38),1));
+        back.setOnClickListener(v->callSession("goBack"));
+        reload.setOnClickListener(v->callSession("reload"));
+        home.setOnClickListener(v->navigate(AccountBrowserSlots.home(selectedProvider)));
+        translate.setOnClickListener(v->requestTranslation(translate));
+        addressControl.setOnClickListener(v->{
+            addressExpanded=!addressExpanded;
+            addressBar.setVisibility(addressExpanded?View.VISIBLE:View.GONE);
+            if(!addressExpanded)setOverlayFocusable(false);
+        });
+        fullscreenFooter.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
+        manager.addView(root,window);
+        setMinimized(true); // Open as a small, non-IME-stealing bubble.
+    }
+
+    /**
+     * Overlay-inline account editing: no Activity token is needed while
+     * OmniGate is in the background. Hiding this panel DOES NOT detach the
+     * GeckoView, close the session or load a URL.
+     */
+
+    /**
+     * Separate native reading layer. The actual GeckoView stays attached to
+     * viewport with the same GeckoSession, scroll, draft, cookies and URL.
+     * Opening and closing this layer MUST NOT invoke loadUri/reload/restore.
+     */
+    private static void buildTranslationPanel(){
+        translationPanel=new android.widget.ScrollView(app);
+        translationPanel.setVisibility(View.GONE);
+        translationPanel.setFillViewport(false);
+        root.addView(translationPanel,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout box=new LinearLayout(app);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(app,11),dp(app,8),dp(app,11),dp(app,8));
+        translationPanel.addView(box);
+        TextView title=new TextView(app);
+        title.setText("镜像译文 · 本地快照与独立译文层");
+        title.setTextColor(0xFF82E6E7);title.setTextSize(13);
+        box.addView(title);
+        TextView guide=new TextView(app);
+        guide.setText("原网页只读快照保存在内存中；译文可滚动、可复制，但不逐像素对应按钮及图片。" +
+            "首次下载离线模型需要手动确认 Wi-Fi；不刷新原网页、不切换账号、不上传正文。");
+        guide.setTextColor(0xFFB9C8E5);guide.setTextSize(11);
+        box.addView(guide);
+        translationMirrorToggle=button(app,"显示原网页快照 · 镜像阅读");
+        translationMirrorToggle.setVisibility(View.GONE);
+        translationMirrorToggle.setOnClickListener(v->{
+            translationMirrorVisible=!translationMirrorVisible;
+            updateTranslationMirrorBackground();
+        });
+        box.addView(translationMirrorToggle,
+            new LinearLayout.LayoutParams(-1,dp(app,42)));
+        translationMirrorView=new PageMirrorApproximateView(app);
+        box.addView(translationMirrorView,new LinearLayout.LayoutParams(-1,-2));
+        translationMirrorAdjust=new LinearLayout(app);
+        translationMirrorAdjust.setVisibility(View.GONE);
+        Button moveUp=button(app,"译文上移");
+        Button moveDown=button(app,"译文下移");
+        moveUp.setOnClickListener(v->{
+            if(translationMirrorView!=null)translationMirrorView.nudge(-6);
+        });
+        moveDown.setOnClickListener(v->{
+            if(translationMirrorView!=null)translationMirrorView.nudge(6);
+        });
+        translationMirrorAdjust.addView(moveUp,new LinearLayout.LayoutParams(0,dp(app,40),1));
+        translationMirrorAdjust.addView(moveDown,new LinearLayout.LayoutParams(0,dp(app,40),1));
+        box.addView(translationMirrorAdjust,new LinearLayout.LayoutParams(-1,-2));
+        Button exit=button(app,"返回原网页 · 不刷新");
+        box.addView(exit,new LinearLayout.LayoutParams(-1,dp(app,40)));
+        exit.setOnClickListener(v->hideTranslationPanel());
+        translationText=new TextView(app);
+        translationText.setTextColor(0xFFF1F5FF);
+        translationText.setTextSize(14);
+        translationText.setTextIsSelectable(true);
+        translationText.setPadding(dp(app,10),dp(app,11),dp(app,10),dp(app,18));
+        translationText.setLineSpacing(dp(app,4),1.1f);
+        box.addView(translationText);
+        translationConsent=button(app,"同意通过 Wi-Fi 下载离线语言模型并翻译");
+        translationConsent.setAllCaps(false);
+        translationConsent.setVisibility(View.GONE);
+        box.addView(translationConsent,new LinearLayout.LayoutParams(-1,dp(app,48)));
+    }
+    private static void requestTranslation(View anchor){
+        if(session==null||selected<0)return;
+        final Object current=session;
+        final String currentProvider=selectedProvider;
+        final int currentSlot=selected;
+        final int generation=++translationEpoch;
+        translationSucceededText=null;
+        if(translationMirrorView!=null)translationMirrorView.clear();
+        if(translationMirrorAdjust!=null)
+            translationMirrorAdjust.setVisibility(View.GONE);
+        translationMirrorSnapshot=null;
+        if(translationPanel!=null)translationPanel.setBackground(null);
+        if(translationMirrorToggle!=null)translationMirrorToggle.setVisibility(View.GONE);
+        // Capture before hiding GeckoView; no second session, no OS-wide
+        // screen recording, no screenshot upload or persistent image file.
+        PageMirrorSnapshot.capture(geckoView,bmp->{
+            if(bmp==null||current!=session||selected!=currentSlot||
+                !currentProvider.equals(selectedProvider)||
+                generation!=translationEpoch)return;
+            translationMirrorSnapshot=bmp;
+            translationMirrorVisible=true;
+            if(translationMirrorView!=null){
+                translationMirrorView.setSnapshot(bmp);
+                translationMirrorView.setTranslated(translationSucceededText);
+            }
+            if(translationMirrorToggle!=null)
+                translationMirrorToggle.setVisibility(View.VISIBLE);
+            updateTranslationMirrorBackground();
+        });
+        GeckoPageTranslate.showMenu(app,anchor,current,
+            text->{
+                if(current!=session||selected!=currentSlot||
+                    !currentProvider.equals(selectedProvider)||
+                    generation!=translationEpoch)return;
+                showTranslationText(text);
+            },
+            ()->hideTranslationPanel(),
+            consentAction->{
+                if(current!=session||selected!=currentSlot||
+                    !currentProvider.equals(selectedProvider)||
+                    generation!=translationEpoch||translationConsent==null)return;
+                translationConsent.setOnClickListener(null);
+                if(consentAction==null){
+                    translationConsent.setVisibility(View.GONE);
+                }else{
+                    translationConsent.setVisibility(View.VISIBLE);
+                    translationConsent.setOnClickListener(v->{
+                        if(current==session && selected==currentSlot &&
+                           currentProvider.equals(selectedProvider) &&
+                           generation==translationEpoch)consentAction.run();
+                    });
+                }
+            },
+            translated->{
+                if(current!=session||selected!=currentSlot||
+                    !currentProvider.equals(selectedProvider)||
+                    generation!=translationEpoch)return;
+                translationSucceededText=translated;
+                if(translationMirrorView!=null)
+                    translationMirrorView.setTranslated(translated);
+            });
+    }
+    private static void showTranslationText(String text){
+        if(root==null||translationPanel==null)return;
+        if(minimized)setMinimized(false);
+        quickOpen=false;
+        if(quickPanel!=null)quickPanel.setVisibility(View.GONE);
+        translationOpen=true;
+        body.setVisibility(View.GONE);
+        translationPanel.setVisibility(View.VISIBLE);
+        translationText.setText(text);
+        updateTranslationMirrorBackground();
+        // Translation pane never acquires OS IME ownership from another app.
+        setOverlayFocusable(false);
+    }
+    /** The screenshot stays fixed; up to three rough translation bands move. */
+    private static void updateTranslationMirrorBackground(){
+        if(translationPanel==null)return;
+        translationPanel.setBackgroundColor(0xFF12192A);
+        boolean visible=translationMirrorVisible&&translationMirrorSnapshot!=null;
+        if(translationMirrorView!=null)
+            translationMirrorView.setVisibility(visible?View.VISIBLE:View.GONE);
+        if(translationMirrorAdjust!=null)
+            translationMirrorAdjust.setVisibility(visible?View.VISIBLE:View.GONE);
+        if(translationText!=null)
+            translationText.setBackgroundColor(0xFF162237);
+        if(translationMirrorToggle!=null)
+            translationMirrorToggle.setText(visible
+                ?"隐藏快照 · 纯净阅读":"显示原网页快照 · 镜像阅读");
+    }
+
+    private static void hideTranslationPanel(){
+        translationEpoch++; // Reject any late async results after cancel.
+        translationOpen=false;
+        if(translationPanel!=null){
+            translationPanel.setVisibility(View.GONE);
+            translationPanel.setBackground(null);
+        }
+        translationMirrorSnapshot=null;
+        translationSucceededText=null;
+        if(translationMirrorView!=null)translationMirrorView.clear();
+        if(translationMirrorAdjust!=null)
+            translationMirrorAdjust.setVisibility(View.GONE);
+        if(translationMirrorToggle!=null)translationMirrorToggle.setVisibility(View.GONE);
+        if(translationText!=null)translationText.setText("");
+        if(translationConsent!=null){
+            translationConsent.setOnClickListener(null);
+            translationConsent.setVisibility(View.GONE);
+        }
+        if(body!=null)body.setVisibility(
+            minimized||quickOpen?View.GONE:View.VISIBLE);
+        if(root!=null&&manager!=null)setOverlayFocusable(false);
+    }
+
+    private static EditText quickInput(LinearLayout parent,String hint){
+        EditText e=new EditText(app);
+        e.setSingleLine(true);e.setTextSize(13);
+        e.setTextColor(0xFFF4F6FF);e.setHintTextColor(0xFF9DACC7);
+        e.setHint(hint);
+        parent.addView(e,new LinearLayout.LayoutParams(-1,dp(app,43)));
+        e.setOnTouchListener((v,event)->{
+            if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
+                setOverlayFocusable(true);
+            return false;
+        });
+        return e;
+    }
+    private static void buildQuickPanel(){
+        quickPanel=new android.widget.ScrollView(app);
+        quickPanel.setFillViewport(false);
+        quickPanel.setVisibility(View.GONE);
+        root.addView(quickPanel,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout content=new LinearLayout(app);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(app,8),dp(app,4),dp(app,8),dp(app,8));
+        quickPanel.addView(content);
+        quickStatus=new TextView(app);
+        quickStatus.setTextColor(0xFF82E6E7);quickStatus.setTextSize(12);
+        content.addView(quickStatus);
+        quickName=quickInput(content,"账号名称（最多28字）");
+        quickTags=quickInput(content,"账号标签：主力、备用（最多4个）");
+        quickNote=quickInput(content,"账号备注（最多140字）");
+        Button saveInfo=button(app,"保存名称 / 账号标签 / 备注");
+        content.addView(saveInfo,new LinearLayout.LayoutParams(-1,dp(app,41)));
+        saveInfo.setOnClickListener(v->{
+            if(selected<0)return;
+            try{
+                AccountMetadataStore.setAccountInfo(app,selectedProvider,selected,
+                    quickName.getText().toString(),quickNote.getText().toString(),
+                    quickTags.getText().toString());
+                account.setText(AccountMetadataStore.name(app,selectedProvider,selected)+" ▾");
+                Toast.makeText(app,"当前账号信息已保存",Toast.LENGTH_SHORT).show();
+                setOverlayFocusable(false);
+                refreshQuickPanel();
+            }catch(RuntimeException error){
+                quickTags.setError("账号标签最多4个、每个16字；请检查名称和备注长度");
+            }
+        });
+        TextView quotaTitle=new TextView(app);
+        quotaTitle.setText("额度状态和恢复时间（一次选择）");
+        quotaTitle.setTextSize(12);quotaTitle.setTextColor(0xFFFFD29C);
+        content.addView(quotaTitle);
+        Button pickPreset=button(app,"选择常用额度预设 ▾");
+        content.addView(pickPreset,new LinearLayout.LayoutParams(-1,dp(app,41)));
+        pickPreset.setOnClickListener(v->showQuotaPresets(pickPreset));
+        quickQuotaLabel=quickInput(content,"自定义额度状态（最多24字）");
+        quickQuotaHours=quickInput(content,"自定义恢复小时（1–72）");
+        quickQuotaHours.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        quickIndefinite=new android.widget.CheckBox(app);
+        quickIndefinite.setText("标记持续到手动解除");
+        quickIndefinite.setTextColor(0xFFDEE5FF);
+        content.addView(quickIndefinite);
+        quickSavePreset=new android.widget.CheckBox(app);
+        quickSavePreset.setText("保存为常用组合预设");
+        quickSavePreset.setTextColor(0xFFDEE5FF);
+        content.addView(quickSavePreset);
+        LinearLayout bar=new LinearLayout(app);
+        content.addView(bar,new LinearLayout.LayoutParams(-1,dp(app,41)));
+        Button saveQuota=button(app,"保存自定义额度");
+        Button clearQuota=button(app,"解除标记");
+        bar.addView(saveQuota,new LinearLayout.LayoutParams(0,-1,2));
+        bar.addView(clearQuota,new LinearLayout.LayoutParams(0,-1,1));
+        saveQuota.setOnClickListener(v->saveCustomQuota());
+        clearQuota.setOnClickListener(v->{
+            try{
+                AccountMetadataStore.setQuotaMark(app,selectedProvider,selected,"",-1,
+                    System.currentTimeMillis());
+                refreshQuickPanel();
+                Toast.makeText(app,"已解除当前账号额度标记",Toast.LENGTH_SHORT).show();
+                setOverlayFocusable(false);
+            }catch(RuntimeException error){
+                Toast.makeText(app,"解除失败",Toast.LENGTH_SHORT).show();
+            }
+        });
+        Button returnPage=button(app,"返回当前网页（不刷新）");
+        content.addView(returnPage,new LinearLayout.LayoutParams(-1,dp(app,42)));
+        returnPage.setOnClickListener(v->hideQuickSettings());
+    }
+    private static void showQuickSettings(){
+        if(root==null||selected<0||selectedProvider.isEmpty())return;
+        hideTranslationPanel();
+        if(minimized)setMinimized(false);
+        quickOpen=true;
+        body.setVisibility(View.GONE);
+        quickPanel.setVisibility(View.VISIBLE);
+        quickControl.setText("返回");
+        refreshQuickPanel();
+        // Start non-focusable: focus only when user taps an EditText.
+        setOverlayFocusable(false);
+    }
+    private static void hideQuickSettings(){
+        quickOpen=false;
+        if(quickPanel!=null)quickPanel.setVisibility(View.GONE);
+        if(body!=null)body.setVisibility(minimized?View.GONE:View.VISIBLE);
+        if(quickControl!=null)quickControl.setText("设置");
+        setOverlayFocusable(false);
+    }
+    private static void refreshQuickPanel(){
+        if(selected<0||quickStatus==null||app==null)return;
+        String provider=selectedProvider;
+        int slot=selected;
+        quickName.setText(AccountMetadataStore.name(app,provider,slot));
+        quickTags.setText(AccountMetadataStore.accountTags(app,provider,slot));
+        quickNote.setText(AccountMetadataStore.note(app,provider,slot));
+        String current=AccountMetadataStore.status(app,provider,slot,
+            System.currentTimeMillis());
+        quickStatus.setText(provider.toUpperCase(java.util.Locale.ROOT)+" / "+
+            AccountMetadataStore.name(app,provider,slot)+
+            "\n额度记录："+(current.isEmpty()?"未标记":current)+
+            "\n仅影响当前账号，不更换登录空间");
+        String label=AccountMetadataStore.quotaLabel(app,provider,slot,
+            System.currentTimeMillis());
+        quickQuotaLabel.setText(label.isEmpty()?"额度已无":label);
+        quickQuotaHours.setText("5");
+    }
+    private static void showQuotaPresets(Button anchor){
+        if(selected<0||app==null)return;
+        AccountMetadataStore.QuotaPreset[] presets=
+            AccountMetadataStore.quotaPresets(app);
+        PopupMenu menu=new PopupMenu(app,anchor);
+        for(int i=0;i<presets.length;i++)
+            menu.getMenu().add(0,i+1,i,presets[i].title());
+        menu.getMenu().add(0,100,100,"解除当前账号额度标记");
+        menu.setOnMenuItemClickListener(item->{
+            try{
+                if(item.getItemId()==100){
+                    AccountMetadataStore.setQuotaMark(app,selectedProvider,
+                        selected,"",-1,System.currentTimeMillis());
+                }else{
+                    int index=item.getItemId()-1;
+                    if(index<0||index>=presets.length)return true;
+                    AccountMetadataStore.QuotaPreset preset=presets[index];
+                    AccountMetadataStore.setQuotaMark(app,selectedProvider,
+                        selected,preset.label,preset.hours,System.currentTimeMillis());
+                }
+                refreshQuickPanel();
+                Toast.makeText(app,"额度记录已更新",Toast.LENGTH_SHORT).show();
+            }catch(RuntimeException error){
+                Toast.makeText(app,"额度记录保存失败",Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        });
+        menu.show();
+    }
+    private static void saveCustomQuota(){
+        if(selected<0||app==null)return;
+        try{
+            int hours=quickIndefinite.isChecked()?0:
+                Integer.parseInt(quickQuotaHours.getText().toString().trim());
+            if(hours<0||hours>72||(!quickIndefinite.isChecked()&&hours==0))
+                throw new IllegalArgumentException("hours");
+            String label=quickQuotaLabel.getText().toString().trim();
+            AccountMetadataStore.setQuotaMark(app,selectedProvider,selected,
+                label,hours,System.currentTimeMillis());
+            if(quickSavePreset.isChecked())try{
+                AccountMetadataStore.saveQuotaPreset(app,label,hours);
+            }catch(RuntimeException ignored){
+                Toast.makeText(app,"额度已保存，常用预设未保存",Toast.LENGTH_SHORT).show();
+            }
+            refreshQuickPanel();
+            Toast.makeText(app,"额度状态已记录",Toast.LENGTH_SHORT).show();
+            setOverlayFocusable(false);
+        }catch(RuntimeException error){
+            quickQuotaHours.setError("请输入1–72小时，或选手动解除；状态最多24字");
+        }
+    }
+
+    private static void setOverlayFocusable(boolean enabled){
+        if(window==null||manager==null||root==null)return;
+        if(minimized)enabled=false;
+        if(inputFocusHeld==enabled)return;
+        inputFocusHeld=enabled;
+        if(enabled){
+            window.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            window.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+        }else{
+            window.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            android.view.inputmethod.InputMethodManager ime=
+                (android.view.inputmethod.InputMethodManager)
+                app.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if(ime!=null)ime.hideSoftInputFromWindow(root.getWindowToken(),0);
+            root.clearFocus();
+        }
+        try{manager.updateViewLayout(root,window);}
+        catch(RuntimeException ignored){}
+    }
+    private static void showAccounts(){
+        if(account==null)return;
+        PopupMenu menu=new PopupMenu(app,account);
+        int n=AccountBrowserStore.count(app,selectedProvider);
+        for(int slot:AccountMetadataStore.sorted(app,selectedProvider,
+                System.currentTimeMillis())){
+            String name=AccountMetadataStore.name(app,selectedProvider,slot);
+            String mark=AccountMetadataStore.status(app,selectedProvider,slot,
+                System.currentTimeMillis());
+            menu.getMenu().add(0,slot+1,slot,name+(slot==selected?" ✓":"")+
+                (mark.isEmpty()?"":" · "+mark));
+        }
+        if(n<AccountBrowserSlots.MAX_SLOTS)
+            menu.getMenu().add(0,100,100,"新增当前平台隔离账号");
+        menu.getMenu().add(0,101,101,
+            fullscreenWindow?"还原窗口（不刷新网页）":"全屏显示（不刷新网页）");
+        menu.getMenu().add(0,102,102,"设置当前账号 · 标签 / 备注 / 额度");
+        menu.getMenu().add(0,103,103,
+            tallWindow?"窗口大小 · 恢复标准高度":"窗口大小 · 加高阅读区");
+        menu.getMenu().add(0,104,104,"无刷新译文阅读层 / 返回原文");
+        menu.getMenu().add(0,105,105,"当前账号空间 · 下载管理");
+        menu.getMenu().add(0,106,106,"回到账号空间全页（无刷新）");
+        menu.getMenu().add(0,107,107,"手动重开当前网页（保留账号 Cookie）");
+        menu.getMenu().add(0,108,108,"工作资料 DNS 检查（手动）");
+        menu.getMenu().add(0,109,109,"打开另一资料中的 OmniGate（保留此悬浮窗）");
+        menu.getMenu().add(0,110,110,"当前账号 · 本地上下文预警与交接");
+        menu.getMenu().add(0,111,111,"存储 MB / 运行内存 PSS（只读）");
+        menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==111){
+                Activity host=handoffActivity==null?null:handoffActivity.get();
+                if(host!=null&&!host.isFinishing()&&!host.isDestroyed()&&selected>=0)
+                    GeckoStorageMemoryUi.show(host,selectedProvider,selected);
+                else if(app!=null)
+                    Toast.makeText(app,"请返回 OmniGate 主界面查看内存/存储；"+
+                        "当前网页不会关闭、清缓存或切换账号",
+                        Toast.LENGTH_LONG).show();
+                return true;
+            }
+            if(item.getItemId()==109){
+                // One user tap, official CrossProfileApps permission boundary.
+                // The existing floating GeckoSession stays open in its OS
+                // profile: do NOT reload, reassign, close or move cookies.
+                if(AndroidProfileSafetyCenter.openSingleAuthorizedCounterpart(app)){
+                    setMinimized(true);
+                    return true;
+                }
+                Activity host=handoffActivity==null?null:handoffActivity.get();
+                if(host!=null&&!host.isFinishing()&&!host.isDestroyed())
+                    AndroidProfileSafetyCenter.showQuickSwitch(host);
+                else if(app!=null)
+                    Toast.makeText(app,"当前没有唯一可核实的工作/个人区实例；"+
+                        "不会越权打开分身或清理此悬浮窗，请从主界面核对资料",
+                        Toast.LENGTH_LONG).show();
+                return true;
+            }
+            if(item.getItemId()==110){
+                Activity host=handoffActivity==null?null:handoffActivity.get();
+                if(host!=null&&!host.isFinishing()&&!host.isDestroyed()&&selected>=0)
+                    LocalContextUi.show(host,selectedProvider,selected);
+                else if(app!=null)
+                    Toast.makeText(app,"请先回到 OmniGate 主页打开上下文预警；"+
+                        "不会自动读取或传输对话",Toast.LENGTH_LONG).show();
+                return true;
+            }
+            if(item.getItemId()==108){
+                Activity host=handoffActivity==null?null:handoffActivity.get();
+                if(host!=null&&!host.isFinishing()&&!host.isDestroyed())
+                    GeckoWorkProfileDnsDiagnostics.show(host);
+                else if(app!=null)
+                    Toast.makeText(app,"请回到 OmniGate 主界面再运行 DNS 检查",
+                        Toast.LENGTH_LONG).show();
+                return true;
+            }
+            if(item.getItemId()==106){returnLivePage();return true;}
+            if(item.getItemId()==107){
+                if(selected>=0){
+                    int previous=selected;
+                    // This is an EXPLICIT user request. No automatic site
+                    // retry, account rotation or credential copying.
+                    try{openAccount(previous);}
+                    catch(Throwable failed){
+                        if(caption!=null)caption.setText(
+                            "网页重开失败："+failed.getClass().getSimpleName()+
+                            "；未删除登录资料");
+                    }
+                }
+                return true;
+            }
+            if(item.getItemId()==105){
+                if(app!=null&&selected>=0){
+                    Intent intent=new Intent(app,GeckoDownloadManagerActivity.class);
+                    intent.putExtra(GeckoDownloadManagerActivity.EXTRA_CONTEXT,
+                        AccountBrowserStore.contextId(app,selectedProvider,selected));
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    app.startActivity(intent);
+                }
+                return true;
+            }
+            if(item.getItemId()==104){
+                requestTranslation(account);
+                return true;
+            }
+            if(item.getItemId()==103){
+                tallWindow=!tallWindow;
+                applyWindowGeometry(); // no navigation or GeckoSession change
+                return true;
+            }
+            if(item.getItemId()==102){
+                showQuickSettings();
+                return true;
+            }
+            if(item.getItemId()==101){
+                setFullscreenWindow(!fullscreenWindow);
+                return true;
+            }
+            try{
+                int chosen=item.getItemId()==100
+                    ?AccountBrowserStore.create(app,selectedProvider)
+                    :item.getItemId()-1;
+                if(chosen!=selected)openAccount(chosen);
+            }catch(Throwable failure){
+                Toast.makeText(app,"账号切换失败；旧会话已关闭",
+                    Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        });
+        menu.setOnDismissListener(popup->setOverlayFocusable(false));
+        menu.show();
+    }
+    private static void openAccount(int slot) throws Exception{
+        hideTranslationPanel();
+        releaseSession();
+        selected=-1;
+        // A failed native GeckoSession.close must never allow a second
+        // account to open in this process, including menu-triggered swaps.
+        if(sessionCloseFailed||!IsolatedGeckoBrowser.ownerHealthy())
+            throw new IllegalStateException("previous_gecko_session_close_failed");
+        String id=AccountBrowserStore.contextId(app,selectedProvider,slot);
+        if(!AccountBrowserSlots.validContextId(id))
+            throw new IllegalStateException("context_invalid");
+        Class<?> runtimeClass=Class.forName("org.mozilla.geckoview.GeckoRuntime");
+        java.lang.reflect.Method get=runtimeClass.getDeclaredMethod("getInstance");
+        get.setAccessible(true);
+        Object runtime=get.invoke(null);
+        if(runtime==null)throw new IllegalStateException("gecko_runtime_not_ready");
+        // Use the selected Android app language only as Gecko browser locale.
+        // Never start a second runtime or open a background account.
+        OmniGateBrowserLanguage.applyToExisting(app,runtime);
+        Class<?> builderClass=Class.forName("org.mozilla.geckoview.GeckoSessionSettings$Builder");
+        Object builder=builderClass.getConstructor().newInstance();
+        builderClass.getMethod("contextId",String.class).invoke(builder,id);
+        builderClass.getMethod("useTrackingProtection",boolean.class).invoke(builder,
+            AccountBrowserStore.trackingProtection(app,selectedProvider,slot));
+        builderClass.getMethod("userAgentMode",int.class).invoke(builder,0);
+        builderClass.getMethod("viewportMode",int.class).invoke(builder,0);
+        Object settings=builderClass.getMethod("build").invoke(builder);
+        Class<?> sessionClass=Class.forName("org.mozilla.geckoview.GeckoSession");
+        Object created=sessionClass.getConstructor(
+            Class.forName("org.mozilla.geckoview.GeckoSessionSettings"))
+            .newInstance(settings);
+        // Reuse the SAVED context ID, never a newly fabricated login.
+        // Refuse default/shared Gecko mode before any page is loaded.
+        Object effective=sessionClass.getMethod("getSettings").invoke(created);
+        if(!id.equals(effective.getClass().getMethod("getContextId").invoke(effective))
+                ||Boolean.TRUE.equals(effective.getClass()
+                    .getMethod("getUsePrivateMode").invoke(effective)))
+            throw new IllegalStateException("overlay_gecko_context_owner_mismatch");
+        session=created;
+        GeckoPageTranslate.prepareSession(created);
+        sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
+        followUploadNavigation(created,sessionClass,slot);
+        GeckoBrowserTransfers.attachFilePrompt(app,created,
+            ()->GeckoLiveWindowHandoff.owns(created));
+        GeckoScopedPermissionGate.install(app,created,id,
+            ()->GeckoLiveWindowHandoff.owns(created));
+        GeckoBrowserDownloads.attach(app,created,id,
+            ()->GeckoLiveWindowHandoff.owns(created),
+            event->{
+                if(session!=created||!showing())return;
+                contentProcessTerminated=true;
+                lastLoadFailure=event;
+                if(caption!=null)
+                    caption.setText(event+" · 点击账号菜单手动重开；Cookie 仍保留");
+            });
+        Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
+        Object visual=viewClass.getConstructor(Context.class).newInstance(app);
+        if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
+        geckoView=visual;
+        viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
+        ((View)visual).setOnTouchListener((v,event)->{
+            // GeckoView needs focus to open its own soft keyboard. It should
+            // not retain that focus once the user taps outside or folds away.
+            if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
+                setOverlayFocusable(true);
+            return false;
+        });
+        viewport.addView((View)visual,new FrameLayout.LayoutParams(-1,-1));
+        // Native Gecko selection actions remain scoped to this one session.
+        // No DOM extraction, injected JS or silent clipboard read.
+        GeckoSelectionControls.overlay(created,account,
+            ()->GeckoLiveWindowHandoff.owns(created),
+            ()->setOverlayFocusable(true));
+        AccountBrowserStore.select(app,selectedProvider,slot);
+        selected=slot;
+        account.setText(AccountMetadataStore.name(app,selectedProvider,slot)+" ▾");
+        caption.setText(selectedProvider.toUpperCase(java.util.Locale.ROOT)+" · 网页悬浮窗");
+        navigate(AccountBrowserSlots.home(selectedProvider));
+    }
+    /**
+     * Cancel a pending document-picker result whenever page navigation changes
+     * while the same GeckoSession remains open. A file selected for one page
+     * must never be completed into another page after a redirect or link tap.
+     */
+    private static void followUploadNavigation(Object owned,Class<?> gecko,
+            int currentSlot){
+        try{
+            final boolean strict=AccountBrowserStore.strictNavigation(
+                app,selectedProvider,currentSlot);
+            Class<?> nav=Class.forName("org.mozilla.geckoview.GeckoSession$NavigationDelegate");
+            Object proxy=java.lang.reflect.Proxy.newProxyInstance(nav.getClassLoader(),
+                new Class<?>[]{nav},(p,m,args)->{
+                    if("hashCode".equals(m.getName()))return System.identityHashCode(p);
+                    if("equals".equals(m.getName()))return args!=null&&args.length>0&&p==args[0];
+                    if("toString".equals(m.getName()))return "OmniGateOverlayUploadNavigation";
+                    if("onNewSession".equals(m.getName())){
+                        // A new popup GeckoSession without the saved
+                        // contextId must never be auto-created.
+                        return null;
+                    }
+                    if("onLoadRequest".equals(m.getName())&&args!=null&&
+                        args.length>=2&&args[0]==owned)
+                        return GeckoAccountNavigationGuard.intercept(args[1],
+                            ()->GeckoLiveWindowHandoff.owns(owned),strict);
+                    if("onLoadError".equals(m.getName())&&args!=null&&
+                            args.length>=3&&args[0]==owned){
+                        Object err=args[2];
+                        String reason=GeckoPageFailureUi.detail(err);
+                        if(session==owned){
+                            lastLoadFailure=reason;
+                            if(caption!=null)caption.setText(
+                                "网页加载失败："+reason+" · 手动重开");
+                        }
+                        return GeckoPageFailureUi.response(selectedProvider,err);
+                    }
+                    if("onLocationChange".equals(m.getName())&&args!=null&&
+                        args.length>1&&args[0]==owned){
+                        if(app!=null&&session==owned)
+                            GeckoBrowserTransfers.cancelSession(app,owned);
+                    }
+                    return null;
+                });
+            gecko.getMethod("setNavigationDelegate",nav).invoke(owned,proxy);
+            if(gecko.getMethod("getNavigationDelegate").invoke(owned)!=proxy)
+                throw new IllegalStateException("overlay_navigation_owner_mismatch");
+            Class<?> progress=Class.forName(
+                "org.mozilla.geckoview.GeckoSession$ProgressDelegate");
+            Object pageStart=java.lang.reflect.Proxy.newProxyInstance(
+                progress.getClassLoader(),new Class<?>[]{progress},(p,m,args)->{
+                    if("hashCode".equals(m.getName()))return System.identityHashCode(p);
+                    if("equals".equals(m.getName()))
+                        return args!=null&&args.length>0&&p==args[0];
+                    if("toString".equals(m.getName()))
+                        return "OmniGateOverlayUploadPageStartGate";
+                    if("onPageStart".equals(m.getName())&&args!=null&&
+                        args.length>1&&args[0]==owned&&app!=null&&session==owned){
+                        lastLoadFailure=null;
+                        contentProcessTerminated=false;
+                        GeckoBrowserTransfers.cancelSession(app,owned);
+                    }else if("onPageStop".equals(m.getName())&&args!=null&&
+                        args.length>1&&args[0]==owned&&session==owned&&
+                        args[1] instanceof Boolean){
+                        if(caption!=null){
+                            caption.setText(lastLoadFailure!=null
+                                ?"网页未加载："+lastLoadFailure
+                                :Boolean.TRUE.equals(args[1])
+                                    ?selectedProvider.toUpperCase(java.util.Locale.ROOT)+
+                                        " · 基础加载结束（不代表登录成功）"
+                                    :"基础页面失败 · 可在账号菜单手动重开");
+                        }
+                    }
+                    return null;
+                });
+            gecko.getMethod("setProgressDelegate",progress).invoke(owned,pageStart);
+            if(gecko.getMethod("getProgressDelegate").invoke(owned)!=pageStart)
+                throw new IllegalStateException("overlay_page_start_owner_mismatch");
+        }catch(Throwable failure){
+            // If Gecko navigation cannot be observed, prevent file completion:
+            // a failed observer is not a proof that the selected page stayed put.
+            GeckoBrowserTransfers.blockSessionFileUploads(owned);
+            android.util.Log.w("OmniGateWebFiles","overlay_navigation_gate_unavailable",failure);
+        }
+    }
+
+    private static void navigate(String text){
+        if(session==null)return;
+        try{
+            String url=text==null?"":text.trim();
+            if(url.isEmpty()||url.length()>4096||url.contains("\\")||
+                url.startsWith("//"))throw new IllegalArgumentException("url");
+            if(!url.startsWith("https://")&&!url.startsWith("http://"))
+                url="https://"+url;
+            java.net.URI u=new java.net.URI(url);
+            if(u.getHost()==null||u.getRawUserInfo()!=null)
+                throw new IllegalArgumentException("url");
+            GeckoBrowserTransfers.cancelSession(app,session);
+            session.getClass().getMethod("loadUri",String.class).invoke(session,url);
+        }catch(Exception invalid){
+            Toast.makeText(app,"仅支持有效 HTTP/HTTPS 网址",Toast.LENGTH_SHORT).show();
+        }
+    }
+    private static void callSession(String op){
+        if(session==null)return;
+        try{session.getClass().getMethod(op).invoke(session);}
+        catch(Exception ignored){}
+    }
+    /**
+     * Expand/restores the *same* WindowManager view tree. Never detaches
+     * GeckoView, creates another GeckoSession or calls loadUri().
+     * System bars are owned by Android and may remain visible for overlays.
+     */
+    private static void setFullscreenWindow(boolean enabled){
+        if(root==null||manager==null||window==null)return;
+        if(minimized)setMinimized(false);
+        if(fullscreenWindow==enabled)return;
+        if(enabled){
+            compactX=window.x;
+            compactY=window.y;
+        }
+        fullscreenWindow=enabled;
+        // Keep the overlay passive until explicit text input; otherwise
+        // unrelated applications can lose their keyboard focus.
+        setOverlayFocusable(false);
+        applyWindowGeometry();
+    }
+
+    private static void applyWindowGeometry(){
+        if(root==null||manager==null||window==null)return;
+        if(minimized){
+            window.width=dp(app,BUBBLE_SIZE_DP);
+            window.height=dp(app,BUBBLE_SIZE_DP);
+        }else if(fullscreenWindow){
+            window.width=WindowManager.LayoutParams.MATCH_PARENT;
+            window.height=WindowManager.LayoutParams.MATCH_PARENT;
+            window.x=0;
+            window.y=0;
+        }else{
+            window.width=compactWidth();
+            window.height=compactHeight();
+            window.x=compactX;
+            window.y=compactY;
+        }
+        if(window.width>0){
+            int maxX=Math.max(0,
+                app.getResources().getDisplayMetrics().widthPixels-window.width);
+            window.x=Math.max(0,Math.min(maxX,window.x));
+        }
+        if(window.height>0){
+            int maxY=Math.max(0,
+                app.getResources().getDisplayMetrics().heightPixels-window.height);
+            window.y=Math.max(0,Math.min(maxY,window.y));
+        }
+        if(fullscreenControl!=null){
+            fullscreenControl.setText(fullscreenWindow?"还原":"全屏");
+            if(fullscreenFooter!=null)
+                fullscreenFooter.setText(fullscreenWindow?"还原":"全屏");
+            fullscreenControl.setContentDescription(fullscreenWindow
+                ?"还原悬浮窗，保留网页"
+                :"返回全屏，保留当前网页");
+        }
+        manager.updateViewLayout(root,window);
+    }
+
+    private static void updateFoldMemoryState(boolean isFolded){
+        Object current=session;
+        if(current==null||app==null||selected<0||
+            !AccountBrowserSlots.supported(selectedProvider))return;
+        if(isFolded){
+            if(foldedLowMemorySession==current)return;
+            // Default OFF because lowering activity may pause site scripts,
+            // audio, ongoing response streams or progress indicators.
+            if(!AccountBrowserStore.lowMemoryOnFold(app,selectedProvider,selected))
+                return;
+            String id=AccountBrowserStore.contextId(app,selectedProvider,selected);
+            if(GeckoFoldMemoryController.setVisible(current,id,false))
+                foldedLowMemorySession=current;
+        }else if(foldedLowMemorySession==current){
+            String id=AccountBrowserStore.contextId(app,selectedProvider,selected);
+            if(GeckoFoldMemoryController.setVisible(current,id,true))
+                foldedLowMemorySession=null;
+            else if(caption!=null)
+                caption.setText("低内存会话恢复失败；当前账号未清理，请关闭再手动打开");
+        }
+    }
+    private static void setMinimized(boolean value){
+        if(root==null||manager==null)return;
+        minimized=value;
+        // Minimized always returns IME ownership to the underlying app.
+        // Expanded starts passive and only acquires focus on direct input.
+        setOverlayFocusable(false);
+        if(value){
+            hideTranslationPanel();
+            quickOpen=false;
+        }
+        body.setVisibility(value||quickOpen||translationOpen?View.GONE:View.VISIBLE);
+        if(quickPanel!=null)quickPanel.setVisibility(
+            !value&&quickOpen?View.VISIBLE:View.GONE);
+        if(translationPanel!=null)translationPanel.setVisibility(
+            !value&&translationOpen?View.VISIBLE:View.GONE);
+        caption.setVisibility(value?View.GONE:View.VISIBLE);
+        account.setVisibility(value?View.GONE:View.VISIBLE);
+        quickControl.setVisibility(value?View.GONE:View.VISIBLE);
+        fullscreenControl.setVisibility(value?View.GONE:View.VISIBLE);
+        if(returnToPageControl!=null)
+            returnToPageControl.setVisibility(value?View.GONE:View.VISIBLE);
+        closeControl.setVisibility(value?View.GONE:View.VISIBLE);
+        // Remember the last compact placement only when leaving compact.
+        if(value&&!fullscreenWindow && window.width>0){
+            compactX=window.x;
+            compactY=window.y;
+        }
+        fold.setText(value?"C":"—");
+        fold.setContentDescription(value?"展开 Claude 网页悬浮窗":"收起 Claude 网页悬浮窗");
+        applyWindowGeometry();
+        // Gecko's documented setActive(false) reduces hidden-page memory,
+        // but only if the user enabled low-memory-on-fold for this slot.
+        // When expanded, restore the same existing session without reload.
+        updateFoldMemoryState(value);
+    }
+    static boolean closeIfMatches(String provider,int slot){
+        if(!showing()||!provider.equals(selectedProvider)||selected!=slot)
+            return false;
+        close();
+        return true;
+    }
+    static boolean closeIfMatchesForErase(String provider,int slot){
+        boolean matches=showing()&&provider.equals(selectedProvider)&&selected==slot;
+        if(matches)close();
+        if(sessionCloseFailed)throw new IllegalStateException("gecko_overlay_close_failed");
+        return matches;
+    }
+    private static void releaseSession(){
+        Object old=session,visual=geckoView;
+        if(app!=null)GeckoBrowserTransfers.cancelSession(app,old);
+        GeckoBrowserDownloads.cancelSession(old);
+        session=null;geckoView=null;foldedLowMemorySession=null;
+        if(visual!=null){
+            try{visual.getClass().getMethod("releaseSession").invoke(visual);}
+            catch(Throwable failure){sessionCloseFailed=true;}
+            if(visual instanceof View && viewport!=null)
+                viewport.removeView((View)visual);
+        }
+        if(old!=null){
+            try{
+                boolean open=Boolean.TRUE.equals(
+                    old.getClass().getMethod("isOpen").invoke(old));
+                if(open)old.getClass().getMethod("close").invoke(old);
+            }catch(Throwable failure){sessionCloseFailed=true;}
+        }
+        contentProcessTerminated=false;lastLoadFailure=null;
+    }
+    public static void close(){
+        hideTranslationPanel();
+        releaseSession();
+        if(root!=null&&manager!=null){
+            try{manager.removeViewImmediate(root);}
+            catch(RuntimeException ignored){}
+        }
+        root=null;body=null;addressBar=null;addressControl=null;
+        addressExpanded=false;tallWindow=false;
+        viewport=null;caption=null;account=null;fold=null;
+        closeControl=null;fullscreenControl=null;fullscreenFooter=null;
+        quickControl=null;returnToPageControl=null;
+        handoffActivity=null;
+        quickPanel=null;quickName=null;quickTags=null;
+        quickNote=null;quickQuotaLabel=null;quickQuotaHours=null;
+        quickIndefinite=null;quickSavePreset=null;quickStatus=null;
+        quickOpen=false;
+        translationPanel=null;translationText=null;translationConsent=null;
+        translationOpen=false;translationEpoch++;
+        window=null;manager=null;app=null;
+        selected=-1;selectedProvider="";minimized=false;
+        fullscreenWindow=false;inputFocusHeld=false;
+        compactX=0;compactY=0;
+    }
+}
