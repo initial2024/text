@@ -71,6 +71,8 @@ public final class ClaudeFloatingOverlay {
     }
     private static Object session,geckoView;
     private static boolean sessionCloseFailed;
+    // Only this one exact GeckoSession may be parked, never other accounts.
+    private static Object foldedLowMemorySession;
     private static boolean contentProcessTerminated;
     private static String lastLoadFailure;
     static boolean ownerHealthy(){return !sessionCloseFailed;}
@@ -232,6 +234,15 @@ public final class ClaudeFloatingOverlay {
             session==null||geckoView==null||selected<0){
             if(app!=null)Toast.makeText(app,
                 "原应用界面不可用；当前悬浮窗和网页未关闭，请返回 OmniGate 再操作",
+                Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        // Always reactivate a parked session BEFORE moving it into visible
+        // full-page GeckoView; never transfer an inactive view implicitly.
+        if(foldedLowMemorySession==session)updateFoldMemoryState(false);
+        if(foldedLowMemorySession==session){
+            Toast.makeText(app,"网页仍在低内存挂起状态；未转移或刷新",
                 Toast.LENGTH_LONG).show();
             return;
         }
@@ -1172,6 +1183,27 @@ public final class ClaudeFloatingOverlay {
         manager.updateViewLayout(root,window);
     }
 
+    private static void updateFoldMemoryState(boolean isFolded){
+        Object current=session;
+        if(current==null||app==null||selected<0||
+            !AccountBrowserSlots.supported(selectedProvider))return;
+        if(isFolded){
+            if(foldedLowMemorySession==current)return;
+            // Default OFF because lowering activity may pause site scripts,
+            // audio, ongoing response streams or progress indicators.
+            if(!AccountBrowserStore.lowMemoryOnFold(app,selectedProvider,selected))
+                return;
+            String id=AccountBrowserStore.contextId(app,selectedProvider,selected);
+            if(GeckoFoldMemoryController.setVisible(current,id,false))
+                foldedLowMemorySession=current;
+        }else if(foldedLowMemorySession==current){
+            String id=AccountBrowserStore.contextId(app,selectedProvider,selected);
+            if(GeckoFoldMemoryController.setVisible(current,id,true))
+                foldedLowMemorySession=null;
+            else if(caption!=null)
+                caption.setText("低内存会话恢复失败；当前账号未清理，请关闭再手动打开");
+        }
+    }
     private static void setMinimized(boolean value){
         if(root==null||manager==null)return;
         minimized=value;
@@ -1202,6 +1234,10 @@ public final class ClaudeFloatingOverlay {
         fold.setText(value?"C":"—");
         fold.setContentDescription(value?"展开 Claude 网页悬浮窗":"收起 Claude 网页悬浮窗");
         applyWindowGeometry();
+        // Gecko's documented setActive(false) reduces hidden-page memory,
+        // but only if the user enabled low-memory-on-fold for this slot.
+        // When expanded, restore the same existing session without reload.
+        updateFoldMemoryState(value);
     }
     static boolean closeIfMatches(String provider,int slot){
         if(!showing()||!provider.equals(selectedProvider)||selected!=slot)
@@ -1219,7 +1255,7 @@ public final class ClaudeFloatingOverlay {
         Object old=session,visual=geckoView;
         if(app!=null)GeckoBrowserTransfers.cancelSession(app,old);
         GeckoBrowserDownloads.cancelSession(old);
-        session=null;geckoView=null;
+        session=null;geckoView=null;foldedLowMemorySession=null;
         if(visual!=null){
             try{visual.getClass().getMethod("releaseSession").invoke(visual);}
             catch(Throwable failure){sessionCloseFailed=true;}
