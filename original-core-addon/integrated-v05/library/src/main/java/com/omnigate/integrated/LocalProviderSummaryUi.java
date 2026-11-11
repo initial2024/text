@@ -90,7 +90,7 @@ final class LocalProviderSummaryUi {
         preview.setMinLines(8);
         preview.setTextSize(13);
         preview.setLongClickable(true);
-        preview.setTextIsSelectable(true);
+        preview.setSelectAllOnFocus(false); // remain editable with native paste/selection
         ScrollView scroll=new ScrollView(a);
         scroll.addView(preview);
         AlertDialog dialog=new AlertDialog.Builder(a)
