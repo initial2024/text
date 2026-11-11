@@ -848,7 +848,18 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,108,108,"工作资料 DNS 检查（手动）");
         menu.getMenu().add(0,109,109,"打开另一资料中的 OmniGate（保留此悬浮窗）");
         menu.getMenu().add(0,110,110,"当前账号 · 本地上下文预警与交接");
+        menu.getMenu().add(0,111,111,"存储 MB / 运行内存 PSS（只读）");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==111){
+                Activity host=handoffActivity==null?null:handoffActivity.get();
+                if(host!=null&&!host.isFinishing()&&!host.isDestroyed()&&selected>=0)
+                    GeckoStorageMemoryUi.show(host,selectedProvider,selected);
+                else if(app!=null)
+                    Toast.makeText(app,"请返回 OmniGate 主界面查看内存/存储；"+
+                        "当前网页不会关闭、清缓存或切换账号",
+                        Toast.LENGTH_LONG).show();
+                return true;
+            }
             if(item.getItemId()==109){
                 // One user tap, official CrossProfileApps permission boundary.
                 // The existing floating GeckoSession stays open in its OS
