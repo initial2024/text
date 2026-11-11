@@ -202,7 +202,7 @@ public final class ClaudeFloatingOverlay {
             handoffActivity=new java.lang.ref.WeakReference<>(host);
             account.setText(AccountMetadataStore.name(app,provider,slot)+" ▾");
             caption.setText(provider.toUpperCase(java.util.Locale.ROOT)+" · 原网页未刷新");
-            followUploadNavigation(existing,Class.forName("org.mozilla.geckoview.GeckoSession"));
+            followUploadNavigation(existing,Class.forName("org.mozilla.geckoview.GeckoSession"),slot);
             // Do not navigate, create a session, change context ID, or use
             // this method to copy cookies into another Android user/profile.
             return true;
@@ -946,7 +946,7 @@ public final class ClaudeFloatingOverlay {
         session=created;
         GeckoPageTranslate.prepareSession(created);
         sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
-        followUploadNavigation(created,sessionClass);
+        followUploadNavigation(created,sessionClass,slot);
         GeckoBrowserTransfers.attachFilePrompt(app,created,
             ()->GeckoLiveWindowHandoff.owns(created));
         GeckoScopedPermissionGate.install(app,created,id,
@@ -984,14 +984,26 @@ public final class ClaudeFloatingOverlay {
      * while the same GeckoSession remains open. A file selected for one page
      * must never be completed into another page after a redirect or link tap.
      */
-    private static void followUploadNavigation(Object owned,Class<?> gecko){
+    private static void followUploadNavigation(Object owned,Class<?> gecko,
+            int currentSlot){
         try{
+            final boolean strict=AccountBrowserStore.strictNavigation(
+                app,selectedProvider,currentSlot);
             Class<?> nav=Class.forName("org.mozilla.geckoview.GeckoSession$NavigationDelegate");
             Object proxy=java.lang.reflect.Proxy.newProxyInstance(nav.getClassLoader(),
                 new Class<?>[]{nav},(p,m,args)->{
                     if("hashCode".equals(m.getName()))return System.identityHashCode(p);
                     if("equals".equals(m.getName()))return args!=null&&args.length>0&&p==args[0];
                     if("toString".equals(m.getName()))return "OmniGateOverlayUploadNavigation";
+                    if("onNewSession".equals(m.getName())){
+                        // A new popup GeckoSession without the saved
+                        // contextId must never be auto-created.
+                        return null;
+                    }
+                    if("onLoadRequest".equals(m.getName())&&args!=null&&
+                        args.length>=2&&args[0]==owned)
+                        return GeckoAccountNavigationGuard.intercept(args[1],
+                            ()->GeckoLiveWindowHandoff.owns(owned),strict);
                     if("onLoadError".equals(m.getName())&&args!=null&&
                             args.length>=3&&args[0]==owned){
                         Object err=args[2];
