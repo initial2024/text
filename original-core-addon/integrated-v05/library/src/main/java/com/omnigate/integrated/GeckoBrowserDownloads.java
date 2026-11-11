@@ -216,10 +216,10 @@ final class GeckoBrowserDownloads {
     static boolean hasLiveTransferForContext(String contextId){
         if(!AccountBrowserSlots.validContextId(contextId))return true;
         synchronized(LOCK){
-            return (pending!=null&&!pending.cancelled.get()&&
-                        contextId.equals(pending.contextId))||
-                   (active!=null&&!active.cancelled.get()&&
-                        contextId.equals(active.contextId));
+            // Even a cancelled worker may still be unwinding and hold
+            // an open .partial file. Treat it as LIVE until finally clears.
+            return (pending!=null&&contextId.equals(pending.contextId))||
+                   (active!=null&&contextId.equals(active.contextId));
         }
     }
 
