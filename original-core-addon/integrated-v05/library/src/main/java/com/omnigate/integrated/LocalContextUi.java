@@ -68,9 +68,23 @@ final class LocalContextUi {
         input.setMaxLines(6);
         input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         input.setHint("手动粘贴文本 · 最多20万字符 · 用完不保存原文");
+        input.setLongClickable(true);
+        input.setSelectAllOnFocus(false);
         body.addView(input);
+        android.widget.Button paste=new android.widget.Button(host);
+        paste.setAllCaps(false);
+        paste.setText("从当前 Android 资料剪贴板粘贴（手动）");
+        body.addView(paste);
+        paste.setOnClickListener(v->{
+            input.requestFocus();
+            if(!input.onTextContextMenuItem(android.R.id.paste))
+                Toast.makeText(host,
+                    "系统不允许粘贴或剪贴板为空；可长按输入框重试",
+                    Toast.LENGTH_LONG).show();
+        });
         TextView result=new TextView(host);
         result.setTextSize(13);
+        result.setTextIsSelectable(true);
         body.addView(result);
         android.widget.Button providerSummary=new android.widget.Button(host);
         providerSummary.setAllCaps(false);
