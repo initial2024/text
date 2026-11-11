@@ -41,7 +41,11 @@ final class AccountQuickSettings {
                 "重置当前空间的网页权限（不清登录）",
                 AccountBrowserStore.trackingProtection(a,provider,slot)
                     ?"跟踪保护：开启（逐空间）":"跟踪保护：兼容模式（逐空间）",
-                "当前账号空间 · 下载管理 / 删除文件"
+                "当前账号空间 · 下载管理 / 删除文件",
+                "本地上下文预警 / 复制交接摘要",
+                "账号隔离安全检查（只读）",
+                AccountBrowserStore.strictNavigation(a,provider,slot)
+                    ?"严格外部导航：已启用":"严格外部导航：未启用（兼容优先）"
             },(d,which)->{
                 if(which==0)edit(a,provider,slot);
                 if(which==1)quota(a,provider,slot);
@@ -62,7 +66,32 @@ final class AccountQuickSettings {
                         AccountBrowserStore.contextId(a,provider,slot));
                     a.startActivity(intent);
                 }
+                if(which==7)LocalContextUi.show(a,provider,slot);
+                if(which==8)GeckoAccountIsolationAudit.show(a,provider,slot);
+                if(which==9)toggleStrictNavigation(a,provider,slot);
             }).setNegativeButton("取消",null).show();
+    }
+    private static void toggleStrictNavigation(Activity a,String provider,int slot){
+        boolean current=AccountBrowserStore.strictNavigation(a,provider,slot);
+        new AlertDialog.Builder(a)
+            .setTitle(current?"关闭严格外部导航？":"仅此账号启用严格外部导航？")
+            .setMessage(current
+                ?"恢复 Gecko 默认的网站导航和第三方网页登录兼容模式。"+
+                  "不会自动刷新网页，也不清除账号 Cookie。"
+                :"下一次打开此账号空间后，拦截网页新窗口及应用外部链接协议，"+
+                  "阻止它们绕过当前独立 GeckoSession 的归属验证。"+
+                  "第三方 OAuth 弹窗或外部应用登录可能无法完成。"+
+                  "\n该保护只作用于此账号，不改变其他空间、浏览器指纹或系统权限。"+
+                  "\n保存不会立即刷新/关闭当前网页；手动重新打开后生效。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("保存此账号设置",(d,w)->{
+                try{
+                    AccountBrowserStore.setStrictNavigation(a,provider,slot,!current);
+                    feedback(a,"仅该空间设置已保存，重新打开当前网页后生效");
+                }catch(RuntimeException failure){
+                    feedback(a,"保存失败，原有账号未修改");
+                }
+            }).show();
     }
     private static void toggleTracking(Activity a,String provider,int slot){
         boolean enabled=AccountBrowserStore.trackingProtection(a,provider,slot);
