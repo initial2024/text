@@ -17,7 +17,7 @@ final class GeckoAccountNavigationGuard {
 
     static boolean denyUri(String raw,int target,boolean strict){
         if(!strict)return false;
-        if(target==1)return true; // Gecko TARGET_WINDOW_NEW verified in tests.
+        if(target==2)return true; // Gecko TARGET_WINDOW_NEW=2 (API 162)
         if(raw==null||raw.length()>8192)return true;
         try{
             URI uri=new URI(raw);
