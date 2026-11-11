@@ -32,11 +32,24 @@ final class LocalContextUi {
         body.setPadding(dp(host,16),dp(host,8),dp(host,16),dp(host,8));
         TextView intro=new TextView(host);
         intro.setTextSize(13);
-        intro.setText("本机粗略 token 统计 · 只处理你手动粘贴的文本。"+
-            "无法自动获知网页模型的真实上下文窗口、剩余额度或自动压缩。"+
-            "网站未显示的系统提示词、附件和多模态内容不包含在估算内。"+
-            "\n不会保存聊天原文、不自动向网页发送摘要请求。");
+        intro.setText("默认关闭：只有你手动启用并粘贴文字后才估算 token。"+
+            "不提供服务商真实剩余额度，不自动阅读网页，也不保存聊天原文。"+
+            "\n跨账号统计还需要单独开启服务商总开关并逐账号同意。"+
+            "交接内容只能由你手动粘贴并确认，不会混用 Cookie。");
         body.addView(intro);
+        CheckBox enabled=new CheckBox(host);
+        enabled.setText("开启此账号空间的本地统计（默认关闭）");
+        enabled.setChecked(LocalContextLedger.enabled(host,provider,slot));
+        body.addView(enabled);
+        CheckBox providerEnabled=new CheckBox(host);
+        providerEnabled.setText("允许此服务商跨账号统计汇总（默认关闭）");
+        providerEnabled.setChecked(
+            LocalContextLedger.providerAggregationEnabled(host,provider));
+        body.addView(providerEnabled);
+        CheckBox contribute=new CheckBox(host);
+        contribute.setText("允许当前账号参与同服务商汇总（逐账号授权）");
+        contribute.setChecked(LocalContextLedger.participates(host,provider,slot));
+        body.addView(contribute);
         TextView label=new TextView(host);
         label.setText("当前模型上下文上限（由你核实并填写，未知填 0）");
         body.addView(label);
@@ -59,15 +72,26 @@ final class LocalContextUi {
         TextView result=new TextView(host);
         result.setTextSize(13);
         body.addView(result);
+        android.widget.Button providerSummary=new android.widget.Button(host);
+        providerSummary.setAllCaps(false);
+        providerSummary.setText("同服务商 · 汇总本地数字 / 合并手动摘要");
+        body.addView(providerSummary);
+        providerSummary.setOnClickListener(v->
+            LocalProviderSummaryUi.show(host,provider));
         Runnable redraw=()->{
             long used=LocalContextLedger.used(host,provider,slot);
             int max=LocalContextLedger.window(host,provider,slot);
-            result.setText("当前仅人工记录的估算："+used+" tokens"+
-                "\n保守提醒线（×1.5，不代表统计误差上界）："+
-                LocalContextEstimator.upperBound(used)+" tokens"+
-                "\n你填写的窗口："+(max==0?"未知":max+" tokens")+
-                "\n"+LocalContextEstimator.warning(used,max)+
-                "\n达到阈值仅提醒，不会自动发送消息或打开其他账号。");
+            boolean on=LocalContextLedger.enabled(host,provider,slot);
+            boolean joined=LocalContextLedger.participates(host,provider,slot);
+            boolean group=LocalContextLedger.providerAggregationEnabled(host,provider);
+            result.setText("此账号统计："+(on?"手动开启":"关闭，保留已有数字但不会新增")+
+                "\n人工记录的估算："+(on?used+" tokens":"隐藏（未启用）")+
+                "\n误差提醒线（×1.5，不是可信的上界）："+
+                (on?LocalContextEstimator.upperBound(used)+" tokens":"未计算")+
+                "\n由你填写的上下文窗口："+(max==0?"未知":max+" tokens")+
+                "\n"+(on?LocalContextEstimator.warning(used,max):"统计关闭，不发出容量提醒")+
+                "\n跨账号汇总："+(group&&joined&&on?"当前账号同意纳入":"当前账号未加入")+
+                "\n不会自动发送摘要，不会自动切换登录空间。");
         };
         redraw.run();
         ScrollView scroll=new ScrollView(host);
@@ -111,14 +135,32 @@ final class LocalContextUi {
                         // Validate input before any persistence.
                         LocalContextEstimator.estimate(input.getText());
                     }
+                    if(input.length()>0&&!enabled.isChecked()){
+                        input.setError("先开启此账号统计，才能记录估算文本");
+                        return;
+                    }
+                    if(contribute.isChecked()&&!enabled.isChecked()){
+                        contribute.setError("此账号统计必须先开启");
+                        return;
+                    }
+                    if(contribute.isChecked()&&!providerEnabled.isChecked()){
+                        providerEnabled.setError("先开启服务商级汇总");
+                        return;
+                    }
+                    // No browser session, storage ID or cookie changes.
+                    LocalContextLedger.setEnabled(host,provider,slot,enabled.isChecked());
+                    LocalContextLedger.setProviderAggregationEnabled(
+                        host,provider,providerEnabled.isChecked());
+                    LocalContextLedger.setParticipates(host,provider,slot,
+                        enabled.isChecked()&&providerEnabled.isChecked()&&contribute.isChecked());
                     LocalContextLedger.setWindow(host,provider,slot,maximum);
                     if(input.length()>0){
                         LocalContextLedger.record(host,provider,slot,
                             input.getText(),snapshot.isChecked());
-                        input.setText("");
+                        input.setText(""); // release plaintext from UI
                     }
                     redraw.run();
-                    if(LocalContextEstimator.warningPercent(
+                    if(enabled.isChecked()&&LocalContextEstimator.warningPercent(
                         LocalContextLedger.used(host,provider,slot),
                         LocalContextLedger.window(host,provider,slot))>=70)
                         Toast.makeText(host,"已到本地预警线，请主动准备交接摘要",
