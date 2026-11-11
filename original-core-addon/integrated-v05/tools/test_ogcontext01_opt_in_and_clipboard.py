@@ -229,6 +229,7 @@ with TemporaryDirectory(prefix="ogcontext01-") as temp:
     target=rootp/"classes";target.mkdir()
     java += [str(src/n) for n in (
         "AccountBrowserSlots.java","AccountBrowserStore.java",
+        "VoluntaryAccountBudget.java","SlidingHourAcknowledgements.java",
         "LocalContextEstimator.java","LocalContextLedger.java",
         "GeckoAccountNavigationGuard.java")]
     subprocess.run(["javac","-encoding","UTF-8","-d",str(target),*java],check=True)
