@@ -364,6 +364,9 @@ final class IsolatedGeckoBrowser {
             target.session=existingSession;
             target.geckoView=newView;
             target.selected=slot;
+            // Restore Android native ActionMode after overlay's temporary
+            // selection menu. Same GeckoSession, no URL reload.
+            GeckoSelectionControls.fullPage(existingSession,host);
             activeBrowser=target;
             target.followCurrentLocation(existingSession,
                 Class.forName("org.mozilla.geckoview.GeckoSession"),slot);
@@ -1523,6 +1526,7 @@ final class IsolatedGeckoBrowser {
             geckoView=visual;
             viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
             display.addView((View)visual,0,new FrameLayout.LayoutParams(-1,-1));
+            GeckoSelectionControls.fullPage(created,host);
             followCurrentLocation(created,sessionClass,index);
             followClaudePageProgress(created,sessionClass);
             GeckoBrowserTransfers.attachFilePrompt(host,created,
