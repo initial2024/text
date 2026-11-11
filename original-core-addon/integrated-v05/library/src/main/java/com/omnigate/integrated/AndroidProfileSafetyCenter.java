@@ -146,6 +146,44 @@ final class AndroidProfileSafetyCenter {
      * move GeckoSession, cookies, file handles, tokens or browser state.
      * Other/clone/hidden profiles and unrelated users are not targets.
      */
+    /**
+     * One explicit overlay menu tap launches the ONLY provably allowed
+     * personal/work counterpart. Activity/foreground owner is not required:
+     * CrossProfileApps.startMainActivity() is the official public API.
+     * Never discovers clone/XSpace, secondary users, or attempts data access.
+     */
+    static boolean openSingleAuthorizedCounterpart(Context source){
+        if(source==null||android.os.Build.VERSION.SDK_INT<35)return false;
+        try{
+            android.content.pm.CrossProfileApps bridge=source.getSystemService(
+                android.content.pm.CrossProfileApps.class);
+            UserManager users=source.getSystemService(UserManager.class);
+            if(bridge==null||users==null)return false;
+            boolean currentIsWork=users.isManagedProfile();
+            java.util.ArrayList<UserHandle> safe=new java.util.ArrayList<>();
+            for(UserHandle candidate:bridge.getTargetUserProfiles()){
+                // Only personal <-> standard managed Work Profile. A cloned
+                // user or hidden/private XSpace must NEVER be selected.
+                boolean isWork=bridge.isManagedProfile(candidate);
+                boolean isProfile=bridge.isProfile(candidate);
+                if(isWork||currentIsWork&&!isProfile)safe.add(candidate);
+            }
+            if(safe.size()!=1)return false;
+            Intent launch=source.getPackageManager().getLaunchIntentForPackage(
+                source.getPackageName());
+            android.content.ComponentName target=launch==null?null:launch.getComponent();
+            if(target==null||
+                !source.getPackageName().equals(target.getPackageName()))
+                return false;
+            bridge.startMainActivity(target,safe.get(0));
+            return true;
+        }catch(SecurityException | IllegalArgumentException denied){
+            return false;
+        }catch(RuntimeException | LinkageError unsupported){
+            return false;
+        }
+    }
+
     static void showQuickSwitch(Activity host){
         if(host==null||host.isFinishing()||host.isDestroyed())return;
         java.util.List<UserHandle> visible=launchableProfiles(host);
