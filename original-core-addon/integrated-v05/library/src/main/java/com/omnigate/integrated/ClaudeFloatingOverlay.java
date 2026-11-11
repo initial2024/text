@@ -828,12 +828,20 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,110,110,"当前账号 · 本地上下文预警与交接");
         menu.setOnMenuItemClickListener(item->{
             if(item.getItemId()==109){
+                // One user tap, official CrossProfileApps permission boundary.
+                // The existing floating GeckoSession stays open in its OS
+                // profile: do NOT reload, reassign, close or move cookies.
+                if(AndroidProfileSafetyCenter.openSingleAuthorizedCounterpart(app)){
+                    setMinimized(true);
+                    return true;
+                }
                 Activity host=handoffActivity==null?null:handoffActivity.get();
                 if(host!=null&&!host.isFinishing()&&!host.isDestroyed())
                     AndroidProfileSafetyCenter.showQuickSwitch(host);
                 else if(app!=null)
-                    Toast.makeText(app,"需先回到 OmniGate 主页才能安全切换系统资料；"+
-                        "当前悬浮窗和登录不受影响",Toast.LENGTH_LONG).show();
+                    Toast.makeText(app,"当前没有唯一可核实的工作/个人区实例；"+
+                        "不会越权打开分身或清理此悬浮窗，请从主界面核对资料",
+                        Toast.LENGTH_LONG).show();
                 return true;
             }
             if(item.getItemId()==110){
