@@ -203,6 +203,9 @@ public final class ClaudeFloatingOverlay {
             account.setText(AccountMetadataStore.name(app,provider,slot)+" ▾");
             caption.setText(provider.toUpperCase(java.util.Locale.ROOT)+" · 原网页未刷新");
             followUploadNavigation(existing,Class.forName("org.mozilla.geckoview.GeckoSession"),slot);
+            GeckoSelectionControls.overlay(existing,account,
+                ()->GeckoLiveWindowHandoff.owns(existing),
+                ()->setOverlayFocusable(true));
             // Do not navigate, create a session, change context ID, or use
             // this method to copy cookies into another Android user/profile.
             return true;
@@ -280,9 +283,11 @@ public final class ClaudeFloatingOverlay {
             }
             return false;
         });
-        root.getViewTreeObserver().addOnWindowFocusChangeListener(hasFocus->{
-            if(!hasFocus && inputFocusHeld)setOverlayFocusable(false);
-        });
+        // Text-selection and Android paste menus temporarily steal focus.
+        // Do not revoke the editor's focus on transient focus change; doing
+        // so would close Copy/Paste before the user can select an action.
+        // Focus still releases on outside touch, fold, explicit navigation
+        // from address editor and overlay close.
         LinearLayout title=new LinearLayout(app);
         title.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(title,new LinearLayout.LayoutParams(-1,dp(app,40)));
@@ -973,6 +978,11 @@ public final class ClaudeFloatingOverlay {
             return false;
         });
         viewport.addView((View)visual,new FrameLayout.LayoutParams(-1,-1));
+        // Native Gecko selection actions remain scoped to this one session.
+        // No DOM extraction, injected JS or silent clipboard read.
+        GeckoSelectionControls.overlay(created,account,
+            ()->GeckoLiveWindowHandoff.owns(created),
+            ()->setOverlayFocusable(true));
         AccountBrowserStore.select(app,selectedProvider,slot);
         selected=slot;
         account.setText(AccountMetadataStore.name(app,selectedProvider,slot)+" ▾");
