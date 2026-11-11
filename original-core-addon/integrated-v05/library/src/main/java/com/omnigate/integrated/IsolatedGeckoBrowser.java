@@ -366,7 +366,7 @@ final class IsolatedGeckoBrowser {
             target.selected=slot;
             activeBrowser=target;
             target.followCurrentLocation(existingSession,
-                Class.forName("org.mozilla.geckoview.GeckoSession"));
+                Class.forName("org.mozilla.geckoview.GeckoSession"),slot);
             target.followClaudePageProgress(existingSession,
                 Class.forName("org.mozilla.geckoview.GeckoSession"));
             target.renderTabs();
@@ -1068,14 +1068,28 @@ final class IsolatedGeckoBrowser {
                 .setPositiveButton("确定",null).show();
         }
     }
-    private void followCurrentLocation(Object ownedSession,Class<?> sessionClass){
+    private void followCurrentLocation(Object ownedSession,Class<?> sessionClass,
+            int currentSlot){
         try{
+            // Captured on page creation: changing this toggle never silently
+            // reloads an existing authenticated session.
+            final boolean strict=currentSlot>=0 &&
+                AccountBrowserStore.strictNavigation(host,provider,currentSlot);
             Class<?> nav=Class.forName("org.mozilla.geckoview.GeckoSession$NavigationDelegate");
             Object listener=java.lang.reflect.Proxy.newProxyInstance(
                 nav.getClassLoader(),new Class<?>[]{nav},(proxy,method,args)->{
                     if("hashCode".equals(method.getName()))return System.identityHashCode(proxy);
                     if("equals".equals(method.getName()))return proxy==args[0];
                     if("toString".equals(method.getName()))return "OmniGateManualNavigation";
+                    if("onNewSession".equals(method.getName())){
+                        // Never construct a second GeckoSession with a null
+                        // shared/default context when a website opens a window.
+                        return null;
+                    }
+                    if("onLoadRequest".equals(method.getName())&&args!=null&&
+                        args.length>=2&&args[0]==ownedSession)
+                        return GeckoAccountNavigationGuard.intercept(args[1],
+                            ()->GeckoLiveWindowHandoff.owns(ownedSession),strict);
                     if("onLoadError".equals(method.getName())&&
                             args!=null&&args.length>=3&&args[0]==ownedSession){
                         Object failure=args[2];
@@ -1509,7 +1523,7 @@ final class IsolatedGeckoBrowser {
             geckoView=visual;
             viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
             display.addView((View)visual,0,new FrameLayout.LayoutParams(-1,-1));
-            followCurrentLocation(created,sessionClass);
+            followCurrentLocation(created,sessionClass,index);
             followClaudePageProgress(created,sessionClass);
             GeckoBrowserTransfers.attachFilePrompt(host,created,
                 ()->GeckoLiveWindowHandoff.owns(created));
