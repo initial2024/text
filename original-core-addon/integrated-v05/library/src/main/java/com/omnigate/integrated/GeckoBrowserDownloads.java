@@ -212,6 +212,62 @@ final class GeckoBrowserDownloads {
         File[] list=dir.listFiles(f->f.isFile()&&!f.getName().endsWith(".partial"));
         return list==null?new File[0]:list;
     }
+    /** No heavyweight filesystem walk under a Gecko callback. */
+    static boolean hasLiveTransferForContext(String contextId){
+        if(!AccountBrowserSlots.validContextId(contextId))return true;
+        synchronized(LOCK){
+            return (pending!=null&&!pending.cancelled.get()&&
+                        contextId.equals(pending.contextId))||
+                   (active!=null&&!active.cancelled.get()&&
+                        contextId.equals(active.contextId));
+        }
+    }
+
+    /** Only obsolete download *temporary* files can be reclaimed.
+     * Finished downloads, Gecko caches, cookies and other accounts are
+     * untouched. Called only after explicit user confirmation on a worker.
+     *
+     * The lock prevents a concurrent transfer from registering as active
+     * while stale temporary files are selected and removed. Never follow
+     * symlinks, and never descend into arbitrary directory trees.
+     */
+    static long cleanOldPartials(Context c,String contextId,long now)
+            throws IOException{
+        if(!AccountBrowserSlots.validContextId(contextId))
+            throw new IOException("download_context_invalid");
+        final long AGE=24L*60*60*1000;
+        long reclaimed=0;
+        synchronized(LOCK){
+            if(hasLiveTransferForContext(contextId))
+                throw new IOException("download_transfer_in_progress");
+            File dir=directory(c,contextId);
+            if(!dir.exists())return 0;
+            if(java.nio.file.Files.isSymbolicLink(dir.toPath())||
+                !dir.isDirectory())
+                throw new IOException("download_context_dir_unsafe");
+            File[] children=dir.listFiles();
+            if(children==null||children.length>4096)
+                throw new IOException("download_directory_unreadable_or_too_large");
+            int count=0;
+            for(File child:children){
+                if(++count>4096)throw new IOException("download_scan_limit");
+                if(java.nio.file.Files.isSymbolicLink(child.toPath())||
+                    !child.isFile())continue;
+                if(!child.getName().matches(
+                    "[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\\.partial"))
+                    continue;
+                long modified=child.lastModified();
+                if(modified<=0||now<modified||now-modified<AGE)continue;
+                long length=child.length();
+                if(length<0||Long.MAX_VALUE-reclaimed<length)
+                    throw new IOException("download_reclaimed_size_overflow");
+                if(!child.delete())throw new IOException("stale_partial_delete_failed");
+                reclaimed+=length;
+            }
+        }
+        return reclaimed;
+    }
+
     static boolean delete(Context c,String contextId,String name){
         String sanitized=cleanName(name);
         if(!sanitized.equals(name))return false;
