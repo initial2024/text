@@ -819,7 +819,27 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,106,106,"回到账号空间全页（无刷新）");
         menu.getMenu().add(0,107,107,"手动重开当前网页（保留账号 Cookie）");
         menu.getMenu().add(0,108,108,"工作资料 DNS 检查（手动）");
+        menu.getMenu().add(0,109,109,"打开另一资料中的 OmniGate（保留此悬浮窗）");
+        menu.getMenu().add(0,110,110,"当前账号 · 本地上下文预警与交接");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==109){
+                Activity host=handoffActivity==null?null:handoffActivity.get();
+                if(host!=null&&!host.isFinishing()&&!host.isDestroyed())
+                    AndroidProfileSafetyCenter.showQuickSwitch(host);
+                else if(app!=null)
+                    Toast.makeText(app,"需先回到 OmniGate 主页才能安全切换系统资料；"+
+                        "当前悬浮窗和登录不受影响",Toast.LENGTH_LONG).show();
+                return true;
+            }
+            if(item.getItemId()==110){
+                Activity host=handoffActivity==null?null:handoffActivity.get();
+                if(host!=null&&!host.isFinishing()&&!host.isDestroyed()&&selected>=0)
+                    LocalContextUi.show(host,selectedProvider,selected);
+                else if(app!=null)
+                    Toast.makeText(app,"请先回到 OmniGate 主页打开上下文预警；"+
+                        "不会自动读取或传输对话",Toast.LENGTH_LONG).show();
+                return true;
+            }
             if(item.getItemId()==108){
                 Activity host=handoffActivity==null?null:handoffActivity.get();
                 if(host!=null&&!host.isFinishing()&&!host.isDestroyed())
