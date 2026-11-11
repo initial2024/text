@@ -466,7 +466,18 @@ final class IsolatedGeckoBrowser {
             }
             return false;
         });
+        addressInput.setLongClickable(true);
         addressBar.addView(addressInput,new LinearLayout.LayoutParams(0,dp(host,44),1f));
+        Button pasteUrl=button("粘贴");
+        pasteUrl.setContentDescription("仅在你点击后从当前系统资料剪贴板粘贴网址");
+        pasteUrl.setOnClickListener(v->{
+            addressInput.requestFocus();
+            if(!addressInput.onTextContextMenuItem(android.R.id.paste))
+                android.widget.Toast.makeText(host,
+                    "剪贴板为空或系统限制粘贴",android.widget.Toast.LENGTH_SHORT).show();
+        });
+        addressBar.addView(pasteUrl,
+            new LinearLayout.LayoutParams(dp(host,48),dp(host,44)));
         Button go=button("前往");
         go.setOnClickListener(v->navigateTo(addressInput.getText().toString()));
         addressBar.addView(go,new LinearLayout.LayoutParams(dp(host,50),dp(host,44)));
