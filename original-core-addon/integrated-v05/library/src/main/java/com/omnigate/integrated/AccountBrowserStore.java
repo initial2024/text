@@ -17,6 +17,22 @@ final class AccountBrowserStore {
         return count;
     }
     /** Per-slot anti-tracking preference; does not change Gecko device identity. */
+    /** OFF by default: a hidden floating GeckoSession may go inactive to
+     * reduce memory, but can suspend media, JS activity and model streaming.
+     * This only affects the explicitly opted-in saved account.
+     */
+    static synchronized boolean lowMemoryOnFold(Context c,String provider,int slot){
+        return prefs(c).getBoolean(
+            "low_memory_on_fold."+contextId(c,provider,slot),false);
+    }
+    static synchronized void setLowMemoryOnFold(Context c,String provider,
+            int slot,boolean value){
+        String id=contextId(c,provider,slot);
+        if(!prefs(c).edit().putBoolean(
+                "low_memory_on_fold."+id,value).commit())
+            throw new IllegalStateException("fold_memory_setting_save_failed");
+    }
+
     /** Compatibility-first opt-in: strict external-app/new-window navigation.
      * Identity is tied to the immutable Gecko context, not a shared provider.
      */
