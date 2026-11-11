@@ -140,6 +140,65 @@ final class AndroidProfileSafetyCenter {
                 Toast.LENGTH_LONG).show();
         }
     }
+    /**
+     * Safe personal <-> work profile shortcut for the caller's own app only.
+     * Both app processes remain independent and may remain alive. Does NOT
+     * move GeckoSession, cookies, file handles, tokens or browser state.
+     * Other/clone/hidden profiles and unrelated users are not targets.
+     */
+    static void showQuickSwitch(Activity host){
+        if(host==null||host.isFinishing()||host.isDestroyed())return;
+        java.util.List<UserHandle> visible=launchableProfiles(host);
+        java.util.List<UserHandle> eligible=new java.util.ArrayList<>();
+        java.util.List<String> labels=new java.util.ArrayList<>();
+        android.content.pm.CrossProfileApps bridge=host.getSystemService(
+            android.content.pm.CrossProfileApps.class);
+        UserManager users=host.getSystemService(UserManager.class);
+        if(bridge!=null&&users!=null&&android.os.Build.VERSION.SDK_INT>=35){
+            boolean fromManaged=users.isManagedProfile();
+            for(UserHandle user:visible){
+                try{
+                    boolean work=bridge.isManagedProfile(user);
+                    boolean profile=bridge.isProfile(user);
+                    // Owner -> standard Work Profile; Work -> owner user.
+                    // Do not accidentally open a vendor clone or XSpace.
+                    if(!work&&!(fromManaged&&!profile))continue;
+                    eligible.add(user);
+                    labels.add((work?"打开工作资料 · ":"打开个人资料 · ")+
+                        bridge.getProfileSwitchingLabel(user));
+                }catch(RuntimeException | LinkageError denied){
+                    // Unknown profile type is NOT considered safe.
+                }
+            }
+        }
+        if(eligible.isEmpty()){
+            new AlertDialog.Builder(host)
+                .setTitle("当前没有可直接启动的另一份 OmniGate")
+                .setMessage("仅显示 Android 明确许可的、已安装并启用的"+
+                    "个人区或标准 Work Profile 中的同包 OmniGate。"+
+                    "\n不会访问独立系统用户、XSpace 或应用分身。"+
+                    "\n如果工作区尚未安装 OmniGate，请先在那里安装；"+
+                    "如受系统管理员限制，不能绕过。"+
+                    "\n当前悬浮网页和登录状态保持不变。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("查看系统隔离中心",(d,w)->show(host))
+                .show();
+            return;
+        }
+        new AlertDialog.Builder(host)
+            .setTitle("打开另一个系统资料中的 OmniGate")
+            .setMessage("只在 Android 授权的另一个资料中启动同包应用。"+
+                "当前网页不会主动关闭、刷新或跨资料迁移。"+
+                "两个实例分别拥有独立 Cookie、应用存储和本地密钥。"+
+                "系统可能把当前实例切到后台，后台保活不保证。")
+            .setItems(labels.toArray(new String[0]),(d,which)->{
+                if(which>=0&&which<eligible.size())
+                    launchOwnOtherProfile(host,eligible.get(which));
+            })
+            .setNegativeButton("取消",null)
+            .show();
+    }
+
     private static final String SHELTER_PACKAGE="net.typeblog.shelter";
     private static final String SHELTER_OFFICIAL=
         "https://f-droid.org/packages/net.typeblog.shelter/";
