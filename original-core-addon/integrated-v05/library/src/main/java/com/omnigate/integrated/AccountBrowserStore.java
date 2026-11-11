@@ -17,6 +17,20 @@ final class AccountBrowserStore {
         return count;
     }
     /** Per-slot anti-tracking preference; does not change Gecko device identity. */
+    /** Compatibility-first opt-in: strict external-app/new-window navigation.
+     * Identity is tied to the immutable Gecko context, not a shared provider.
+     */
+    static synchronized boolean strictNavigation(Context c,String provider,int slot){
+        return prefs(c).getBoolean("strict_nav."+
+            contextId(c,provider,slot),false);
+    }
+    static synchronized void setStrictNavigation(Context c,String provider,
+            int slot,boolean enabled){
+        String id=contextId(c,provider,slot);
+        if(!prefs(c).edit().putBoolean("strict_nav."+id,enabled).commit())
+            throw new IllegalStateException("strict_navigation_persist_failed");
+    }
+
     static synchronized boolean trackingProtection(Context c,String provider,int slot){
         contextId(c,provider,slot);
         return prefs(c).getBoolean(provider+"."+slot+".tracking_protection",true);
