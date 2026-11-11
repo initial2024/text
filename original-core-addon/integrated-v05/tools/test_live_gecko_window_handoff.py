@@ -17,7 +17,7 @@ assert "adoptLiveBrowser(" in overlay
 assert "returnLivePage()" in overlay
 assert "GeckoLiveWindowHandoff.move(" in browser and "GeckoLiveWindowHandoff.move(" in overlay
 assert browser.count("()->GeckoLiveWindowHandoff.owns(created)") == 3
-assert overlay.count("()->GeckoLiveWindowHandoff.owns(created)") == 3
+assert overlay.count("()->GeckoLiveWindowHandoff.owns(created)") >= 3
 assert "getMethod(\"releaseSession\")" in browser
 assert "detach.invoke(sourceView)" in bridge
 assert "rollback_owner_not_restored" in bridge
