@@ -59,7 +59,9 @@ final class GeckoUploadStaging {
         if(!dir.exists())return 0;
         checkDirectory(dir);
         File[] batches=dir.listFiles();
-        if(batches==null||batches.length>512)
+        // Reserve a slot for the new batch. If already at capacity,
+        // do not create a 513th directory that later erasure would reject.
+        if(batches==null||batches.length>=512)
             throw new IOException("upload_stage_directory_full");
         long count=0,total=0;
         for(File batch:batches){
