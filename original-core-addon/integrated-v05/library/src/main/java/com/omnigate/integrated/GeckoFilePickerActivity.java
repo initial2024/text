@@ -134,7 +134,7 @@ public final class GeckoFilePickerActivity extends Activity {
         }catch(Exception invalid){
             new AlertDialog.Builder(this).setTitle("不能选择这些文件")
                 .setMessage("最多 8 个文件，每个不超过 64 MiB、总量不超过 128 MiB，"+
-                    "并且必须能确认文件大小和读取权限。此次未交给网站。\n原因："+invalid.getClass().getSimpleName())
+                    "并且必须能确认文件大小和读取权限。此次未交给网站。\n原因："+SafFileSizeBounds.safeFailureLabel(invalid))
                 .setPositiveButton("关闭",(d,w)->cancel())
                 .setOnCancelListener(d->cancel()).show();
         }
