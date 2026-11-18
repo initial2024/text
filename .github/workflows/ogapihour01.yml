@@ -43,6 +43,16 @@ jobs:
           assert 'getInt(provider+".limit",0)' in quota
           assert 'int configured=limit(c,provider)' in quota
           assert 'getString(key,"")' in quota
+          observed=quota.split('private static void noteObserved(',1)[1].split('static synchronized Decision admit(',1)[0]
+          assert 'local_hour_observed_persist_failed' in observed
+          assert '.commit()' in observed and '.apply()' not in observed
+          disabled=quota.split('if(configured==0){',1)[1].split('String key=provider+".events"',1)[0]
+          assert 'noteObserved(prefs,provider,now);' in disabled
+          assert 'catch(RuntimeException unavailable)' in disabled
+          assert 'new Decision(true,"disabled",0,0,0)' in disabled
+          # With a configured budget, observation and local cap reservation
+          # must remain one atomic preference commit.
+          assert '.putString(observedKey,observedNext).commit()' in quota
           print('OGAPIHOUR01_BUDGET_AT_REAL_SUBMIT_POINTS=PASS_STATIC')
           print('OGAPIHOUR01_PROVIDER_HEADERS_AND_401_403_429_GATES_UNCHANGED=PASS_STATIC')
           print('OGAPIHOUR01_LIVE_PROVIDER_TOKEN_ACCOUNTING=NOT_CLAIMED')
