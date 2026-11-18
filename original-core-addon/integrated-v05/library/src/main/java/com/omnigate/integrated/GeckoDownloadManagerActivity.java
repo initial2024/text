@@ -5,6 +5,8 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -25,6 +27,29 @@ public final class GeckoDownloadManagerActivity extends Activity {
     private String contextId;
     private String exportFilename;
     private LinearLayout list;
+    private final Handler refreshHandler=new Handler(Looper.getMainLooper());
+    private boolean managerVisible;
+    private int refreshCycles;
+    private String lastPolledStatus;
+    // Bound live refresh to 3 minutes while this Activity is visible.
+    // No background service, account switching, directory-wide observer,
+    // additional GeckoSession or website request is ever created.
+    private final Runnable liveRefresh=new Runnable(){
+        @Override public void run(){
+            if(!managerVisible||contextId==null||isFinishing()||isDestroyed())return;
+            String current=GeckoBrowserDownloads.lastStatus(
+                GeckoDownloadManagerActivity.this,contextId);
+            if(!current.equals(lastPolledStatus)){
+                lastPolledStatus=current;
+                render();
+            }
+            if(refreshCycles<180 &&
+                GeckoBrowserDownloads.hasLiveTransferForContext(contextId)){
+                refreshCycles++;
+                refreshHandler.postDelayed(this,1000L);
+            }
+        }
+    };
     static final String EXTRA_CONTEXT="og_download_context";
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);
@@ -37,6 +62,20 @@ public final class GeckoDownloadManagerActivity extends Activity {
         scroller.addView(list);
         setContentView(scroller);
         render();
+    }
+    @Override protected void onResume(){
+        super.onResume();
+        if(contextId==null)return;
+        managerVisible=true;
+        refreshCycles=0;
+        lastPolledStatus=null;
+        refreshHandler.removeCallbacks(liveRefresh);
+        refreshHandler.post(liveRefresh);
+    }
+    @Override protected void onPause(){
+        managerVisible=false;
+        refreshHandler.removeCallbacks(liveRefresh);
+        super.onPause();
     }
     private Button button(String text){
         Button b=new Button(this);b.setText(text);b.setAllCaps(false);return b;
@@ -54,7 +93,7 @@ public final class GeckoDownloadManagerActivity extends Activity {
         list.addView(description);
         Button refresh=button("刷新下载列表");refresh.setOnClickListener(v->render());list.addView(refresh);
         TextView recent=new TextView(this);
-        recent.setText("最近一次下载（仅此账号空间）：\n"+
+        recent.setText("最近一次下载（仅此账号空间；下载进行中会自动刷新）：\n"+
             GeckoBrowserDownloads.lastStatus(this,contextId)+
             "\n状态仅来自本机 Gecko 下载事件，不会访问网站或检测其额度。");
         list.addView(recent);
