@@ -5,6 +5,8 @@ on:
     paths:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserTransfers.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoFilePickerActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoUploadStaging.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountStorageCleaner.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SafFileSizeBounds.java'
       - 'original-core-addon/integrated-v05/relay-tests/SafFileSizeBoundsTest.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
@@ -62,6 +64,8 @@ jobs:
           overlay=src('ClaudeFloatingOverlay.java')
           transfers=src('GeckoBrowserTransfers.java')
           picker=src('GeckoFilePickerActivity.java')
+          stage=src('GeckoUploadStaging.java')
+          cleaner=src('AccountStorageCleaner.java')
           downloads=src('GeckoBrowserDownloads.java')
           approval=src('GeckoDownloadApprovalActivity.java')
           manager=src('GeckoDownloadManagerActivity.java')
@@ -84,7 +88,30 @@ jobs:
           assert 'confirm",Context.class,Uri[].class' in transfers
           assert 'Intent.ACTION_OPEN_DOCUMENT' in picker
           assert 'CATEGORY_OPENABLE' in picker
-          assert 'GeckoBrowserTransfers.finish(token,this,uris)' in picker
+          assert 'GeckoBrowserTransfers.finish(token,this,result.uris)' in picker
+          assert 'GeckoBrowserTransfers.finish(token,this,uris)' not in picker
+          assert 'GeckoUploadStaging.stage(getApplicationContext(),id,source,names)' in picker
+          assert '"omnigate-gecko-private-file-stage"' in picker
+          assert 'GeckoUploadStaging.discard(result)' in picker
+          assert 'pendingContextId(token)' in picker
+          assert 'new File(new File(c.getCacheDir(),"gecko_upload_stage"),id)' in stage
+          assert 'if(fileBytes>MAX_FILE-count' in stage
+          assert 'batchBytes>MAX_BATCH-count' in stage
+          assert 'used>MAX_CONTEXT-count' in stage
+          assert 'Uri.fromFile(outFile)' in stage
+          assert 'in=c.getContentResolver().openInputStream(uri)' in stage
+          assert 'out.getFD().sync()' in stage
+          assert 'cleanOld(Context c,String id,long now)' in stage
+          assert 'GeckoUploadStaging.clearContext(c,oldId)' in cleaner
+          assert 'GeckoUploadStaging.cleanOld(' in manager
+          assert 'private static final Object LOCK=new Object()' in stage
+          assert 'String contextId,BooleanSupplier ownerCurrent' in transfers
+          assert 'if(!AccountBrowserSlots.validContextId(contextId))' in transfers
+          assert 'new java.io.File(uri.getPath())' in transfers
+          assert 'file.getCanonicalPath().startsWith(prefix)' in transfers
+          assert '!"file".equals(uri.getScheme())' in transfers
+          assert 'GeckoBrowserTransfers.attachFilePrompt(host,created,id,' in br
+          assert 'GeckoBrowserTransfers.attachFilePrompt(app,created,id,' in overlay
           assert 'MAX_FILES=8' in picker
           assert 'private static final java.util.Set<Object> blockedSessions=' in transfers
           assert '!uploadEnabled(s)' in transfers
@@ -161,7 +188,7 @@ jobs:
           assert 'new AlertDialog.Builder(this)' in manager
           assert 'cleanupOldPartials()' in manager
           assert 'GeckoBrowserDownloads.cleanOldPartials(' in manager
-          assert 'getApplicationContext(),ownedContext,System.currentTimeMillis()' in manager
+          assert 'getApplicationContext(),ownedContext,now' in manager
           # Preserve the selected private basename across an Android picker
           # Activity recreation without retaining public document URIs.
           assert 'getString("og_export_file")' in manager
@@ -189,6 +216,8 @@ jobs:
           assert 'getApplicationLocales()' in locale
           assert 'getMethod("loadUri",String.class)' not in locale
           assert '同步语言设置（不刷新网页）' in br
+          print('OGUPLOAD04_PRIVATE_COPY_REAL_BYTES_PER_CONTEXT_AND_SAFE_CLEANUP=PASS_SOURCE')
+          print('OGUPLOAD04_SITE_ATTACHMENT_E2E=NOT_TESTED')
           print('OGBROWSER01_SCOPED_UPLOAD_FILEPROMPT_SAF=PASS_SOURCE')
           print('OGBROWSER01_ORIGINAL_RESPONSE_DOWNLOAD_AND_PRIVATE_MANAGER=PASS_SOURCE')
           print('OGBROWSER01_NO_OS_PERMISSION_ESCALATION_AND_CONTEXT_REVOKE=PASS_SOURCE')
