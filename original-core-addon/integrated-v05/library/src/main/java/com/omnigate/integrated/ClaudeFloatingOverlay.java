@@ -314,10 +314,16 @@ public final class ClaudeFloatingOverlay {
         overlayClock=new AccountTimeZoneUi.LiveClock(
             app,accountClockText,()->selectedProvider,()->selected,true);
         accountClockText.setOnClickListener(v->{
-            if(app!=null&&selected>=0)
+            if(app!=null&&selected>=0&&session!=null){
+                final String p=selectedProvider;
+                final int slotAtOpen=selected;
+                final Object owner=session;
                 AccountTimeZoneUi.showOverlayPicker(app,accountClockText,
-                    selectedProvider,selected,()->
-                        {if(overlayClock!=null)overlayClock.refresh();});
+                    p,slotAtOpen,()->
+                        {if(overlayClock!=null)overlayClock.refresh();},
+                    ()->showing()&&session==owner&&selected==slotAtOpen&&
+                        p.equals(selectedProvider));
+            }
         });
         caption=new TextView(app);
         caption.setText("⠿");
@@ -870,10 +876,16 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,113,113,"网站实际时区检测（会离开当前网页）");
         menu.setOnMenuItemClickListener(item->{
             if(item.getItemId()==112){
-                if(app!=null&&selected>=0)
+                if(app!=null&&selected>=0&&session!=null){
+                    final String p=selectedProvider;
+                    final int slotAtOpen=selected;
+                    final Object owner=session;
                     AccountTimeZoneUi.showOverlayPicker(app,account,
-                        selectedProvider,selected,()->
-                            {if(overlayClock!=null)overlayClock.refresh();});
+                        p,slotAtOpen,()->
+                            {if(overlayClock!=null)overlayClock.refresh();},
+                        ()->showing()&&session==owner&&selected==slotAtOpen&&
+                            p.equals(selectedProvider));
+                }
                 return true;
             }
             if(item.getItemId()==113){
