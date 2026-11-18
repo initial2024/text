@@ -35,7 +35,7 @@ jobs:
           assert 'root.addView(nativeHeader);' in browser
           assert browser.index('root.addView(nativeHeader);') < browser.index('navigateTo(AccountBrowserSlots.home(provider));')
           assert 'showNativeAccountMenu(View anchor)' in browser
-          own=browser.split('private void showNativeAccountMenu(View anchor)',1)[1].split('private void showFullscreenActions()',1)[0]
+          own=browser.split('private void showNativeAccountMenu(View anchor)',1)[1].split('private void showWebLanguagePreference()',1)[0]
           assert 'showPicker(host)' in own and 'AccountQuickSettings.show' in own
           assert 'callSession("reload")' in own
           for forbidden in ('loadUri','evaluateJavascript','getCookie','setCookie','startActivity'):
