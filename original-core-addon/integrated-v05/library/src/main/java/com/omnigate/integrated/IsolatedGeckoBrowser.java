@@ -1184,6 +1184,7 @@ final class IsolatedGeckoBrowser {
         long now=System.currentTimeMillis();
         int[] today=AccountBrowserStore.allUsesToday(host,provider,now);
         int[] hourly=AccountBrowserStore.allUsesLastHour(host,provider,now);
+        int apiAttempts=LocalHourlyApiQuota.observed(host,provider,now);
         StringBuilder counts=new StringBuilder();
         for(int i=0;i<today.length;i++){
             if(i>0)counts.append("  ");
@@ -1207,7 +1208,9 @@ final class IsolatedGeckoBrowser {
             "个人次数预算 · 滚动60分钟 "+(hourlyLimit>0?hourlyLimit+"次":"未设定")+
             " | UTC日 "+(limit>0?limit+"次":"未设定")+
             "\n"+hourAdvice+"；"+recommendation+"\n"+counts+
-            "\n仅计算你手动确认的轮次；网页 Token 用量不可可靠计量。");
+            "\n本地网关 API 已准入尝试：近60分钟 "+apiAttempts+
+            " 次（自动记账，不额外联网；不是网站额度或已完成回复）"+
+            "\n网页次数仅计算手动确认的轮次；网站剩余额度与网页版 Token 用量无法从本地可靠获取。");
         autoToggle.setText(enabled?"自动：开":"自动：关");
     }
     private void configureBudget(){

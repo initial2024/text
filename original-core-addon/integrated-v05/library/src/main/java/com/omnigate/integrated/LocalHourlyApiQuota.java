@@ -49,11 +49,30 @@ final class LocalHourlyApiQuota {
         return SlidingHourAcknowledgements.count(
             pref(c).getString(provider+".events",""),now);
     }
+    /** Only locally admitted 8787 API submissions, counted automatically.
+     * This is not a website counter, official rate limit, or token balance. */
+    static synchronized int observed(Context c,String provider,long now){
+        valid(provider);
+        return SlidingHourAcknowledgements.count(
+            pref(c).getString(provider+".observed_events",""),now);
+    }
+    private static void noteObserved(SharedPreferences preferences,String provider,long now){
+        String key=provider+".observed_events";
+        String history=preferences.getString(key,"");
+        preferences.edit().putString(key,
+            SlidingHourAcknowledgements.append(history,now)).apply();
+    }
     static synchronized Decision admit(Context c,String provider,long now){
         valid(provider);
         SharedPreferences prefs=pref(c);
         int configured=limit(c,provider);
-        if(configured==0)return new Decision(true,"disabled",0,0,0);
+        if(configured==0){
+            // No network probe and no added quota gate. Best-effort numeric
+            // ledger only after the original trusted submission path reaches us.
+            try{noteObserved(prefs,provider,now);}
+            catch(RuntimeException unavailable){/* preserve disabled-budget behavior */}
+            return new Decision(true,"disabled",0,0,0);
+        }
         String key=provider+".events",events=prefs.getString(key,"");
         int count=SlidingHourAcknowledgements.count(events,now);
         if(count>=configured)
@@ -61,7 +80,11 @@ final class LocalHourlyApiQuota {
                 SlidingHourAcknowledgements.retryAfterSeconds(events,now),
                 count,configured);
         String next=SlidingHourAcknowledgements.append(events,now);
-        if(!prefs.edit().putString(key,next).commit())
+        String observedKey=provider+".observed_events";
+        String observedNext=SlidingHourAcknowledgements.append(
+            prefs.getString(observedKey,""),now);
+        if(!prefs.edit().putString(key,next)
+            .putString(observedKey,observedNext).commit())
             throw new IllegalStateException("local_hour_count_persist_failed");
         return new Decision(true,"admitted",0,count+1,configured);
     }
