@@ -1545,7 +1545,7 @@ final class IsolatedGeckoBrowser {
             GeckoSelectionControls.fullPage(created,host);
             followCurrentLocation(created,sessionClass,index);
             followClaudePageProgress(created,sessionClass);
-            GeckoBrowserTransfers.attachFilePrompt(host,created,
+            GeckoBrowserTransfers.attachFilePrompt(host,created,id,
                 ()->GeckoLiveWindowHandoff.owns(created));
             GeckoScopedPermissionGate.install(host,created,id,
                 ()->GeckoLiveWindowHandoff.owns(created));
