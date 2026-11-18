@@ -25,6 +25,10 @@ public final class CompatBootstrapProvider extends ContentProvider {
         if(ctx==null)return false;
         Context app=ctx.getApplicationContext();
         GatewayApp.initialize(app);
+        // Explicit opt-in, pre-runtime environmental experiment. Must run
+        // before any auto-start path may initialize the ORIGINAL GeckoRuntime.
+        // Does not create a runtime and does not alter a live Gecko process.
+        GeckoSharedWebTimeZone.applyAtAppBootstrap(app);
         // Android 14+: expose real app-language choices in system App info.
         OmniGateAppLanguage.register(app);
         // App-process only: restore localhost 8787 and a previously authorized
