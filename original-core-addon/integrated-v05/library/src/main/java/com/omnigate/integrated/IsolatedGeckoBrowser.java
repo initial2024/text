@@ -794,6 +794,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,7,6,"系统分身与隔离说明");
         menu.getMenu().add(0,9,7,"工作资料 DNS 检查（手动）");
         menu.getMenu().add(0,10,8,"Firefox 内置 VPN · 只读检查");
+        menu.getMenu().add(0,11,9,"网站实际时区检测（会离开当前网页）");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showPicker(host);return true;
@@ -808,6 +809,20 @@ final class IsolatedGeckoBrowser {
                 case 7:AndroidProfileSafetyCenter.show(host);return true;
                 case 9:GeckoWorkProfileDnsDiagnostics.show(host);return true;
                 case 10:MozillaIpProtectionAudit.show(host);return true;
+                case 11:
+                    if(session!=null&&selected>=0){
+                        new AlertDialog.Builder(host)
+                            .setTitle("检测网站识别的浏览器时区")
+                            .setMessage("在同一个 GeckoSession 打开 BrowserLeaks。"+
+                                "第三方检测站会接收正常访问数据；未保存的聊天草稿可能丢失。"+
+                                "\n读取 Date/Time 的 timeZone、UTC Offset 和 Local Time。"+
+                                "\n注意：本地空间显示时区不改变网页识别结果。")
+                            .setNegativeButton("取消",null)
+                            .setPositiveButton("打开当前空间检测页",(d,w)->
+                                navigateTo(AccountTimeZoneUi.TEST_URL))
+                            .show();
+                    }
+                    return true;
                 default:return false;
             }
         });
