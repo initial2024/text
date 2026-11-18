@@ -814,6 +814,10 @@ final class IsolatedGeckoBrowser {
                 case 10:MozillaIpProtectionAudit.show(host);return true;
                 case 11:
                     if(session!=null&&selected>=0){
+                        final Object probeSession=session;
+                        final int probeSlot=selected;
+                        final String probeContext=
+                            AccountBrowserStore.contextId(host,provider,probeSlot);
                         new AlertDialog.Builder(host)
                             .setTitle("检测网站识别的浏览器时区")
                             .setMessage("在同一个 GeckoSession 打开 BrowserLeaks。"+
@@ -821,9 +825,26 @@ final class IsolatedGeckoBrowser {
                                 "\n读取 Date/Time 的 timeZone、UTC Offset 和 Local Time。"+
                                 "\n注意：本地空间显示时区不改变网页识别结果。")
                             .setNegativeButton("取消",null)
-                            .setPositiveButton("打开当前空间检测页",(d,w)->
-                                navigateTo(AccountTimeZoneUi.TEST_URL))
-                            .show();
+                            .setPositiveButton("打开当前空间检测页",(d,w)->{
+                                try{
+                                    // Dialog confirmation can outlive a manual
+                                    // account switch or live window handoff.
+                                    // Never redirect another session.
+                                    if(session!=probeSession||
+                                        selected!=probeSlot||
+                                        !dialog.isShowing()||
+                                        !probeContext.equals(
+                                            AccountBrowserStore.contextId(
+                                                host,provider,probeSlot))||
+                                        !GeckoLiveWindowHandoff.owns(probeSession)){
+                                        state.setText("账号空间已变化，时区检测已取消");
+                                        return;
+                                    }
+                                    navigateTo(AccountTimeZoneUi.TEST_URL);
+                                }catch(RuntimeException invalid){
+                                    state.setText("当前账号无法验证，检测已取消");
+                                }
+                            }).show();
                     }
                     return true;
                 default:return false;
