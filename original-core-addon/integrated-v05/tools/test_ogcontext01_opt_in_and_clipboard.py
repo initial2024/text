@@ -195,6 +195,23 @@ public final class OptInTest{
       "slot B update cannot alter A timezone");
     check("SYSTEM".equals(AccountBrowserStore.clockTimeZone(work,provider,0)),
       "work profile cannot inherit personal timezone");
+    check(AccountBrowserStore.virtualClockShift(personal,provider,0)==0,
+      "virtual clock default real time");
+    AccountBrowserStore.setVirtualClockShift(personal,provider,0,3600000L);
+    check(AccountBrowserStore.virtualClockShift(personal,provider,0)==3600000L,
+      "virtual clock A offset stored in A context only");
+    check(AccountBrowserStore.virtualClockShift(personal,provider,1)==0,
+      "slot B never inherits A virtual clock");
+    check(AccountBrowserStore.virtualClockShift(work,provider,0)==0,
+      "work profile virtual clock defaults independently");
+    AccountBrowserStore.setVirtualClockShift(work,provider,0,-7200000L);
+    check(AccountBrowserStore.virtualClockShift(personal,provider,0)==3600000L,
+      "work profile virtual time does not change personal clock");
+    rejected(()->AccountBrowserStore.setVirtualClockShift(personal,provider,0,
+        AccountClockFormat.MAX_VIRTUAL_SHIFT_MS+1L),
+      "reject unbounded virtual system time");
+    check(AccountBrowserStore.virtualClockShift(personal,provider,0)==3600000L,
+      "rejected overflow leaves old virtual clock intact");
     rejected(()->AccountBrowserStore.setClockTimeZone(
         personal,provider,0,"Unknown/Fake_Zone"),
       "reject unsupported timezone");
