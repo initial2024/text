@@ -1,0 +1,79 @@
+name: OGTIME01 per-account IANA live clock and real website timezone test
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountClockFormat.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountTimeZoneUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountQuickSettings.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/relay-tests/AccountClockFormatTest.java'
+      - '.github/workflows/ogtime01-account-native-clock.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  clock-and-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: IANA and DST real-offset regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          T="$(mktemp -d)"
+          trap 'rm -rf "$T"' EXIT
+          javac -d "$T" \
+            "$R/library/src/main/java/com/omnigate/integrated/AccountClockFormat.java" \
+            "$R/relay-tests/AccountClockFormatTest.java"
+          java -cp "$T" com.omnigate.integrated.AccountClockFormatTest
+      - name: Account timezone, clock visibility and detection source ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          read=lambda n:(p/n).read_text()
+          store=read('AccountBrowserStore.java')
+          ui=read('AccountTimeZoneUi.java')
+          format=read('AccountClockFormat.java')
+          quick=read('AccountQuickSettings.java')
+          full=read('IsolatedGeckoBrowser.java')
+          overlay=read('ClaudeFloatingOverlay.java')
+          assert '"clock_timezone."+id' in store
+          assert '"clock_timezone."+expectedOldId' in store
+          assert 'AccountClockFormat.validate(' in store
+          assert '.commit()' in store
+          assert 'ZoneId.getAvailableZoneIds().contains(raw)' in format
+          assert 'ZoneId.systemDefault()' in format
+          assert 'Instant.ofEpochMilli(epochMillis).atZone(id)' in format
+          assert 'AccountTimeZoneUi.show(a,provider,slot)' in quick
+          assert 'new AccountTimeZoneUi.LiveClock(' in full
+          assert 'new AccountTimeZoneUi.LiveClock(' in overlay
+          assert 'nativeClock.stop()' in full
+          assert 'nativeClock.start()' in full
+          assert 'overlayClock.stop()' in overlay
+          assert 'overlayClock.start()' in overlay
+          assert 'if(value)overlayClock.stop();else overlayClock.start();' in overlay
+          assert 'AccountTimeZoneUi.showOverlayPicker(' in overlay
+          assert 'https://browserleaks.com/javascript' in ui
+          assert 'navigateTo(AccountTimeZoneUi.TEST_URL)' in full
+          assert 'navigate(AccountTimeZoneUi.TEST_URL)' in overlay
+          assert 'handler.postDelayed(this,1000L)' in ui
+          assert 'handler.removeCallbacks(tick)' in ui
+          for source in (ui,format):
+              for forbidden in ('evaluateJavascript','setDefault(TimeZone','setTimeZoneOverride','GeckoRuntime.create','WebExtension.installBuiltIn','HttpURLConnection','OkHttpClient'):
+                  assert forbidden not in source,forbidden
+          print('OGTIME01_PER_CONTEXT_IANA_PERSIST_AND_ROTATION=PASS_SOURCE')
+          print('OGTIME01_FULL_PAGE_OVERLAY_CLOCK_STOP_ON_CLOSE=PASS_SOURCE')
+          print('OGTIME01_SAME_SESSION_USER_REQUESTED_JS_TEST=PASS_SOURCE')
+          print('OGTIME01_WEBSITE_TZ_SPOOF=NOT_IMPLEMENTED')
+          print('OGTIME01_REAL_ANDROID_E2E=NOT_TESTED')
+          PY
