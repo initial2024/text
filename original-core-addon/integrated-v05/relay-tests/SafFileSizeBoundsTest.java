@@ -26,6 +26,23 @@ public final class SafFileSizeBoundsTest {
         reject(65*MI,64*MI,"aggregate overflow");
         reject(Long.MAX_VALUE,1,"integer overflow");
         reject(-1,1,"corrupted aggregate");
+        if(!SafFileSizeBounds.safeFailureLabel(
+                new SecurityException("secret-content://provider/private"))
+                .startsWith("FILE_PERMISSION_DENIED"))
+            throw new AssertionError("security error classification");
+        if(!SafFileSizeBounds.safeFailureLabel(
+                new IllegalArgumentException("unknown_or_oversize_file"))
+                .startsWith("FILE_SIZE_REJECTED"))
+            throw new AssertionError("size error classification");
+        if(!SafFileSizeBounds.safeFailureLabel(
+                new java.io.IOException("private-path-and-secret"))
+                .startsWith("FILE_READ_REJECTED"))
+            throw new AssertionError("read error classification");
+        String unknown=SafFileSizeBounds.safeFailureLabel(
+            new IllegalStateException("do-not-leak-user-document-name"));
+        if(unknown.contains("do-not-leak")||!unknown.startsWith("FILE_PICKER_REJECTED"))
+            throw new AssertionError("untrusted message leak");
         System.out.println("OGUPLOAD03_METADATA_BOUNDS_13_OF_13=PASS");
+        System.out.println("OGUPLOAD03_PRIVACY_CODES_4_OF_4=PASS");
     }
 }
