@@ -64,6 +64,7 @@ final class IsolatedGeckoBrowser {
     private final java.util.IdentityHashMap<View,Integer> originalChromeVisibility=
         new java.util.IdentityHashMap<>();
     private final TextView state;
+    private AccountTimeZoneUi.LiveClock nativeClock;
     private final TextView localBudgetState;
     private final Button autoToggle;
     private Object session;
@@ -439,6 +440,14 @@ final class IsolatedGeckoBrowser {
                 new LinearLayout.LayoutParams(dp(host,102),dp(host,44)));
         }
         root.addView(nativeHeader);
+        if(!guestWindow){
+            TextView clockLabel=new TextView(host);
+            clockLabel.setTextSize(11);clockLabel.setTextColor(0xFFCCD7F7);
+            clockLabel.setPadding(dp(host,7),0,dp(host,7),dp(host,5));
+            root.addView(clockLabel);
+            nativeClock=new AccountTimeZoneUi.LiveClock(
+                host,clockLabel,()->provider,()->selected);
+        }
         HorizontalScrollView scroll=new HorizontalScrollView(host);
         tabs=new LinearLayout(host);tabs.setOrientation(LinearLayout.HORIZONTAL);
         scroll.addView(tabs);
@@ -634,6 +643,7 @@ final class IsolatedGeckoBrowser {
             browserWindow.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
         }
         dialog.setOnDismissListener(v->{
+            if(nativeClock!=null)nativeClock.stop();
             if(fullscreenMode)setFullscreen(false);
             releaseSession();
             if(activeBrowser==this)activeBrowser=null;
@@ -1165,6 +1175,7 @@ final class IsolatedGeckoBrowser {
             w.getDecorView().requestApplyInsets();
         }
         renderTabs();
+        if(nativeClock!=null)nativeClock.start();
     }
     private void show(){
         showFrameOnly();
@@ -1562,6 +1573,7 @@ final class IsolatedGeckoBrowser {
             navigateTo(AccountBrowserSlots.home(provider));
             if(!guestWindow)AccountBrowserStore.select(host,provider,index);
             selected=guestWindow?-1:index;
+            if(nativeClock!=null)nativeClock.refresh();
             if(!guestWindow)refreshLocalBudget();
             state.setText(guestWindow
                 ? "临时访客已打开：关闭后清除此空间站点数据；未保存账号登录"
