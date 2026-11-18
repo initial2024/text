@@ -72,6 +72,13 @@ jobs:
           assert 'overlayClock.start()' in overlay
           assert 'if(value)overlayClock.stop();else overlayClock.start();' in overlay
           assert 'AccountTimeZoneUi.showOverlayPicker(' in overlay
+          assert 'expectedContext.equals(' in ui
+          assert 'currentSessionOwner.getAsBoolean()' in ui
+          assert 'session==owner' in overlay
+          assert 'session!=probeSession' in full
+          assert 'session!=probeSession' in overlay
+          assert 'GeckoLiveWindowHandoff.owns(probeSession)' in full
+          assert 'GeckoLiveWindowHandoff.owns(probeSession)' in overlay
           assert 'https://browserleaks.com/javascript' in ui
           assert 'navigateTo(AccountTimeZoneUi.TEST_URL)' in full
           assert 'navigate(AccountTimeZoneUi.TEST_URL)' in overlay
