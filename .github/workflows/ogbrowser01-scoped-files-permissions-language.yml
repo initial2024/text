@@ -5,6 +5,8 @@ on:
     paths:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserTransfers.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoFilePickerActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SafFileSizeBounds.java'
+      - 'original-core-addon/integrated-v05/relay-tests/SafFileSizeBoundsTest.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoDownloadApprovalActivity.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoDownloadManagerActivity.java'
@@ -38,6 +40,15 @@ jobs:
           javac -d "$OUT" "$P/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java" "$P/relay-tests/AccountBrowserSlotsTest.java" "$P/relay-tests/ClaudeBrowserOnlyTest.java"
           java -cp "$OUT" com.omnigate.integrated.AccountBrowserSlotsTest
           java -cp "$OUT" com.omnigate.integrated.ClaudeBrowserOnlyTest
+      - name: OGUPLOAD03 SAF reported-size fallback boundary regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          P=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$P/library/src/main/java/com/omnigate/integrated/SafFileSizeBounds.java" "$P/relay-tests/SafFileSizeBoundsTest.java"
+          java -cp "$OUT" com.omnigate.integrated.SafFileSizeBoundsTest
       - name: Explicit file, Gecko ownership and Android OS scope review
         shell: bash
         run: |
@@ -95,6 +106,11 @@ jobs:
           assert 'gecko_download_gate_unavailable' in downloads
           assert 'setNavigationDelegate' in br and 'setNavigationDelegate' in overlay
           assert 'MAX_ITEM=64L*1024*1024' in picker
+          assert 'MAX_TOTAL=128L*1024*1024' in picker
+          assert 'size=SafFileSizeBounds.reportedSize(size,fd.getStatSize());' in picker
+          assert 'sum=SafFileSizeBounds.checkedTotal(sum,size,MAX_ITEM,MAX_TOTAL);' in picker
+          assert '"content".equals(uri.getScheme())' in picker
+          assert 'openFileDescriptor(uri,"r")' in picker
           assert 'GeckoBrowserDownloads.attach(host,created,id,' in br
           assert 'GeckoBrowserDownloads.attach(app,created,id,' in overlay
           assert 'GeckoBrowserDownloads.cancelSession(prior)' in br
