@@ -51,7 +51,10 @@ jobs:
           assert '"clock_timezone."+expectedOldId' in store
           assert 'AccountClockFormat.validate(' in store
           assert '.commit()' in store
-          assert 'ZoneId.getAvailableZoneIds().contains(raw)' in format
+          assert 'IANA_ZONES=ZoneId.getAvailableZoneIds()' in format
+          assert '!IANA_ZONES.contains(raw)' in format
+          assert 'static String compact(' in format
+          assert 'yyyy-MM-dd EEE HH:mm:ss' in format
           assert 'ZoneId.systemDefault()' in format
           assert 'Instant.ofEpochMilli(epochMillis).atZone(id)' in format
           assert 'AccountTimeZoneUi.show(a,provider,slot)' in quick
@@ -60,6 +63,12 @@ jobs:
           assert 'nativeClock.stop()' in full
           assert 'nativeClock.start()' in full
           assert 'overlayClock.stop()' in overlay
+          assert 'app,accountClockText,()->selectedProvider,()->selected,true' in overlay
+          assert 'clockLabel.setOnClickListener(' in full
+          assert 'accountClockText.setOnClickListener(' in overlay
+          assert 'if(!text.isAttachedToWindow())' in ui
+          assert 'onViewDetachedFromWindow' in ui
+          assert 'handler.removeCallbacks(tick)' in ui
           assert 'overlayClock.start()' in overlay
           assert 'if(value)overlayClock.stop();else overlayClock.start();' in overlay
           assert 'AccountTimeZoneUi.showOverlayPicker(' in overlay
