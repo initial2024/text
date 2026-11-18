@@ -14,6 +14,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
@@ -89,10 +90,11 @@ final class AccountTimeZoneUi {
      * Custom IANA input remains in full-page native account settings.
      */
     static void showOverlayPicker(Context c,android.view.View anchor,
-            String provider,int slot,Runnable afterSave){
+            String provider,int slot,Runnable afterSave,
+            BooleanSupplier currentSessionOwner){
         if(c==null||anchor==null||!AccountBrowserSlots.supported(provider)||
             slot<0||slot>=AccountBrowserStore.count(c,provider))return;
-        AccountBrowserStore.contextId(c,provider,slot);
+        final String expectedContext=AccountBrowserStore.contextId(c,provider,slot);
         android.widget.PopupMenu picker=new android.widget.PopupMenu(c,anchor);
         for(int i=0;i<NAMES.length;i++){
             picker.getMenu().add(0,i+1,i,NAMES[i]+" · "+ZONES[i]);
@@ -101,6 +103,16 @@ final class AccountTimeZoneUi {
             int i=item.getItemId()-1;
             if(i<0||i>=ZONES.length)return false;
             try{
+                // A PopupMenu may remain open while the overlay switches
+                // accounts. Never commit a choice into the wrong context.
+                if(currentSessionOwner==null||
+                    !currentSessionOwner.getAsBoolean()||
+                    !expectedContext.equals(
+                        AccountBrowserStore.contextId(c,provider,slot))){
+                    Toast.makeText(c,"账号空间已切换，时区修改已取消",
+                        Toast.LENGTH_SHORT).show();
+                    return true;
+                }
                 AccountBrowserStore.setClockTimeZone(c,provider,slot,ZONES[i]);
                 if(afterSave!=null)afterSave.run();
                 Toast.makeText(c,"已保存此空间显示时区；网页时区不变",
