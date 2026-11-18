@@ -1,0 +1,30 @@
+name: OGTZ01 shared Gecko website timezone experimental safety gate
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoSharedWebTimeZone.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoSharedWebsiteTimeZoneUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatBootstrapProvider.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountQuickSettings.java'
+      - 'original-core-addon/integrated-v05/tools/test_ogtz01_shared_timezone.py'
+      - '.github/workflows/ogtz01-shared-gecko-website-timezone.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  environment-optin-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: App-process TZ opt-in, cold-start-only, profile isolation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_ogtz01_shared_timezone.py
+          echo 'OGTZ01_ACTUAL_BROWSERLEAKS_GECKO_TIMEZONE=NOT_TESTED'
+          echo 'OGTZ01_ORIGINAL_PRIMARY_BROWSER_RUNTIME_EFFECT=NOT_TESTED'
+          echo 'OGTZ01_BROWSER_DATE_NOW_CLOCK_SHIFT=NOT_IMPLEMENTED'
