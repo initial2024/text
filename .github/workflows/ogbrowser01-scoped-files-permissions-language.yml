@@ -155,7 +155,17 @@ jobs:
           assert '(active||idleRefreshCycles<3)' in manager
           assert 'idleRefreshCycles=0;' in manager
           assert 'managerVisible=false;' in manager
-          assert 'managerVisible=false;' in manager
+          # Explicit stale partial cleanup; never automatic or cross-context.
+          assert 'cleanOldPartials(' in downloads
+          assert 'hasLiveTransferForContext(contextId)' in downloads
+          assert 'new AlertDialog.Builder(this)' in manager
+          assert 'cleanupOldPartials()' in manager
+          assert 'GeckoBrowserDownloads.cleanOldPartials(' in manager
+          assert 'getApplicationContext(),ownedContext,System.currentTimeMillis()' in manager
+          # Preserve the selected private basename across an Android picker
+          # Activity recreation without retaining public document URIs.
+          assert 'getString("og_export_file")' in manager
+          assert 'out.putString("og_export_file",exportFilename)' in manager
           assert 'refreshHandler.removeCallbacks(liveRefresh)' in manager
           assert 'onResume()' in manager and 'onPause()' in manager
           assert 'new GeckoSession(' not in manager
