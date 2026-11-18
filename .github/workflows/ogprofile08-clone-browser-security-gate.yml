@@ -42,7 +42,7 @@ jobs:
           clean=read('AccountStorageCleaner.java')
           accounts=read('AccountManagerUi.java')
           perms=read('GeckoScopedPermissionGate.java')
-          assert 'getSerialNumberForUser(current)' in profile
+          assert 'manager.getSerialNumberForUser(Process.myUserHandle())' in profile
           assert 'getUserProfiles()' in profile
           assert 'UUID.randomUUID()' in profile
           assert 'Context.MODE_PRIVATE' in profile
@@ -77,7 +77,7 @@ jobs:
           assert 'retiredContexts.contains(t.contextId)' in downloads
           assert 'if(active==t)active=null' in downloads
           assert 'java.nio.file.Files.isSymbolicLink' in downloads
-          assert '删除该空间的私有下载文件' in accounts
+          assert '会清除指定 Gecko 账号的 Cookie、站点数据及私有下载' in accounts
           assert 'onPageStop' in browser and 'elapsedRealtime()' in browser
           assert 'getMethod("loadUri",String.class)' not in read('OmniGateBrowserLanguage.java')
           assert 'APPROVAL' not in profile
