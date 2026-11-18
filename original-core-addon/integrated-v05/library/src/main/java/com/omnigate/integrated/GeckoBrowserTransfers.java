@@ -213,7 +213,7 @@ final class GeckoBrowserTransfers {
                         throw new SecurityException("file_uri_not_staged");
                     java.io.File file=new java.io.File(uri.getPath());
                     java.io.File root=new java.io.File(new java.io.File(
-                        c.getNoBackupFilesDir(),"gecko_upload_stage"),p.contextId);
+                        c.getCacheDir(),"gecko_upload_stage"),p.contextId);
                     String prefix=root.getCanonicalPath()+java.io.File.separator;
                     if(!file.getCanonicalPath().startsWith(prefix)||
                         !file.isFile()||java.nio.file.Files.isSymbolicLink(file.toPath()))
