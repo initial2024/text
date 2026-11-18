@@ -109,6 +109,8 @@ jobs:
           assert 'MAX_TOTAL=128L*1024*1024' in picker
           assert 'size=SafFileSizeBounds.reportedSize(size,fd.getStatSize());' in picker
           assert 'sum=SafFileSizeBounds.checkedTotal(sum,size,MAX_ITEM,MAX_TOTAL);' in picker
+          assert 'SafFileSizeBounds.safeFailureLabel(invalid)' in picker
+          assert 'invalid.getClass().getSimpleName()' not in picker
           assert '"content".equals(uri.getScheme())' in picker
           assert 'openFileDescriptor(uri,"r")' in picker
           assert 'GeckoBrowserDownloads.attach(host,created,id,' in br
