@@ -81,15 +81,19 @@ public final class GeckoFilePickerActivity extends Activity {
                         if(n>=0&&!c.isNull(n))filename=c.getString(n);
                         if(z>=0&&!c.isNull(z))size=c.getLong(z);
                     }
+                }catch(RuntimeException metadataUnavailable){
+                    // Some SAF providers omit or refuse metadata queries.
+                    // File-descriptor readability and a bounded size are
+                    // still mandatory; do not bypass either safety check.
                 }
-                // Unknown/negative size is not a trustworthy bound.
-                if(size<0||size>MAX_ITEM||sum>MAX_TOTAL-size)
-                    throw new IllegalArgumentException("unknown_or_oversize_file");
-                sum+=size;
                 try(android.os.ParcelFileDescriptor fd=getContentResolver()
                     .openFileDescriptor(uri,"r")){
                     if(fd==null)throw new java.io.IOException("unreadable_document");
+                    size=SafFileSizeBounds.reportedSize(size,fd.getStatSize());
                 }
+                // Never accept an unknown size or an over-budget file.
+                // Reported size is not evidence of a completed site upload.
+                sum=SafFileSizeBounds.checkedTotal(sum,size,MAX_ITEM,MAX_TOTAL);
                 if(filename==null)filename="文件";
                 filename=filename.replace("\n"," ").replace("\r"," ");
                 if(filename.length()>64)filename=filename.substring(0,64)+"…";
