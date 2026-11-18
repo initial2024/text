@@ -105,12 +105,13 @@ public final class GeckoDownloadManagerActivity extends Activity {
             "这些文件不会跨越 Android 工作资料或系统用户自动共享。");
         list.addView(description);
         Button refresh=button("刷新下载列表");refresh.setOnClickListener(v->render());list.addView(refresh);
-        Button cleanup=button("手动清理 24 小时前未完成的下载临时文件");
+        Button cleanup=button("手动清理 24 小时前的下载及上传临时文件");
         cleanup.setOnClickListener(v->new AlertDialog.Builder(this)
             .setTitle("仅清理本账号空间的旧临时文件？")
-            .setMessage("只清理当前账号空间内超过 24 小时的 .partial 临时文件。"+
+            .setMessage("只清理当前账号空间内超过 24 小时的未完成下载 .partial 文件，"+
+                "以及已为 Gecko 上传兼容复制的旧私有副本。"+
                 "不删除已完成下载、Cookie、登录信息或其他账号空间。"+
-                "如果当前还有下载任务，则拒绝清理。")
+                "如当前仍在上传已选择的文件，请不要清理；下载进行中将拒绝清理。")
             .setNegativeButton("取消",null)
             .setPositiveButton("确认清理",(d,w)->cleanupOldPartials())
             .show());
@@ -171,8 +172,12 @@ public final class GeckoDownloadManagerActivity extends Activity {
             long reclaimed=0;
             boolean success=false;
             try{
+                long now=System.currentTimeMillis();
                 reclaimed=GeckoBrowserDownloads.cleanOldPartials(
-                    getApplicationContext(),ownedContext,System.currentTimeMillis());
+                    getApplicationContext(),ownedContext,now);
+                // At least 24h old and only after explicit confirmation.
+                reclaimed+=GeckoUploadStaging.cleanOld(
+                    getApplicationContext(),ownedContext,now);
                 success=true;
             }catch(java.io.IOException unavailable){
                 // No filesystem paths or account identifiers in the message.
