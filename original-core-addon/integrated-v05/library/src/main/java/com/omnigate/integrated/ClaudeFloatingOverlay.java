@@ -49,7 +49,8 @@ public final class ClaudeFloatingOverlay {
     private static boolean translationOpen;
     private static int translationEpoch;
     private static FrameLayout viewport;
-    private static TextView caption;
+    private static TextView caption,accountClockText;
+    private static AccountTimeZoneUi.LiveClock overlayClock;
     private static Button account,fold,closeControl,fullscreenControl,fullscreenFooter,quickControl;
     private static Button returnToPageControl;
     private static java.lang.ref.WeakReference<Activity> handoffActivity;
@@ -201,6 +202,7 @@ public final class ClaudeFloatingOverlay {
             geckoView=nextView;
             selectedProvider=provider;
             selected=slot;
+            if(overlayClock!=null)overlayClock.refresh();
             handoffActivity=new java.lang.ref.WeakReference<>(host);
             account.setText(AccountMetadataStore.name(app,provider,slot)+" ▾");
             caption.setText(provider.toUpperCase(java.util.Locale.ROOT)+" · 原网页未刷新");
@@ -302,6 +304,15 @@ public final class ClaudeFloatingOverlay {
         LinearLayout title=new LinearLayout(app);
         title.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(title,new LinearLayout.LayoutParams(-1,dp(app,40)));
+        accountClockText=new TextView(app);
+        accountClockText.setTextSize(11);
+        accountClockText.setTextColor(0xFFC9D6F8);
+        accountClockText.setPadding(dp(app,6),0,dp(app,6),0);
+        accountClockText.setSingleLine(true);
+        accountClockText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        root.addView(accountClockText,new LinearLayout.LayoutParams(-1,dp(app,22)));
+        overlayClock=new AccountTimeZoneUi.LiveClock(
+            app,accountClockText,()->selectedProvider,()->selected);
         caption=new TextView(app);
         caption.setText("⠿");
         caption.setTextColor(0xFFE0E7FF);caption.setTextSize(15);
@@ -1026,6 +1037,7 @@ public final class ClaudeFloatingOverlay {
             ()->setOverlayFocusable(true));
         AccountBrowserStore.select(app,selectedProvider,slot);
         selected=slot;
+        if(overlayClock!=null)overlayClock.refresh();
         account.setText(AccountMetadataStore.name(app,selectedProvider,slot)+" ▾");
         caption.setText(selectedProvider.toUpperCase(java.util.Locale.ROOT)+" · 网页悬浮窗");
         navigate(AccountBrowserSlots.home(selectedProvider));
@@ -1231,6 +1243,11 @@ public final class ClaudeFloatingOverlay {
         if(translationPanel!=null)translationPanel.setVisibility(
             !value&&translationOpen?View.VISIBLE:View.GONE);
         caption.setVisibility(value?View.GONE:View.VISIBLE);
+        if(accountClockText!=null)accountClockText.setVisibility(
+            value?View.GONE:View.VISIBLE);
+        if(overlayClock!=null){
+            if(value)overlayClock.stop();else overlayClock.start();
+        }
         account.setVisibility(value?View.GONE:View.VISIBLE);
         quickControl.setVisibility(value?View.GONE:View.VISIBLE);
         fullscreenControl.setVisibility(value?View.GONE:View.VISIBLE);
@@ -1283,6 +1300,7 @@ public final class ClaudeFloatingOverlay {
         contentProcessTerminated=false;lastLoadFailure=null;
     }
     public static void close(){
+        if(overlayClock!=null)overlayClock.stop();
         hideTranslationPanel();
         releaseSession();
         if(root!=null&&manager!=null){
@@ -1292,6 +1310,7 @@ public final class ClaudeFloatingOverlay {
         root=null;body=null;addressBar=null;addressControl=null;
         addressExpanded=false;tallWindow=false;
         viewport=null;caption=null;account=null;fold=null;
+        accountClockText=null;overlayClock=null;
         closeControl=null;fullscreenControl=null;fullscreenFooter=null;
         quickControl=null;returnToPageControl=null;
         handoffActivity=null;
