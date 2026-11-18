@@ -36,7 +36,12 @@ for forbidden in ('Runtime.getRuntime().exec(', 'System.loadLibrary(', 'GeckoRun
     assert forbidden not in addon, forbidden
 assert 'getMethod("loadUri",String.class).invoke(session,' in addon
 assert 'base+"frontend/popup.html"' in addon
-assert 'AlertDialog dialog=new AlertDialog.Builder(a)' in addon
+# OGTZ04 replaces the too-small alert panel with a full-screen settings dialog.
+assert 'new android.app.Dialog(a,' in addon
+assert 'Theme_DeviceDefault_NoActionBar_Fullscreen' in addon
+assert 'GeckoAddonChoicePrompts.install(a,session,choiceDialog)' in addon
+assert 'GeckoAddonChoicePrompts.release(choiceDialog)' in addon
+assert 'base+"frontend/popup.html"' in addon
 assert 'private static void showActions' in addon
 menu=addon.split('private static void showActions',1)[1].split('private static void message',1)[0]
 assert '.setItems(' in menu and '.setMessage(' not in menu
