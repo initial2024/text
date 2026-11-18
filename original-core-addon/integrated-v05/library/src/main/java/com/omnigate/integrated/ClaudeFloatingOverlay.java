@@ -890,13 +890,35 @@ public final class ClaudeFloatingOverlay {
             }
             if(item.getItemId()==113){
                 if(app!=null&&selected>=0&&session!=null){
+                    final Object probeSession=session;
+                    final int probeSlot=selected;
+                    final String probeProvider=selectedProvider;
+                    final String probeContext=AccountBrowserStore.contextId(
+                        app,probeProvider,probeSlot);
                     PopupMenu confirm=new PopupMenu(app,account);
                     confirm.getMenu().add(0,1,0,
                         "确认前往 BrowserLeaks：可能丢失草稿");
                     confirm.getMenu().add(0,2,1,"取消");
                     confirm.setOnMenuItemClickListener(choice->{
-                        if(choice.getItemId()==1&&session!=null&&selected>=0)
+                        if(choice.getItemId()!=1)return true;
+                        try{
+                            if(!showing()||session!=probeSession||
+                                selected!=probeSlot||
+                                !probeProvider.equals(selectedProvider)||
+                                !probeContext.equals(
+                                    AccountBrowserStore.contextId(
+                                        app,probeProvider,probeSlot))||
+                                !GeckoLiveWindowHandoff.owns(probeSession)){
+                                Toast.makeText(app,"空间已切换，时区检测取消",
+                                    Toast.LENGTH_SHORT).show();
+                                return true;
+                            }
                             navigate(AccountTimeZoneUi.TEST_URL);
+                        }catch(RuntimeException invalid){
+                            if(app!=null)Toast.makeText(app,
+                                "账号空间验证失败，检测未执行",
+                                Toast.LENGTH_SHORT).show();
+                        }
                         return true;
                     });
                     confirm.show();
