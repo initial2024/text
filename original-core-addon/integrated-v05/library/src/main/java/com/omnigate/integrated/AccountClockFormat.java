@@ -13,14 +13,17 @@ import java.util.Set;
  */
 final class AccountClockFormat {
     static final String SYSTEM="SYSTEM";
+    private static final Set<String> IANA_ZONES=ZoneId.getAvailableZoneIds();
     private static final DateTimeFormatter CLOCK=
-        DateTimeFormatter.ofPattern("MM-dd EEE HH:mm:ss",Locale.SIMPLIFIED_CHINESE);
+        DateTimeFormatter.ofPattern("yyyy-MM-dd EEE HH:mm:ss",Locale.SIMPLIFIED_CHINESE);
+    private static final DateTimeFormatter SHORT_CLOCK=
+        DateTimeFormatter.ofPattern("HH:mm:ss",Locale.ROOT);
     private AccountClockFormat(){}
 
     static String validate(String raw){
         if(SYSTEM.equals(raw))return SYSTEM;
         if(raw==null||raw.length()<3||raw.length()>64||
-            !ZoneId.getAvailableZoneIds().contains(raw))
+            !IANA_ZONES.contains(raw))
             throw new IllegalArgumentException("clock_invalid_iana_timezone");
         return raw;
     }
@@ -28,14 +31,30 @@ final class AccountClockFormat {
         return SYSTEM.equals(validate(preference))?
             ZoneId.systemDefault():ZoneId.of(preference);
     }
+    private static String utcOffset(ZonedDateTime time){
+        int offset=time.getOffset().getTotalSeconds();
+        int abs=Math.abs(offset);
+        return String.format(Locale.ROOT,"UTC%s%02d:%02d",
+            offset>=0?"+":"-",abs/3600,(abs%3600)/60);
+    }
     static String display(String preference,long epochMillis){
         ZoneId id=zone(preference);
         ZonedDateTime time=Instant.ofEpochMilli(epochMillis).atZone(id);
-        int offset=time.getOffset().getTotalSeconds();
-        int abs=Math.abs(offset);
-        String utc=String.format(Locale.ROOT,"UTC%s%02d:%02d",
-            offset>=0?"+":"-",abs/3600,(abs%3600)/60);
-        return time.format(CLOCK)+" · "+utc+" · "+id.getId()+
+        return time.format(CLOCK)+" · "+utcOffset(time)+" · "+id.getId()+
             (SYSTEM.equals(preference)?"（跟随系统）":"");
+    }
+    /** Bounded overlay label, with the full IANA zone kept in accessibility
+     * text and native settings. Timezone remains DISPLAY-ONLY.
+     */
+    static String compact(String preference,long epochMillis){
+        String choice=validate(preference);
+        ZoneId id=zone(choice);
+        ZonedDateTime time=Instant.ofEpochMilli(epochMillis).atZone(id);
+        String label=SYSTEM.equals(choice)?"系统":id.getId();
+        int slash=label.lastIndexOf('/');
+        if(slash>=0)label=label.substring(slash+1);
+        label=label.replace('_',' ');
+        if(label.length()>15)label=label.substring(0,15);
+        return time.format(SHORT_CLOCK)+" · "+utcOffset(time)+" · "+label;
     }
 }
