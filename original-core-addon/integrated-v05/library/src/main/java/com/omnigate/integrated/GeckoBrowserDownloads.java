@@ -374,9 +374,24 @@ final class GeckoBrowserDownloads {
             return false;
         }
     }
+    /** Current directory diagnosis, independent of historical SAVED events.
+     * No filenames, paths, URLs or context IDs are exposed to the UI. */
+    static String directoryHealth(Context c,String contextId){
+        if(!AccountBrowserSlots.validContextId(contextId))return "账号空间无效";
+        File dir=directory(c,contextId);
+        if(!dir.exists())return "尚未建立私有下载目录（没有发现已落盘文件）";
+        if(java.nio.file.Files.isSymbolicLink(dir.toPath())||!dir.isDirectory())
+            return "私有下载目录验证失败，已禁止列出文件";
+        if(dir.listFiles()==null)return "私有下载目录暂时不可读取";
+        return "私有下载目录可读取；下方显示当前实际存在的文件";
+    }
     static File[] files(Context c,String contextId){
         File dir=directory(c,contextId);
-        File[] list=dir.listFiles(f->f.isFile()&&!f.getName().endsWith(".partial"));
+        if(java.nio.file.Files.isSymbolicLink(dir.toPath())||!dir.isDirectory())
+            return new File[0];
+        File[] list=dir.listFiles(f->f.isFile()&&
+            !java.nio.file.Files.isSymbolicLink(f.toPath())&&
+            !f.getName().endsWith(".partial"));
         return list==null?new File[0]:list;
     }
     /** No heavyweight filesystem walk under a Gecko callback. */
