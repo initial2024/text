@@ -3,6 +3,9 @@
          Never request device admin, MANAGE_USERS or cross-user privileges. -->
     <queries>
         <package android:name="net.typeblog.shelter"/>
+        <!-- Read-only package visibility for an explicit, user-initiated
+             launch of separately installed Firefox. Not a VPN permission. -->
+        <package android:name="org.mozilla.firefox"/>
     </queries>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
