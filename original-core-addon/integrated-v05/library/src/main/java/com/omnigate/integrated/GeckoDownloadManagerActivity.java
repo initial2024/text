@@ -58,6 +58,13 @@ public final class GeckoDownloadManagerActivity extends Activity {
             GeckoBrowserDownloads.lastStatus(this,contextId)+
             "\n状态仅来自本机 Gecko 下载事件，不会访问网站或检测其额度。");
         list.addView(recent);
+        TextView history=new TextView(this);
+        history.setText("最近下载事件（最多显示12条；仅本账号空间、仅本地）：\n"+
+            GeckoBrowserDownloads.recentHistory(this,contextId)+
+            "\n出现失败记录不等于已有文件；只有下方列表中的文件才可另存。");
+        history.setTextSize(12);
+        history.setPadding(0,12,0,14);
+        list.addView(history);
         File[] files=GeckoBrowserDownloads.files(this,contextId);
         java.util.Arrays.sort(files,(a,b)->Long.compare(b.lastModified(),a.lastModified()));
         if(files.length==0){
