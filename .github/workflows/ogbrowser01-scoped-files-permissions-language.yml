@@ -121,6 +121,14 @@ jobs:
           assert 'c.getNoBackupFilesDir()' in downloads
           assert 'AccountBrowserSlots.validContextId(id)' in downloads
           assert 'private static Transfer active;' in downloads
+          # Rapid second download must finalize the OLD pending token first,
+          # including when both downloads belong to the same contextId.
+          newer=downloads.split('Transfer older;',1)[1].split('if(older!=null)closeQuietly(older.body);',1)[0]
+          assert newer.index('older.cancelled.set(true);') < newer.index('noteStage(older.app,older.contextId,older.token,"INTERRUPTED");')
+          assert newer.index('noteStage(older.app,older.contextId,older.token,"INTERRUPTED");') < newer.index('pending=t;')
+          assert newer.index('pending=t;') < newer.index('startStage(c,contextId,t.token,"WAITING");')
+          # A historical success must never imply its file still exists.
+          assert '曾成功保存原始响应流（历史记录，文件可能已删除）' in downloads
           assert 'downloading.cancelled.set(true)' in downloads
           assert 'closeQuietly(downloading.body)' in downloads
           for forbidden in ('HttpURLConnection','OkHttpClient','fetch(', 'evaluateJavascript',
