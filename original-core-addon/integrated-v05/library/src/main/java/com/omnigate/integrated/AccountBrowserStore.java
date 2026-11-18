@@ -16,6 +16,23 @@ final class AccountBrowserStore {
             throw new IllegalStateException("invalid_slot_count");
         return count;
     }
+    /** Per-Gecko-context IANA clock display preference.
+     * The literal SYSTEM follows Android's current timezone dynamically.
+     * This preference does not affect the Gecko JS environment or IP.
+     */
+    static synchronized String clockTimeZone(Context c,String provider,int slot){
+        String id=contextId(c,provider,slot);
+        return AccountClockFormat.validate(prefs(c).getString(
+            "clock_timezone."+id,AccountClockFormat.SYSTEM));
+    }
+    static synchronized void setClockTimeZone(Context c,String provider,
+            int slot,String zone){
+        String id=contextId(c,provider,slot);
+        String validated=AccountClockFormat.validate(zone);
+        if(!prefs(c).edit().putString("clock_timezone."+id,validated).commit())
+            throw new IllegalStateException("clock_timezone_persistence_failed");
+    }
+
     /** Per-slot anti-tracking preference; does not change Gecko device identity. */
     /** OFF by default: a hidden floating GeckoSession may go inactive to
      * reduce memory, but can suspend media, JS activity and model streaming.
@@ -115,7 +132,8 @@ final class AccountBrowserStore {
         String usage=key+".user_budget_";
         if(!prefs(c).edit().putString(key,replacement)
                 .remove(usage+"utc_day").remove(usage+"completed")
-                .remove(key+".manual_hour_events").commit())
+                .remove(key+".manual_hour_events")
+                .remove("clock_timezone."+expectedOldId).commit())
             throw new IllegalStateException("context_rotation_failed");
     }
 
