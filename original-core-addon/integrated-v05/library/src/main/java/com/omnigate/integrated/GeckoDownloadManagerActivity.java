@@ -104,6 +104,12 @@ public final class GeckoDownloadManagerActivity extends Activity {
         history.setTextSize(12);
         history.setPadding(0,12,0,14);
         list.addView(history);
+        TextView disk=new TextView(this);
+        disk.setText("当前文件目录检查：\n"+
+            GeckoBrowserDownloads.directoryHealth(this,contextId));
+        disk.setTextSize(12);
+        disk.setPadding(0,4,0,10);
+        list.addView(disk);
         File[] files=GeckoBrowserDownloads.files(this,contextId);
         java.util.Arrays.sort(files,(a,b)->Long.compare(b.lastModified(),a.lastModified()));
         if(files.length==0){
