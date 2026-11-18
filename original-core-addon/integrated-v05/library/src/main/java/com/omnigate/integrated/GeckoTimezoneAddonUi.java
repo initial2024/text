@@ -39,27 +39,35 @@ final class GeckoTimezoneAddonUi {
     static void show(Activity a){
         if(a==null||a.isDestroyed()||a.isFinishing())return;
         new AlertDialog.Builder(a)
-            .setTitle("共享网页时区 · Firefox 扩展试验")
-            .setMessage("这是替代旧 TZ 环境变量的可选实验，不是已验证的网页时区修复。"+
-                "\n候选：Mozilla 签名的 Timezone Guard v1.7（第三方、MIT 开源）。"+
-                "\n\n安装后可能读取/修改所有网站内容，并影响原版主网页及所有辅助账号；"+
-                "工作资料中的另一份应用不会自动继承。"+
-                "\n\n仅在你明确同意权限后安装，默认不改 UA/HTTP 头。"+
-                "插件自己的默认设置需自行检查。"+
-                "\n网页时区仍必须通过 BrowserLeaks、iframe 和 Worker 真机验证。"+
-                "如登录、验证码或上传异常应立即卸载插件并重启。"+
-                "\n\n注意：本方案不会修改 Android 时间，也不伪造 Date.now()。")
+            .setTitle("共享网页时区 · 扩展试验说明")
+            .setMessage("候选：Mozilla 签名的 Timezone Guard v1.7（第三方 MIT 开源）。"+
+                "\\n此扩展可能读取/修改所有网站内容，并影响主网页与全部辅助 Gecko 账号。"+
+                "另一 Android 工作资料不会自动继承。"+
+                "\\n\\n此方案不是引擎级时区修改，Date/Intl/Worker 兼容性必须真机实测。"+
+                "安装只允许你主动发起，并须再次批准实际权限。"+
+                "不用远程调试，不改设备时间。")
+            .setNegativeButton("关闭",null)
+            .setPositiveButton("查看操作选项",(d,w)->showActions(a))
+            .show();
+    }
+
+    private static void showActions(Activity a){
+        if(a==null||a.isDestroyed()||a.isFinishing())return;
+        new AlertDialog.Builder(a)
+            .setTitle("Timezone Guard · 可选操作")
             .setItems(new String[]{
-                "查看扩展来源 / 权限说明（Mozilla）",
-                "手动安装签名扩展 · 需两次确认",
-                "检查已安装状态 / 打开插件时区设置 / 卸载"
+                "查看 Mozilla 扩展说明与权限",
+                "手动安装签名扩展（须再次批准权限）",
+                "查看已安装状态 / 打开设置 / 卸载"
             },(dialog,which)->{
                 if(which==0){
                     Intent i=new Intent(Intent.ACTION_VIEW,Uri.parse(AMO_PAGE));
-                    try{a.startActivity(i);}catch(RuntimeException ignored){message(a,"无法打开扩展介绍页面");}
+                    try{a.startActivity(i);}catch(RuntimeException ignored){
+                        message(a,"无法打开扩展介绍页面");
+                    }
                 }else if(which==1)offerInstall(a);
                 else listAndManage(a);
-            }).setNegativeButton("关闭",null).show();
+            }).setNegativeButton("取消",null).show();
     }
 
     private static void message(Activity a,String m){
