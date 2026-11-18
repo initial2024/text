@@ -29,15 +29,25 @@ final class MozillaIpProtectionAudit {
             // Query only class/method metadata. DO NOT fetch or initialize the
             // controller; that can alter shared runtime/service state.
             runtime.getMethod("getIPProtectionController");
+            // Mozilla uses both the FxA VPN-scope token provider and Android
+            // Google Play Integrity hooks. Discover ABI only, invoke neither.
+            Class<?> gpi=Class.forName(
+                "org.mozilla.geckoview.IPProtectionController$GpiProvider",
+                false,loader);
+            controller.getMethod("init");
+            controller.getMethod("enroll");
             controller.getMethod("setAuthProvider",auth);
+            controller.getMethod("setGpiProvider",gpi);
             controller.getMethod("notifySignInStateChanged",boolean.class);
             controller.getMethod("getServiceState");
             controller.getMethod("getProxyState");
             controller.getMethod("activate");
             controller.getMethod("deactivate");
-            result="当前 APK 的 GeckoView 类定义包含 IPProtectionController"+
-                " 和必要的状态/认证接口。仅静态 ABI 检查通过。"+
-                "\n认证接线：未配置；官方资格：未核验；代理状态：未知。";
+            result="当前 APK 中发现 IPProtectionController、"+
+                " Mozilla AuthProvider 和 Play Integrity GpiProvider 接口。"+
+                "\n仅表示静态 ABI 可见，不表示服务器允许第三方应用使用。"+
+                "\nVPN 专用令牌：未授权；Play Integrity：未接入；"+
+                " 官方资格：未核验；代理状态：未知。";
         }catch(ClassNotFoundException missing){
             result="当前 APK 未发现完整的 GeckoView IP Protection 类定义。"+
                 "\n未修改 Gecko 内核，未尝试开启或替换代理。";
@@ -56,7 +66,8 @@ final class MozillaIpProtectionAudit {
             "目前禁止调用 init/enroll/activate/deactivate、"+
             "设置 AuthProvider/GpiProvider 或修改 Firefox 资格控制。"+
             "\n\n真正接入还需官方支持的 Mozilla 账户认证、资格判定、"+
-            "运行时流量隔离与实际出口 IP 验证。"+
+            "Play Integrity 合法接入、运行时流量隔离与实际出口 IP 验证。"+
+            "网页登录 Mozilla 账号不等于取得 VPN scope 的授权令牌。"+
             "本检查不读取密码、Cookie、Token，也不访问网络。"+
             "\n\nMozilla 说明：https://support.mozilla.org/zh-CN/kb/mobile-android-vpn";
     }
