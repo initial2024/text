@@ -30,6 +30,7 @@ public final class GeckoDownloadManagerActivity extends Activity {
     private final Handler refreshHandler=new Handler(Looper.getMainLooper());
     private boolean managerVisible;
     private int refreshCycles;
+    private int idleRefreshCycles;
     private String lastPolledStatus;
     // Bound live refresh to 3 minutes while this Activity is visible.
     // No background service, account switching, directory-wide observer,
@@ -43,8 +44,12 @@ public final class GeckoDownloadManagerActivity extends Activity {
                 lastPolledStatus=current;
                 render();
             }
-            if(refreshCycles<180 &&
-                GeckoBrowserDownloads.hasLiveTransferForContext(contextId)){
+            // The worker may finish BETWEEN reading lastStatus and
+            // hasLiveTransferForContext. Perform three bounded trailing polls
+            // to capture the final SAVED/FAILED transition and disk listing.
+            boolean active=GeckoBrowserDownloads.hasLiveTransferForContext(contextId);
+            idleRefreshCycles=active?0:idleRefreshCycles+1;
+            if(refreshCycles<180 && (active||idleRefreshCycles<3)){
                 refreshCycles++;
                 refreshHandler.postDelayed(this,1000L);
             }
@@ -68,6 +73,7 @@ public final class GeckoDownloadManagerActivity extends Activity {
         if(contextId==null)return;
         managerVisible=true;
         refreshCycles=0;
+        idleRefreshCycles=0;
         lastPolledStatus=null;
         refreshHandler.removeCallbacks(liveRefresh);
         refreshHandler.post(liveRefresh);
