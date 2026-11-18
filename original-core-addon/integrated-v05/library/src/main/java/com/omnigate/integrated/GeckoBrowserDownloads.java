@@ -38,26 +38,50 @@ final class GeckoBrowserDownloads {
     private static android.content.SharedPreferences states(Context c){
         return c.getApplicationContext().getSharedPreferences(STATUS_PREF,Context.MODE_PRIVATE);
     }
+    private static final int MAX_STATUS_HISTORY=20;
+    /** Bounded, per-context diagnostic stages only. No URL, filename,
+     * response headers, Gecko token or website credential is recorded. */
+    private static void persistStage(Context c,String id,String stage){
+        android.content.SharedPreferences p=states(c);
+        long now=System.currentTimeMillis();
+        String history=p.getString(id+".history","");
+        String[] rows=history.isEmpty()?new String[0]:history.split("\n");
+        StringBuilder bounded=new StringBuilder();
+        for(int i=Math.max(0,rows.length-(MAX_STATUS_HISTORY-1));i<rows.length;i++){
+            if(rows[i].matches("[0-9]{1,17},[A-Z_]{1,32}")){
+                if(bounded.length()>0)bounded.append('\n');
+                bounded.append(rows[i]);
+            }
+        }
+        if(bounded.length()>0)bounded.append('\n');
+        bounded.append(now).append(',').append(stage);
+        p.edit().putString(id+".stage",stage).putLong(id+".at",now)
+            .putString(id+".history",bounded.toString()).apply();
+    }
     private static void startStage(Context c,String id,String token,String stage){
         if(!AccountBrowserSlots.validContextId(id)||token==null)return;
         synchronized(LOCK){
+            if(retiredContexts.contains(id))return;
             latestTokens.put(id,token);
-            states(c).edit().putString(id+".stage",stage)
-                .putLong(id+".at",System.currentTimeMillis()).apply();
+            persistStage(c,id,stage);
         }
     }
     private static void noteStage(Context c,String id,String token,String stage){
         if(!AccountBrowserSlots.validContextId(id)||token==null)return;
         synchronized(LOCK){
-            if(!token.equals(latestTokens.get(id)))return; // reject stale worker
-            states(c).edit().putString(id+".stage",stage)
-                .putLong(id+".at",System.currentTimeMillis()).apply();
+            if(retiredContexts.contains(id)||!token.equals(latestTokens.get(id)))
+                return; // reject late worker after context erase/new download
+            persistStage(c,id,stage);
         }
     }
-    static String lastStatus(Context c,String id){
-        if(!AccountBrowserSlots.validContextId(id))return "账号空间无效";
-        android.content.SharedPreferences p=states(c);
-        String stage=p.getString(id+".stage","NONE");
+    private static void forgetStages(Context c,String id){
+        synchronized(LOCK){
+            latestTokens.remove(id);
+            states(c).edit().remove(id+".stage").remove(id+".at")
+                .remove(id+".history").apply();
+        }
+    }
+    private static String stageLabel(String stage){
         String label;
         switch(stage){
             case "WAITING":label="等待你确认保存";break;
@@ -66,6 +90,9 @@ final class GeckoBrowserDownloads {
             case "CANCELLED":label="已取消";break;
             case "INTERRUPTED":label="被新的下载请求中断";break;
             case "FAILED_HTTP":label="HTTP 响应失败（没有写入文件）";break;
+            case "FAILED_AUTH":label="HTTP 401/403：登录或下载授权可能失效";break;
+            case "FAILED_PROMPT":label="系统未能打开原生下载确认界面";break;
+            case "FAILED_WORKER":label="本地下载保存线程未能启动";break;
             case "FAILED_429":label="下载响应 HTTP 429（不等于模型额度耗尽）";break;
             case "FAILED_EMPTY":label="浏览器没有提供可保存的响应流";break;
             case "FAILED_OWNER":label="会话已关闭或账号空间已变化";break;
@@ -75,11 +102,46 @@ final class GeckoBrowserDownloads {
             case "FAILED_UNKNOWN":label="保存失败（原因待真机日志核对）";break;
             default:label="尚未捕获到下载响应";break;
         }
+        return label;
+    }
+    static String lastStatus(Context c,String id){
+        if(!AccountBrowserSlots.validContextId(id))return "账号空间无效";
+        android.content.SharedPreferences p=states(c);
+        String stage=p.getString(id+".stage","NONE");
+        String label=stageLabel(stage);
         long at=p.getLong(id+".at",0);
         if(at<=0)return label;
         String time=new java.text.SimpleDateFormat("MM-dd HH:mm",
             java.util.Locale.getDefault()).format(new java.util.Date(at));
         return time+" · "+label;
+    }
+    /** Most recent stage transitions, newest first, without any website
+     * identifiers or private filenames. Also survives a process restart. */
+    static String recentHistory(Context c,String id){
+        if(!AccountBrowserSlots.validContextId(id))return "账号空间无效";
+        String raw=states(c).getString(id+".history","");
+        if(raw.isEmpty())return "暂无本机下载事件";
+        String[] rows=raw.split("\n");
+        StringBuilder shown=new StringBuilder();
+        int count=0;
+        for(int i=rows.length-1;i>=0&&count<12;i--){
+            String row=rows[i];
+            if(!row.matches("[0-9]{1,17},[A-Z_]{1,32}"))continue;
+            int comma=row.indexOf(',');
+            try{
+                long when=Long.parseLong(row.substring(0,comma));
+                if(when<=0)continue;
+                String time=new java.text.SimpleDateFormat("MM-dd HH:mm:ss",
+                    java.util.Locale.getDefault()).format(new java.util.Date(when));
+                if(shown.length()>0)shown.append('\n');
+                shown.append(time).append(" · ")
+                    .append(stageLabel(row.substring(comma+1)));
+                count++;
+            }catch(IllegalArgumentException invalid){
+                // Ignore malformed private metadata; never read other context.
+            }
+        }
+        return count==0?"暂无可读取的本机下载事件":shown.toString();
     }
     private static String failureStage(Throwable failure){
         String msg=failure.getMessage();
@@ -192,7 +254,8 @@ final class GeckoBrowserDownloads {
                     // Do not mistake HTTP errors or missing Gecko streams for a file.
                     if(status<200||status>=300){
                         startStage(c,contextId,UUID.randomUUID().toString(),
-                            status==429?"FAILED_429":"FAILED_HTTP");
+                            status==429?"FAILED_429":
+                            status==401||status==403?"FAILED_AUTH":"FAILED_HTTP");
                         closeQuietly(body);return null;
                     }
                     if(body==null){
@@ -218,6 +281,10 @@ final class GeckoBrowserDownloads {
                         c.startActivity(ask);
                     }catch(Throwable failure){
                         cancel(t.token);
+                        // A failed Activity launch is not a user cancellation.
+                        noteStage(c,contextId,t.token,"FAILED_PROMPT");
+                        Log.w(TAG,"download_confirmation_launch_failed_"+
+                            failure.getClass().getSimpleName());
                     }
                     return null;
                 });
@@ -289,8 +356,18 @@ final class GeckoBrowserDownloads {
             }
         }
         final Context app=c.getApplicationContext();
-        new Thread(()->copyStream(app,t),"omnigate-gecko-download").start();
-        return true;
+        try{
+            new Thread(()->copyStream(app,t),"omnigate-gecko-download").start();
+            return true;
+        }catch(RuntimeException failed){
+            synchronized(LOCK){
+                if(active==t)active=null;
+                t.cancelled.set(true);
+            }
+            closeQuietly(t.body);
+            noteStage(app,t.contextId,t.token,"FAILED_WORKER");
+            return false;
+        }
     }
     static File[] files(Context c,String contextId){
         File dir=directory(c,contextId);
@@ -377,7 +454,10 @@ final class GeckoBrowserDownloads {
         if(queued!=null){queued.cancelled.set(true);closeQuietly(queued.body);}
         if(downloading!=null)closeQuietly(downloading.body);
         File dir=directory(c,contextId);
-        if(!dir.exists())return;
+        if(!dir.exists()){
+            forgetStages(c,contextId);
+            return;
+        }
         java.nio.file.Path root=dir.toPath();
         if(java.nio.file.Files.isSymbolicLink(root) || !dir.isDirectory())
             throw new IOException("download_directory_invalid");
@@ -389,6 +469,7 @@ final class GeckoBrowserDownloads {
             if(!child.delete())throw new IOException("download_delete_failed");
         }
         if(!dir.delete())throw new IOException("download_directory_cleanup_failed");
+        forgetStages(c,contextId);
     }
 
     private static long existingBytes(Context c,String id){
