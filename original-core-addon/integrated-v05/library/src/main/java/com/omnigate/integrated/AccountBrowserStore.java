@@ -33,6 +33,24 @@ final class AccountBrowserStore {
             throw new IllegalStateException("clock_timezone_persistence_failed");
     }
 
+    /**
+     * Independent local virtual clock per immutable Gecko context.
+     * Deliberately NOT applied to Android System.currentTimeMillis(),
+     * Gecko engine, websites, TLS, authentication or request timestamps.
+     */
+    static synchronized long virtualClockShift(Context c,String provider,int slot){
+        String id=contextId(c,provider,slot);
+        return AccountClockFormat.validateVirtualShift(prefs(c).getLong(
+            "clock_virtual_shift_ms."+id,0L));
+    }
+    static synchronized void setVirtualClockShift(Context c,String provider,
+            int slot,long deltaMs){
+        String id=contextId(c,provider,slot);
+        long allowed=AccountClockFormat.validateVirtualShift(deltaMs);
+        if(!prefs(c).edit().putLong("clock_virtual_shift_ms."+id,allowed).commit())
+            throw new IllegalStateException("virtual_clock_persistence_failed");
+    }
+
     /** Per-slot anti-tracking preference; does not change Gecko device identity. */
     /** OFF by default: a hidden floating GeckoSession may go inactive to
      * reduce memory, but can suspend media, JS activity and model streaming.
@@ -133,7 +151,8 @@ final class AccountBrowserStore {
         if(!prefs(c).edit().putString(key,replacement)
                 .remove(usage+"utc_day").remove(usage+"completed")
                 .remove(key+".manual_hour_events")
-                .remove("clock_timezone."+expectedOldId).commit())
+                .remove("clock_timezone."+expectedOldId)
+                .remove("clock_virtual_shift_ms."+expectedOldId).commit())
             throw new IllegalStateException("context_rotation_failed");
     }
 
