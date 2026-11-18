@@ -57,6 +57,17 @@ jobs:
           assert 'yyyy-MM-dd EEE HH:mm:ss' in format
           assert 'ZoneId.systemDefault()' in format
           assert 'Instant.ofEpochMilli(epochMillis).atZone(id)' in format
+          assert 'static long simulatedNow(' in format
+          assert 'static long shiftToLocalTime(' in format
+          assert 'virtual_dst_gap' in format
+          assert '"clock_virtual_shift_ms."+id' in store
+          assert '"clock_virtual_shift_ms."+expectedOldId' in store
+          assert 'AccountBrowserStore.virtualClockShift(' in ui
+          assert 'android.app.DatePickerDialog' in ui
+          assert 'android.app.TimePickerDialog' in ui
+          assert 'AccountBrowserStore.setVirtualClockShift(' in ui
+          assert 'AccountClockFormat.simulatedNow(' in ui
+          assert '不会改变手机系统时钟' in ui
           assert 'AccountTimeZoneUi.show(a,provider,slot)' in quick
           assert 'new AccountTimeZoneUi.LiveClock(' in full
           assert 'new AccountTimeZoneUi.LiveClock(' in overlay
