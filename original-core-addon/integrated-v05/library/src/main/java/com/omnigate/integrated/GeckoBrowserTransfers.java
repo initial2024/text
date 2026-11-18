@@ -40,17 +40,21 @@ final class GeckoBrowserTransfers {
     private static final class Pending {
         final Object session, prompt, result;
         final BooleanSupplier ownerCurrent;
+        final String contextId;
         final String token=UUID.randomUUID().toString();
         final AtomicBoolean settled=new AtomicBoolean();
-        Pending(Object s,Object p,Object r,BooleanSupplier gate){
-            session=s;prompt=p;result=r;ownerCurrent=gate;
+        Pending(Object s,Object p,Object r,String id,BooleanSupplier gate){
+            session=s;prompt=p;result=r;contextId=id;ownerCurrent=gate;
         }
     }
     /**
      * Installs only one file-prompt method. Returning null for other prompt
      * callbacks explicitly delegates to Gecko's built-in behavior.
      */
-    static void attachFilePrompt(Context context,Object ownedSession,BooleanSupplier ownerCurrent){
+    static void attachFilePrompt(Context context,Object ownedSession,
+            String contextId,BooleanSupplier ownerCurrent){
+        if(!AccountBrowserSlots.validContextId(contextId))
+            throw new IllegalArgumentException("upload_context_invalid");
         try {
             Class<?> promptDelegate=Class.forName(
                 "org.mozilla.geckoview.GeckoSession$PromptDelegate");
@@ -86,7 +90,7 @@ final class GeckoBrowserTransfers {
                     Object s=args[0],p=args[1];
                     if(s!=ownedSession||!ownerCurrent.getAsBoolean()||!uploadEnabled(s))
                         return immediateDismiss(p);
-                    return launchPicker(context,s,p,ownerCurrent);
+                    return launchPicker(context,s,p,contextId,ownerCurrent);
                 });
             ownedSession.getClass().getMethod("setPromptDelegate",promptDelegate)
                 .invoke(ownedSession,proxy);
@@ -121,10 +125,10 @@ final class GeckoBrowserTransfers {
         }catch(Throwable e){return null;}
     }
     private static Object launchPicker(Context context,Object session,Object prompt,
-            BooleanSupplier ownerCurrent) {
+            String contextId,BooleanSupplier ownerCurrent) {
         Object r;
         try{r=newGeckoResult();}catch(Exception e){return null;}
-        Pending item=new Pending(session,prompt,r,ownerCurrent);
+        Pending item=new Pending(session,prompt,r,contextId,ownerCurrent);
         Pending former;
         synchronized(LOCK){former=pending;pending=item;}
         settle(former,null,context,false);
@@ -155,6 +159,14 @@ final class GeckoBrowserTransfers {
         synchronized(LOCK){return pending!=null&&pending.token.equals(token)&&
             !pending.settled.get()&&pending.ownerCurrent.getAsBoolean();}
     }
+    /** The pending Gecko context identity is checked again after copying. */
+    static String pendingContextId(String token){
+        synchronized(LOCK){
+            return pending!=null&&pending.token.equals(token)&&
+                !pending.settled.get()&&pending.ownerCurrent.getAsBoolean()
+                ?pending.contextId:null;
+        }
+    }
     /** Called exclusively from user-visible Android picker after confirmation. */
     /**
      * Observed native handoff status, NOT website upload completion.
@@ -167,6 +179,14 @@ final class GeckoBrowserTransfers {
             target=pending!=null&&pending.token.equals(token)?pending:null;
         }
         if(target==null)return "FILE_PROMPT_EXPIRED";
+        if(selected!=null&&selected.length>0){
+            // Gecko's FilePrompt must receive only a verified app-private
+            // file:// batch, never an unresolvable SAF content:// URI.
+            for(Uri uri:selected){
+                if(uri==null||!"file".equals(uri.getScheme()))
+                    return "FILE_STAGE_REQUIRED";
+            }
+        }
         return settle(target,selected,c,selected!=null&&selected.length>0);
     }
     static void cancelSession(Context c,Object ownedSession){
@@ -185,12 +205,19 @@ final class GeckoBrowserTransfers {
         try{
             Object response;
             if(confirmed&&uris!=null&&uris.length>0&&sameSession){
-                // Android ACTION_OPEN_DOCUMENT supplied an app-scoped,
-                // temporary content:// read grant. Never persist its URI,
-                // log it, or transfer it across account contexts.
+                // Browser receives only app-private, staged file URIs;
+                // the original selected content:// provider URIs are never
+                // sent into Gecko or stored across account contexts.
                 for(Uri uri:uris){
-                    if(uri==null||!"content".equals(uri.getScheme()))
-                        throw new SecurityException("file_uri_not_content");
+                    if(uri==null||!"file".equals(uri.getScheme()))
+                        throw new SecurityException("file_uri_not_staged");
+                    java.io.File file=new java.io.File(uri.getPath());
+                    java.io.File root=new java.io.File(new java.io.File(
+                        c.getNoBackupFilesDir(),"gecko_upload_stage"),p.contextId);
+                    String prefix=root.getCanonicalPath()+java.io.File.separator;
+                    if(!file.getCanonicalPath().startsWith(prefix)||
+                        !file.isFile()||java.nio.file.Files.isSymbolicLink(file.toPath()))
+                        throw new SecurityException("file_not_own_context");
                 }
                 Class<?> promptClass=p.prompt.getClass();
                 if(uris.length==1){
