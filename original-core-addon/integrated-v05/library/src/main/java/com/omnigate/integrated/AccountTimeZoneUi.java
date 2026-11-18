@@ -65,6 +65,34 @@ final class AccountTimeZoneUi {
         void stop(){active=false;handler.removeCallbacks(tick);}
     }
 
+    /** Overlay uses a PopupMenu anchored inside the existing WindowManager
+     * view. Unlike an Activity dialog it remains available over other apps.
+     * Custom IANA input remains in full-page native account settings.
+     */
+    static void showOverlayPicker(Context c,android.view.View anchor,
+            String provider,int slot,Runnable afterSave){
+        if(c==null||anchor==null||!AccountBrowserSlots.supported(provider)||
+            slot<0||slot>=AccountBrowserStore.count(c,provider))return;
+        AccountBrowserStore.contextId(c,provider,slot);
+        android.widget.PopupMenu picker=new android.widget.PopupMenu(c,anchor);
+        for(int i=0;i<NAMES.length;i++){
+            picker.getMenu().add(0,i+1,i,NAMES[i]+" · "+ZONES[i]);
+        }
+        picker.setOnMenuItemClickListener(item->{
+            int i=item.getItemId()-1;
+            if(i<0||i>=ZONES.length)return false;
+            try{
+                AccountBrowserStore.setClockTimeZone(c,provider,slot,ZONES[i]);
+                if(afterSave!=null)afterSave.run();
+                Toast.makeText(c,"已保存此空间显示时区；网页时区不变",
+                    Toast.LENGTH_SHORT).show();
+            }catch(RuntimeException invalid){
+                Toast.makeText(c,"时区设置保存失败",Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        });
+        picker.show();
+    }
     private static Button button(Activity a,LinearLayout root,String label){
         Button b=new Button(a);b.setAllCaps(false);b.setText(label);
         root.addView(b);return b;
