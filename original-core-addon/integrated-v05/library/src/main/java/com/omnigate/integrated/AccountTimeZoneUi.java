@@ -34,17 +34,32 @@ final class AccountTimeZoneUi {
         private final TextView text;
         private final Supplier<String> provider;
         private final IntSupplier slot;
+        private final boolean compact;
         private final Handler handler=new Handler(Looper.getMainLooper());
         private boolean active;
         private final Runnable tick=new Runnable(){
             @Override public void run(){
                 if(!active)return;
+                if(!text.isAttachedToWindow()){
+                    stop();return; // No orphan UI ticker after detach or rotation.
+                }
                 refresh();
                 handler.postDelayed(this,1000L);
             }
         };
         LiveClock(Context c,TextView label,Supplier<String> p,IntSupplier s){
+            this(c,label,p,s,false);
+        }
+        LiveClock(Context c,TextView label,Supplier<String> p,IntSupplier s,
+                boolean compact){
             context=c.getApplicationContext();text=label;provider=p;slot=s;
+            this.compact=compact;
+            text.addOnAttachStateChangeListener(new android.view.View.OnAttachStateChangeListener(){
+                @Override public void onViewAttachedToWindow(android.view.View v){}
+                @Override public void onViewDetachedFromWindow(android.view.View v){
+                    stop();
+                }
+            });
         }
         void refresh(){
             try{
@@ -55,8 +70,12 @@ final class AccountTimeZoneUi {
                     text.setText("空间时钟 · 未选择账号");return;
                 }
                 String id=AccountBrowserStore.clockTimeZone(context,p,s);
-                text.setText("空间时钟 · "+
-                    AccountClockFormat.display(id,System.currentTimeMillis()));
+                long now=System.currentTimeMillis();
+                String full=AccountClockFormat.display(id,now);
+                text.setText("空间时钟 · "+(compact
+                    ?AccountClockFormat.compact(id,now):full));
+                text.setContentDescription("当前账号空间时间："+full+
+                    "。点击可修改此账号显示时区，网页时区不会改变。");
             }catch(RuntimeException failed){
                 text.setText("空间时钟不可读取；不会修改账号或网页");
             }
