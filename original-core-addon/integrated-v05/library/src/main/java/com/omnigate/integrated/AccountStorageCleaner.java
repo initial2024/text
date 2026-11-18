@@ -35,6 +35,10 @@ final class AccountStorageCleaner {
         // directory too. Never touch the phone Download folder or any
         // other account context. Refuse ID rotation when erasure fails.
         GeckoBrowserDownloads.clearContextFiles(c,oldId);
+        // Uploaded SAF documents were copied into a private context-scoped
+        // directory for Gecko compatibility. Erase those bytes with the
+        // account too; no other account or device Downloads is touched.
+        GeckoUploadStaging.clearContext(c,oldId);
         // GeckoView's clearDataForSessionContext has a void API, not an
         // independently verifiable disk-erasure receipt. This is a submitted
         // per-context deletion, NOT certified secure erasure. Rotate the ID
