@@ -863,6 +863,28 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,112,112,"当前账号 · 独立显示时区");
         menu.getMenu().add(0,113,113,"网站实际时区检测（会离开当前网页）");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==112){
+                if(app!=null&&selected>=0)
+                    AccountTimeZoneUi.showOverlayPicker(app,account,
+                        selectedProvider,selected,()->
+                            {if(overlayClock!=null)overlayClock.refresh();});
+                return true;
+            }
+            if(item.getItemId()==113){
+                if(app!=null&&selected>=0&&session!=null){
+                    PopupMenu confirm=new PopupMenu(app,account);
+                    confirm.getMenu().add(0,1,0,
+                        "确认前往 BrowserLeaks：可能丢失草稿");
+                    confirm.getMenu().add(0,2,1,"取消");
+                    confirm.setOnMenuItemClickListener(choice->{
+                        if(choice.getItemId()==1&&session!=null&&selected>=0)
+                            navigate(AccountTimeZoneUi.TEST_URL);
+                        return true;
+                    });
+                    confirm.show();
+                }
+                return true;
+            }
             if(item.getItemId()==111){
                 Activity host=handoffActivity==null?null:handoffActivity.get();
                 if(host!=null&&!host.isFinishing()&&!host.isDestroyed()&&selected>=0)
