@@ -18,7 +18,7 @@ public final class GeckoFilePickerActivity extends Activity {
     private static final long MAX_ITEM=64L*1024*1024;
     private static final long MAX_TOTAL=128L*1024*1024;
     private String token;
-    private boolean started,completed;
+    private boolean started,completed,staging;
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);
         token=getIntent().getStringExtra(GeckoBrowserTransfers.TOKEN);
@@ -67,6 +67,7 @@ public final class GeckoFilePickerActivity extends Activity {
             HashSet<Uri> distinct=new HashSet<>();
             long sum=0;
             StringBuilder summary=new StringBuilder();
+            ArrayList<String> filenames=new ArrayList<>();
             for(Uri uri:chosen){
                 if(uri==null||!"content".equals(uri.getScheme())||!distinct.add(uri))
                     throw new IllegalArgumentException("invalid_document_uri");
@@ -97,38 +98,19 @@ public final class GeckoFilePickerActivity extends Activity {
                 if(filename==null)filename="文件";
                 filename=filename.replace("\n"," ").replace("\r"," ");
                 if(filename.length()>64)filename=filename.substring(0,64)+"…";
+                filenames.add(filename);
                 summary.append(filename).append("（").append(size/1024).append(" KiB）\n");
             }
             final Uri[] uris=chosen.toArray(new Uri[0]);
+            final String[] names=filenames.toArray(new String[0]);
             new AlertDialog.Builder(this).setTitle("将文件交给当前网页？")
-                .setMessage("已在 OmniGate 获得以下用户所选文件的临时读取权限：\n\n"+
-                    summary+"\n确认后交给当前网页的文件输入控件；网页何时真正上传由网页决定。"+
-                    "不会自动发送聊天消息，也不会授予整个存储空间权限。")
+                .setMessage("已通过 Android 文件选择器校验以下文档：\n\n"+
+                    summary+"\n确认后将按实际字节数再次限制到 64 MiB/文件、"+
+                    "128 MiB/批，并在当前账号的应用私有目录建立临时副本。"+
+                    "\n\n这是为了避免 Gecko 无法读取 Android content:// 文档。"+
+                    "网页何时真正上传由网站决定，不会自动发送聊天消息。")
                 .setNegativeButton("取消",(d,w)->cancel())
-                .setPositiveButton("交给当前网页",(d,w)->{
-                    // Prior versions closed silently even when Gecko's
-                    // confirm() / GeckoResult.complete() had failed.
-                    // Show explicit native result; this does not claim that
-                    // the site has uploaded the file.
-                    String status=GeckoBrowserTransfers.finish(token,this,uris);
-                    completed=true;
-                    if("GECKO_FILE_INPUT_CONFIRMED".equals(status)){
-                        android.widget.Toast.makeText(this,
-                            "文件已交给当前网页输入控件；请在网页确认附件是否显示",
-                            android.widget.Toast.LENGTH_LONG).show();
-                        finish();
-                        return;
-                    }
-                    new AlertDialog.Builder(this)
-                        .setTitle("文件未能交给网页")
-                        .setMessage("系统选择文件已经完成，但 Gecko 文件确认失败。"+
-                            "\n状态："+status+
-                            "\n没有自动发送文件，也没有共享其他账号数据。"+
-                            "\n请返回网页重新点击添加文件；若再次失败，请把状态码发给开发者。")
-                        .setPositiveButton("返回网页",(x,y)->finish())
-                        .setOnCancelListener(x->finish())
-                        .show();
-                })
+                .setPositiveButton("验证并交给网页",(d,w)->startSafeStage(uris,names))
                 .setOnCancelListener(d->cancel())
                 .show();
         }catch(Exception invalid){
@@ -138,6 +120,84 @@ public final class GeckoFilePickerActivity extends Activity {
                 .setPositiveButton("关闭",(d,w)->cancel())
                 .setOnCancelListener(d->cancel()).show();
         }
+    }
+    /**
+     * The copy may be large; never block Android's main/UI thread. Gecko's
+     * actual FilePrompt.confirm still runs on the UI thread afterwards.
+     */
+    private void startSafeStage(Uri[] source,String[] names){
+        if(staging||completed)return;
+        staging=true;
+        final String id=GeckoBrowserTransfers.pendingContextId(token);
+        if(!AccountBrowserSlots.validContextId(id)){
+            showFailure("FILE_PROMPT_EXPIRED");
+            return;
+        }
+        final android.app.ProgressDialog progress=new android.app.ProgressDialog(this);
+        progress.setMessage("正在安全复制文件到当前账号空间…");
+        progress.setIndeterminate(true);
+        progress.setCancelable(false);
+        progress.show();
+        try{
+            new Thread(()->{
+                GeckoUploadStaging.Batch batch=null;
+                String error=null;
+                try{
+                    batch=GeckoUploadStaging.stage(getApplicationContext(),id,source,names);
+                }catch(Exception failure){
+                    error=SafFileSizeBounds.safeFailureLabel(failure);
+                }
+                final GeckoUploadStaging.Batch result=batch;
+                final String failureCode=error;
+                runOnUiThread(()->{
+                    progress.dismiss();
+                    if(isDestroyed()||isFinishing()||completed){
+                        if(result!=null)GeckoUploadStaging.discard(result);
+                        GeckoBrowserTransfers.finish(token,this,null);
+                        return;
+                    }
+                    if(result==null){
+                        GeckoBrowserTransfers.finish(token,this,null);
+                        completed=true;
+                        showFailure("FILE_PRIVATE_STAGE_FAILED · "+failureCode);
+                        return;
+                    }
+                    if(!id.equals(GeckoBrowserTransfers.pendingContextId(token))){
+                        GeckoUploadStaging.discard(result);
+                        completed=true;
+                        showFailure("FILE_PROMPT_EXPIRED_OR_ACCOUNT_CHANGED");
+                        return;
+                    }
+                    String status=GeckoBrowserTransfers.finish(token,this,result.uris);
+                    completed=true;
+                    if(!"GECKO_FILE_INPUT_CONFIRMED".equals(status)){
+                        GeckoUploadStaging.discard(result);
+                        showFailure(status);
+                        return;
+                    }
+                    android.widget.Toast.makeText(this,
+                        "本地文件已交给 Gecko 输入控件；请在网页确认附件是否显示",
+                        android.widget.Toast.LENGTH_LONG).show();
+                    finish();
+                });
+            },"omnigate-gecko-private-file-stage").start();
+        }catch(RuntimeException workerFailed){
+            progress.dismiss();
+            GeckoBrowserTransfers.finish(token,this,null);
+            completed=true;
+            showFailure("FILE_STAGE_WORKER_UNAVAILABLE");
+        }
+    }
+    private void showFailure(String code){
+        new AlertDialog.Builder(this)
+            .setTitle("文件未能交给网页")
+            .setMessage("文件选择或 Gecko 原生交接未完成。"+
+                "\n状态："+code+
+                "\n没有向网站发送请求，也没有跨账号授权。"+
+                "\n请返回网页重新选择文件，必要时保存此状态码排障。")
+            .setPositiveButton("返回网页",(d,w)->finish())
+            .setOnCancelListener(d->finish())
+            .show();
     }
     private void cancel(){
         if(!completed&&token!=null){
