@@ -783,6 +783,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,6,5,"网页语言偏好 · 查看");
         menu.getMenu().add(0,7,6,"系统分身与隔离说明");
         menu.getMenu().add(0,9,7,"工作资料 DNS 检查（手动）");
+        menu.getMenu().add(0,10,8,"Firefox 内置 VPN · 只读检查");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showPicker(host);return true;
@@ -796,6 +797,7 @@ final class IsolatedGeckoBrowser {
                 case 6:showWebLanguagePreference();return true;
                 case 7:AndroidProfileSafetyCenter.show(host);return true;
                 case 9:GeckoWorkProfileDnsDiagnostics.show(host);return true;
+                case 10:MozillaIpProtectionAudit.show(host);return true;
                 default:return false;
             }
         });
