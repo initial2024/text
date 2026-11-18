@@ -139,6 +139,13 @@ jobs:
           # Download status refresh is scoped to this visible Activity and
           # the current Gecko context. Do not create a global watcher.
           assert 'GeckoBrowserDownloads.hasLiveTransferForContext(contextId)' in manager
+          assert 'GeckoBrowserDownloads.directoryHealth(this,contextId)' in manager
+          assert 'static String directoryHealth(Context c,String contextId)' in downloads
+          assert 'if(dir.listFiles()==null)return "私有下载目录暂时不可读取";' in downloads
+          assert 'java.nio.file.Files.isSymbolicLink(dir.toPath())' in downloads
+          assert '!java.nio.file.Files.isSymbolicLink(f.toPath())' in downloads
+          assert '尚未建立私有下载目录' in downloads
+          assert '目录验证失败，已禁止列出文件' in downloads
           assert 'GeckoBrowserDownloads.lastStatus(' in manager
           assert 'refreshHandler.postDelayed(this,1000L)' in manager
           assert 'refreshCycles<180' in manager
