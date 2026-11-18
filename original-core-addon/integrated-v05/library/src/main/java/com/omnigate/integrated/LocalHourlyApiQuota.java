@@ -59,8 +59,13 @@ final class LocalHourlyApiQuota {
     private static void noteObserved(SharedPreferences preferences,String provider,long now){
         String key=provider+".observed_events";
         String history=preferences.getString(key,"");
-        preferences.edit().putString(key,
-            SlidingHourAcknowledgements.append(history,now)).apply();
+        // In budget-disabled mode this is the only automatically observed
+        // 8787 request ledger. Persist before returning to reduce loss on
+        // abrupt app termination, but never turn a disabled local budget
+        // into an unexpected network-submission block.
+        if(!preferences.edit().putString(key,
+            SlidingHourAcknowledgements.append(history,now)).commit())
+            throw new IllegalStateException("local_hour_observed_persist_failed");
     }
     static synchronized Decision admit(Context c,String provider,long now){
         valid(provider);
