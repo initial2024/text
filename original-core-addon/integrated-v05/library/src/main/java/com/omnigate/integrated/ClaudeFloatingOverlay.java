@@ -312,7 +312,13 @@ public final class ClaudeFloatingOverlay {
         accountClockText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         root.addView(accountClockText,new LinearLayout.LayoutParams(-1,dp(app,22)));
         overlayClock=new AccountTimeZoneUi.LiveClock(
-            app,accountClockText,()->selectedProvider,()->selected);
+            app,accountClockText,()->selectedProvider,()->selected,true);
+        accountClockText.setOnClickListener(v->{
+            if(app!=null&&selected>=0)
+                AccountTimeZoneUi.showOverlayPicker(app,accountClockText,
+                    selectedProvider,selected,()->
+                        {if(overlayClock!=null)overlayClock.refresh();});
+        });
         caption=new TextView(app);
         caption.setText("⠿");
         caption.setTextColor(0xFFE0E7FF);caption.setTextSize(15);
