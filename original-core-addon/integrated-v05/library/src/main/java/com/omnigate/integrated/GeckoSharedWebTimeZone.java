@@ -6,7 +6,7 @@ import android.content.SharedPreferences;
 /**
  * OGTZ02: fail-closed after the owner's Android 16 Gecko BrowserLeaks test.
  *
- * In v1.3.16 Os.setenv("TZ", ...) was confirmed INEFFECTIVE for website
+ * In v1.3.16 process-level TZ assignment was confirmed INEFFECTIVE for website
  * JavaScript Date/Intl. Never reapply that process-wide experiment at boot.
  * Gecko's web-visible timezone is NOT known from any Android process env.
  *
