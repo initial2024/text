@@ -30,6 +30,12 @@ public final class AccountClockFormatTest {
         long after=Instant.parse("2026-03-08T07:01:00Z").toEpochMilli();
         pass(AccountClockFormat.display("America/New_York",before).contains("UTC-05:00"));
         pass(AccountClockFormat.display("America/New_York",after).contains("UTC-04:00"));
+        pass(AccountClockFormat.display("UTC",jan).contains("2026-01-15"));
+        pass(AccountClockFormat.compact("Asia/Tokyo",jan).contains("09:00:00"));
+        pass(AccountClockFormat.compact("Asia/Tokyo",jan).contains("Tokyo"));
+        pass(AccountClockFormat.compact("America/New_York",before).contains("UTC-05:00"));
+        pass(AccountClockFormat.compact("America/New_York",after).contains("UTC-04:00"));
+        pass(AccountClockFormat.compact("SYSTEM",jan).contains("系统"));
         TimeZone previous=TimeZone.getDefault();
         try{
             TimeZone.setDefault(TimeZone.getTimeZone("Asia/Tokyo"));
