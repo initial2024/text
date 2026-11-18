@@ -41,7 +41,7 @@ final class GeckoUploadStaging {
     private static File root(Context c,String id)throws IOException{
         if(!AccountBrowserSlots.validContextId(id))
             throw new IOException("upload_context_invalid");
-        return new File(new File(c.getNoBackupFilesDir(),"gecko_upload_stage"),id);
+        return new File(new File(c.getCacheDir(),"gecko_upload_stage"),id);
     }
     private static void checkDirectory(File dir)throws IOException{
         if(Files.isSymbolicLink(dir.toPath())||!dir.isDirectory())
