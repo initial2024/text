@@ -51,7 +51,7 @@ final class AccountQuickSettings {
                     ?"收起悬浮窗省内存：开启（逐账号）"
                     :"收起悬浮窗省内存：关闭（兼容优先）",
                 "当前账号 · 独立时区、实时显示、网站时区检测",
-                "全部 Gecko 网页共享时区（实验性，需重启验证）"
+                "网页时区 · 真机未生效（已停用实验）"
             },(d,which)->{
                 if(which==0)edit(a,provider,slot);
                 if(which==1)quota(a,provider,slot);

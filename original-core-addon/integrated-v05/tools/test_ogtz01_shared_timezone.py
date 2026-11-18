@@ -17,7 +17,7 @@ clock=(pkg/"AccountTimeZoneUi.java").read_text()
 begin=boot.index("GatewayApp.initialize(app)")
 assert begin < boot.index("GeckoSharedWebTimeZone.applyAtAppBootstrap(app)") < boot.index("AutoStartRuntime.onProcessCreated()")
 assert 'GeckoSharedWebsiteTimeZoneUi.show(a)' in quick
-assert '"全部 Gecko 网页共享时区（实验性，需重启验证）"' in quick
+assert '"网页时区 · 真机未生效（已停用实验）"' in quick
 assert 'android.app.DatePickerDialog' in clock
 assert 'System.currentTimeMillis()' in clock
 assert '不修改 Date.now()' in ui
@@ -26,6 +26,8 @@ assert '强行停止' in ui
 assert 'GeckoRuntime.getInstance()' not in (pkg/"GeckoSharedWebTimeZone.java").read_text()
 assert 'GeckoRuntime.create(' not in (pkg/"GeckoSharedWebTimeZone.java").read_text()
 assert 'TimeZone.setDefault' not in (pkg/"GeckoSharedWebTimeZone.java").read_text()
+assert 'Os.setenv' not in (pkg/"GeckoSharedWebTimeZone.java").read_text()
+assert 'Os.unsetenv' not in (pkg/"GeckoSharedWebTimeZone.java").read_text()
 
 files={
  "android/content/SharedPreferences.java":r'''
@@ -119,30 +121,25 @@ public final class SharedTZTest {
   check("America/New_York".equals(GeckoSharedWebTimeZone.requested(personal)),
     "invalid zone must not overwrite saved data");
   GeckoSharedWebTimeZone.applyAtAppBootstrap(personal);
-  check("America/New_York".equals(Os.getenv("TZ")),
-    "process env attempted at boot");
-  check("PROCESS_ENV_SET_GECKO_JS_UNVERIFIED".equals(
-    GeckoSharedWebTimeZone.bootStatus()),
-    "must not claim website-visible timezone");
+  check("STALE_EXPERIMENT_IGNORED_REAL_DEVICE_DATE_INTL_FAILED".equals(
+    GeckoSharedWebTimeZone.bootStatus()),"stale preference is disabled");
+  check(Os.writes==0,"custom preference must NEVER set TZ environment");
+  check("NO_OVERRIDE".equals(GeckoSharedWebTimeZone.appliedAtBootstrap()),
+    "never claim a Gecko website time zone override");
   GeckoSharedWebTimeZone.setRequested(personal,"Asia/Tokyo");
-  check("America/New_York".equals(Os.getenv("TZ")),
-    "live timezone not changed by new setting");
+  check(Os.writes==0,"live settings do not mutate process environment");
   GeckoSharedWebTimeZone.applyAtAppBootstrap(personal);
-  check("Asia/Tokyo".equals(Os.getenv("TZ")),"new process starts with chosen timezone");
+  check(Os.writes==0,"subsequent boot remains fail-closed");
   GeckoSharedWebTimeZone.setRequested(work,"Europe/London");
   check("Asia/Tokyo".equals(GeckoSharedWebTimeZone.requested(personal)),
-    "other Android profile cannot rewrite this preference");
+    "work profile preference remains separate");
   GeckoSharedWebTimeZone.setRequested(personal,"SYSTEM");
-  check("Asia/Tokyo".equals(Os.getenv("TZ")),
-    "restore must wait for process restart");
-  GeckoSharedWebTimeZone.setRequested(personal,"America/Chicago");
-  Os.fail=true;
   GeckoSharedWebTimeZone.applyAtAppBootstrap(personal);
-  check("PROCESS_ENV_REJECTED_GECKO_UNCHANGED_UNVERIFIED".equals(
-    GeckoSharedWebTimeZone.bootStatus()),"system refusal must be surfaced");
-  Os.fail=false;
-  System.out.println("OGTZ01_SHARED_GECKO_ENV_AND_ANDROID_PROFILE_"+passed+"_OF_"+passed+"=PASS");
-  System.out.println("OGTZ01_GECKO_JS_INTL_DATE_E2E=NOT_TESTED");
+  check("NATIVE_GECKO_DEFAULT_NO_OVERRIDE".equals(
+    GeckoSharedWebTimeZone.bootStatus()),"reset shows engine default");
+  check(Os.writes==0,"reset never mutates original Gecko environment");
+  System.out.println("OGTZ02_FAILED_ENV_DISABLED_AND_ANDROID_PROFILE_"+passed+"_OF_"+passed+"=PASS");
+  System.out.println("OGTZ02_GECKO_JS_INTL_DATE_E2E=USER_REPORTED_FAIL");
  }
 }
 '''
@@ -159,4 +156,4 @@ with TemporaryDirectory(prefix="ogtz01-") as dir:
     out=tmp/"out";out.mkdir()
     subprocess.run(["javac","-encoding","UTF-8","-d",str(out),*java],check=True)
     subprocess.run(["java","-cp",str(out),"com.omnigate.integrated.SharedTZTest"],check=True)
-print("OGTZ01_BOOT_ORDER_AND_NO_RUNTIME_MUTATION=PASS_SOURCE")
+print("OGTZ02_BOOT_ORDER_AND_FAIL_CLOSED_NO_ENV_MUTATION=PASS_SOURCE")

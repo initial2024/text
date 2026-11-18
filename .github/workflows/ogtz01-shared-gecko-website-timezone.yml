@@ -1,4 +1,4 @@
-name: OGTZ01 shared Gecko website timezone experimental safety gate
+name: OGTZ02 website timezone failed experiment fail-closed gate
 on:
   push:
     branches: [work/omnigate-integrated-v05]
@@ -20,11 +20,11 @@ jobs:
         with: {persist-credentials: false}
       - uses: actions/setup-java@v4
         with: {distribution: temurin, java-version: '17'}
-      - name: App-process TZ opt-in, cold-start-only, profile isolation tests
+      - name: Fail-closed no TZ env, preserved per-profile clocks tests
         shell: bash
         run: |
           set -euo pipefail
           python3 original-core-addon/integrated-v05/tools/test_ogtz01_shared_timezone.py
-          echo 'OGTZ01_ACTUAL_BROWSERLEAKS_GECKO_TIMEZONE=NOT_TESTED'
-          echo 'OGTZ01_ORIGINAL_PRIMARY_BROWSER_RUNTIME_EFFECT=NOT_TESTED'
-          echo 'OGTZ01_BROWSER_DATE_NOW_CLOCK_SHIFT=NOT_IMPLEMENTED'
+          echo 'OGTZ02_ACTUAL_BROWSERLEAKS_GECKO_TIMEZONE=USER_REPORTED_FAIL_GMT_PLUS_0800'
+          echo 'OGTZ02_ORIGINAL_PRIMARY_BROWSER_RUNTIME_EFFECT=NO_NEW_OVERRIDE'
+          echo 'OGTZ02_BROWSER_DATE_NOW_CLOCK_SHIFT=NOT_IMPLEMENTED'
