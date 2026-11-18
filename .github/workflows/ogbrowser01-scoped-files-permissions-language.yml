@@ -136,6 +136,17 @@ jobs:
               assert forbidden not in transfers+downloads+picker+manager+gate, forbidden
           assert 'Intent.ACTION_CREATE_DOCUMENT' in manager
           assert 'GeckoBrowserDownloads.delete(this,contextId,file.getName())' in manager
+          # Download status refresh is scoped to this visible Activity and
+          # the current Gecko context. Do not create a global watcher.
+          assert 'GeckoBrowserDownloads.hasLiveTransferForContext(contextId)' in manager
+          assert 'GeckoBrowserDownloads.lastStatus(' in manager
+          assert 'refreshHandler.postDelayed(this,1000L)' in manager
+          assert 'refreshCycles<180' in manager
+          assert 'managerVisible=false;' in manager
+          assert 'refreshHandler.removeCallbacks(liveRefresh)' in manager
+          assert 'onResume()' in manager and 'onPause()' in manager
+          assert 'new GeckoSession(' not in manager
+          assert 'new Thread(' not in manager.split('private final Runnable liveRefresh=',1)[1].split('static final String EXTRA_CONTEXT=',1)[0]
           assert 'GeckoBrowserDownloads.accept(this,token)' in approval
           assert 'GeckoBrowserDownloads.cancel(token)' in approval
           assert 'GeckoScopedPermissionGate.install(host,created,id,' in br
