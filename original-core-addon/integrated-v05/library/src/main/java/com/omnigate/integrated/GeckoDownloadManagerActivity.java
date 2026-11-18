@@ -60,6 +60,9 @@ public final class GeckoDownloadManagerActivity extends Activity {
         super.onCreate(state);
         contextId=getIntent().getStringExtra(EXTRA_CONTEXT);
         if(!AccountBrowserSlots.validContextId(contextId)){finish();return;}
+        // Android can recreate this Activity while the system document
+        // picker is open. Preserve ONLY the locally chosen file basename.
+        if(state!=null)exportFilename=state.getString("og_export_file");
         list=new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(22,22,22,22);
@@ -67,6 +70,10 @@ public final class GeckoDownloadManagerActivity extends Activity {
         scroller.addView(list);
         setContentView(scroller);
         render();
+    }
+    @Override protected void onSaveInstanceState(Bundle out){
+        if(exportFilename!=null)out.putString("og_export_file",exportFilename);
+        super.onSaveInstanceState(out);
     }
     @Override protected void onResume(){
         super.onResume();
@@ -98,6 +105,16 @@ public final class GeckoDownloadManagerActivity extends Activity {
             "这些文件不会跨越 Android 工作资料或系统用户自动共享。");
         list.addView(description);
         Button refresh=button("刷新下载列表");refresh.setOnClickListener(v->render());list.addView(refresh);
+        Button cleanup=button("手动清理 24 小时前未完成的下载临时文件");
+        cleanup.setOnClickListener(v->new AlertDialog.Builder(this)
+            .setTitle("仅清理本账号空间的旧临时文件？")
+            .setMessage("只清理当前账号空间内超过 24 小时的 .partial 临时文件。"+
+                "不删除已完成下载、Cookie、登录信息或其他账号空间。"+
+                "如果当前还有下载任务，则拒绝清理。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton("确认清理",(d,w)->cleanupOldPartials())
+            .show());
+        list.addView(cleanup);
         TextView recent=new TextView(this);
         recent.setText("最近一次下载（仅此账号空间；下载进行中会自动刷新）：\n"+
             GeckoBrowserDownloads.lastStatus(this,contextId)+
@@ -146,6 +163,31 @@ public final class GeckoDownloadManagerActivity extends Activity {
             list.addView(buttons);
         }
         Button exit=button("返回网页");exit.setOnClickListener(v->finish());list.addView(exit);
+    }
+    private void cleanupOldPartials(){
+        final String ownedContext=contextId;
+        if(!AccountBrowserSlots.validContextId(ownedContext))return;
+        new Thread(()->{
+            long reclaimed=0;
+            boolean success=false;
+            try{
+                reclaimed=GeckoBrowserDownloads.cleanOldPartials(
+                    getApplicationContext(),ownedContext,System.currentTimeMillis());
+                success=true;
+            }catch(java.io.IOException unavailable){
+                // No filesystem paths or account identifiers in the message.
+            }
+            final long bytes=reclaimed;
+            final boolean ok=success;
+            runOnUiThread(()->{
+                if(isFinishing()||isDestroyed()||!ownedContext.equals(contextId))return;
+                Toast.makeText(this,ok?
+                    "旧临时文件清理完成，释放 "+(bytes/1024)+" KiB":
+                    "清理未执行：可能仍有下载任务或目录校验失败",
+                    Toast.LENGTH_LONG).show();
+                render();
+            });
+        },"omnigate-clean-old-download-partials").start();
     }
     private void exportFile(String name){
         if(!GeckoBrowserDownloads.cleanName(name).equals(name))return;
