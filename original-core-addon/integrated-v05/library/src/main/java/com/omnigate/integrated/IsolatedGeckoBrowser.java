@@ -447,6 +447,9 @@ final class IsolatedGeckoBrowser {
             root.addView(clockLabel);
             nativeClock=new AccountTimeZoneUi.LiveClock(
                 host,clockLabel,()->provider,()->selected);
+            clockLabel.setOnClickListener(v->{
+                if(selected>=0)AccountTimeZoneUi.show(host,provider,selected);
+            });
         }
         HorizontalScrollView scroll=new HorizontalScrollView(host);
         tabs=new LinearLayout(host);tabs.setOrientation(LinearLayout.HORIZONTAL);
