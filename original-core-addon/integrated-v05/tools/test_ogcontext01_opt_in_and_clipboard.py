@@ -179,6 +179,29 @@ public final class OptInTest{
       "numeric provider summary only");
     check(!LocalContextLedger.enabled(work,provider,0),
       "Android different user must have separate local preferences");
+    // A timezone preference belongs to the immutable Gecko context, never
+    // the provider, another slot, or another Android user/profile.
+    check("SYSTEM".equals(AccountBrowserStore.clockTimeZone(personal,provider,0)),
+      "timezone default follows system");
+    AccountBrowserStore.setClockTimeZone(personal,provider,0,"America/New_York");
+    check("America/New_York".equals(
+      AccountBrowserStore.clockTimeZone(personal,provider,0)),
+      "slot A timezone persists");
+    check("SYSTEM".equals(AccountBrowserStore.clockTimeZone(personal,provider,1)),
+      "slot B does not inherit A timezone");
+    AccountBrowserStore.setClockTimeZone(personal,provider,1,"Asia/Tokyo");
+    check("America/New_York".equals(
+      AccountBrowserStore.clockTimeZone(personal,provider,0)),
+      "slot B update cannot alter A timezone");
+    check("SYSTEM".equals(AccountBrowserStore.clockTimeZone(work,provider,0)),
+      "work profile cannot inherit personal timezone");
+    rejected(()->AccountBrowserStore.setClockTimeZone(
+        personal,provider,0,"Unknown/Fake_Zone"),
+      "reject unsupported timezone");
+    check("America/New_York".equals(
+      AccountBrowserStore.clockTimeZone(personal,provider,0)),
+      "invalid update leaves old preference intact");
+
     check(!LocalContextLedger.providerAggregationEnabled(work,provider),
       "work profile never auto-inherits personal consents");
     LocalContextLedger.setProviderAggregationEnabled(personal,provider,false);
@@ -229,6 +252,7 @@ with TemporaryDirectory(prefix="ogcontext01-") as temp:
     target=rootp/"classes";target.mkdir()
     java += [str(src/n) for n in (
         "AccountBrowserSlots.java","AccountBrowserStore.java",
+        "AccountClockFormat.java",
         "VoluntaryAccountBudget.java","SlidingHourAcknowledgements.java",
         "LocalContextEstimator.java","LocalContextLedger.java",
         "GeckoAccountNavigationGuard.java")]
