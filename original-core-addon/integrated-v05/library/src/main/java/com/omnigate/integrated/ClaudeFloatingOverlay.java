@@ -993,7 +993,7 @@ public final class ClaudeFloatingOverlay {
         GeckoPageTranslate.prepareSession(created);
         sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
         followUploadNavigation(created,sessionClass,slot);
-        GeckoBrowserTransfers.attachFilePrompt(app,created,
+        GeckoBrowserTransfers.attachFilePrompt(app,created,id,
             ()->GeckoLiveWindowHandoff.owns(created));
         GeckoScopedPermissionGate.install(app,created,id,
             ()->GeckoLiveWindowHandoff.owns(created));
