@@ -71,12 +71,15 @@ final class AccountTimeZoneUi {
                     text.setText("空间时钟 · 未选择账号");return;
                 }
                 String id=AccountBrowserStore.clockTimeZone(context,p,s);
-                long now=System.currentTimeMillis();
+                long offset=AccountBrowserStore.virtualClockShift(context,p,s);
+                long now=AccountClockFormat.simulatedNow(
+                    System.currentTimeMillis(),offset);
                 String full=AccountClockFormat.display(id,now);
-                text.setText("空间时钟 · "+(compact
+                String label=offset==0?"空间时钟 · ":"本地虚拟时钟 · ";
+                text.setText(label+(compact
                     ?AccountClockFormat.compact(id,now):full));
-                text.setContentDescription("当前账号空间时间："+full+
-                    "。点击可修改此账号显示时区，网页时区不会改变。");
+                text.setContentDescription("当前账号"+label+full+
+                    "。仅用于 OmniGate 原生显示，不会改变网站或系统时间。");
             }catch(RuntimeException failed){
                 text.setText("空间时钟不可读取；不会修改账号或网页");
             }
@@ -132,17 +135,21 @@ final class AccountTimeZoneUi {
         if(a==null||a.isFinishing()||a.isDestroyed()||
             !AccountBrowserSlots.supported(provider)||slot<0||
             slot>=AccountBrowserStore.count(a,provider))return;
-        AccountBrowserStore.contextId(a,provider,slot);
+        final String expectedContext=AccountBrowserStore.contextId(
+            a,provider,slot);
         LinearLayout root=new LinearLayout(a);
         root.setPadding(24,16,24,16);root.setOrientation(1);
         TextView liveText=new TextView(a);
         liveText.setTextSize(16);root.addView(liveText);
         TextView note=new TextView(a);
         note.setTextSize(12);
-        note.setText("只改变 OmniGate 本地显示时间；不改网页 JS 时区、"+
-            "浏览器指纹、IP、定位或账号 Cookie。自动使用 IANA 夏令时规则。"+
-            "\n检测网站看到的时区：在此账号的 Gecko 网页打开 "+
-            TEST_URL+"，看 timeZone 和 UTC 偏移。第三方检测站能接收正常网页访问数据。");
+        note.setText("此设置可以单独指定空间显示时区与虚拟年月日时间，"+
+            "但仅改变 OmniGate 的本地时间标签。不会改变手机系统时钟、"+
+            "网站 JavaScript 的 Date/Intl、真实时间戳、IP、Cookie 或账号登录。"+
+            "使用 IANA 时区规则自动计算夏令时。"+
+            "\n检测网站实际时区：在此账号的 Gecko 网页打开 "+
+            TEST_URL+"，看 Date/Time、Intl 和 UTC 偏移；"+
+            "第三方检测站会收到正常网页请求信息。");
         root.addView(note);
         LiveClock clock=new LiveClock(a,liveText,()->provider,()->slot);
         button(a,root,"选择常用地区").setOnClickListener(v->
@@ -175,6 +182,61 @@ final class AccountTimeZoneUi {
                 }
             }));
             edit.show();
+        });
+        button(a,root,"设置此空间的本地虚拟日期和时间").setOnClickListener(v->{
+            try{
+                if(!expectedContext.equals(AccountBrowserStore.contextId(
+                    a,provider,slot)))return;
+                final String iana=AccountBrowserStore.clockTimeZone(a,provider,slot);
+                final long current=AccountClockFormat.simulatedNow(
+                    System.currentTimeMillis(),
+                    AccountBrowserStore.virtualClockShift(a,provider,slot));
+                java.time.ZonedDateTime z=java.time.Instant.ofEpochMilli(current)
+                    .atZone(AccountClockFormat.zone(iana));
+                android.app.DatePickerDialog date=new android.app.DatePickerDialog(
+                    a,(picker,year,month,day)->{
+                        new android.app.TimePickerDialog(a,
+                            (time,hour,minute)->{
+                                try{
+                                    if(!expectedContext.equals(
+                                        AccountBrowserStore.contextId(
+                                            a,provider,slot)))return;
+                                    // Preserve current time as the origin.
+                                    // The local offset walks forward normally
+                                    // after the user selects a virtual date.
+                                    long shift=AccountClockFormat.shiftToLocalTime(
+                                        iana,year,month+1,day,hour,minute,
+                                        System.currentTimeMillis());
+                                    AccountBrowserStore.setVirtualClockShift(
+                                        a,provider,slot,shift);
+                                    clock.refresh();
+                                    Toast.makeText(a,
+                                        "本空间虚拟时间已保存；不修改网页或系统时间",
+                                        Toast.LENGTH_LONG).show();
+                                }catch(RuntimeException invalid){
+                                    Toast.makeText(a,
+                                        "日期无效、处于夏令时跳时或超出前后十年范围",
+                                        Toast.LENGTH_LONG).show();
+                                }
+                            },z.getHour(),z.getMinute(),true).show();
+                    },z.getYear(),z.getMonthValue()-1,z.getDayOfMonth());
+                date.setTitle("仅此空间的本地虚拟日期（不修改网站）");
+                date.show();
+            }catch(RuntimeException invalid){
+                Toast.makeText(a,"本地虚拟时钟不可设置",
+                    Toast.LENGTH_SHORT).show();
+            }
+        });
+        button(a,root,"恢复真实时间（本空间偏移归零）").setOnClickListener(v->{
+            try{
+                if(!expectedContext.equals(AccountBrowserStore.contextId(
+                    a,provider,slot)))return;
+                AccountBrowserStore.setVirtualClockShift(a,provider,slot,0L);
+                clock.refresh();
+                Toast.makeText(a,"当前空间已恢复真实时间",Toast.LENGTH_SHORT).show();
+            }catch(RuntimeException invalid){
+                Toast.makeText(a,"恢复失败，原设置保持不变",Toast.LENGTH_SHORT).show();
+            }
         });
         button(a,root,"复制网站实际时区检测地址").setOnClickListener(v->{
             ClipboardManager clip=(ClipboardManager)a.getSystemService(
