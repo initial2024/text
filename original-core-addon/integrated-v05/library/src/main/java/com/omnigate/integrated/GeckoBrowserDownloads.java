@@ -86,7 +86,7 @@ final class GeckoBrowserDownloads {
         switch(stage){
             case "WAITING":label="等待你确认保存";break;
             case "SAVING":label="正在保存原始响应流";break;
-            case "SAVED":label="已保存到当前账号空间";break;
+            case "SAVED":label="曾成功保存原始响应流（历史记录，文件可能已删除）";break;
             case "CANCELLED":label="已取消";break;
             case "INTERRUPTED":label="被新的下载请求中断";break;
             case "FAILED_HTTP":label="HTTP 响应失败（没有写入文件）";break;
@@ -266,14 +266,19 @@ final class GeckoBrowserDownloads {
                     Transfer t=new Transfer(c,session,body,contextId,source,headerFileName(response),owner);
                     Transfer older;
                     synchronized(LOCK){
-                        older=pending;pending=t;
+                        older=pending;
+                        if(older!=null){
+                            // Record the old transfer's terminal state BEFORE
+                            // replacing latestTokens for this same context.
+                            // Otherwise a rapid second click discards the
+                            // first transfer's interruption from history.
+                            older.cancelled.set(true);
+                            noteStage(older.app,older.contextId,older.token,"INTERRUPTED");
+                        }
+                        pending=t;
                         startStage(c,contextId,t.token,"WAITING");
                     }
-                    if(older!=null){
-                        older.cancelled.set(true);
-                        noteStage(older.app,older.contextId,older.token,"INTERRUPTED");
-                        closeQuietly(older.body);
-                    }
+                    if(older!=null)closeQuietly(older.body);
                     try{
                         Intent ask=new Intent(c,GeckoDownloadApprovalActivity.class);
                         ask.putExtra(EXTRA_TOKEN,t.token);
