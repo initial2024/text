@@ -53,11 +53,16 @@ public final class GeckoDownloadManagerActivity extends Activity {
             "这些文件不会跨越 Android 工作资料或系统用户自动共享。");
         list.addView(description);
         Button refresh=button("刷新下载列表");refresh.setOnClickListener(v->render());list.addView(refresh);
+        TextView recent=new TextView(this);
+        recent.setText("最近一次下载（仅此账号空间）：\n"+
+            GeckoBrowserDownloads.lastStatus(this,contextId)+
+            "\n状态仅来自本机 Gecko 下载事件，不会访问网站或检测其额度。");
+        list.addView(recent);
         File[] files=GeckoBrowserDownloads.files(this,contextId);
         java.util.Arrays.sort(files,(a,b)->Long.compare(b.lastModified(),a.lastModified()));
         if(files.length==0){
             TextView none=new TextView(this);
-            none.setText("此账号空间还没有已保存的下载。");
+            none.setText("此账号空间暂无已保存文件。若刚点击下载，请核对上方的最近状态，并点击刷新。");
             list.addView(none);
         }
         for(File file:files){

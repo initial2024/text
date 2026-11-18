@@ -31,9 +31,73 @@ final class GeckoBrowserDownloads {
     private static Transfer active;
     private static final java.util.Set<String> retiredContexts=
         new java.util.HashSet<>();
+    // Download status contains only a bounded stage code and timestamp. Never
+    // persist a URL, file name, Cookie, origin, request body or Gecko capability.
+    private static final String STATUS_PREF="omnigate_private_download_stage_v1";
+    private static final java.util.Map<String,String> latestTokens=new java.util.HashMap<>();
+    private static android.content.SharedPreferences states(Context c){
+        return c.getApplicationContext().getSharedPreferences(STATUS_PREF,Context.MODE_PRIVATE);
+    }
+    private static void startStage(Context c,String id,String token,String stage){
+        if(!AccountBrowserSlots.validContextId(id)||token==null)return;
+        synchronized(LOCK){
+            latestTokens.put(id,token);
+            states(c).edit().putString(id+".stage",stage)
+                .putLong(id+".at",System.currentTimeMillis()).apply();
+        }
+    }
+    private static void noteStage(Context c,String id,String token,String stage){
+        if(!AccountBrowserSlots.validContextId(id)||token==null)return;
+        synchronized(LOCK){
+            if(!token.equals(latestTokens.get(id)))return; // reject stale worker
+            states(c).edit().putString(id+".stage",stage)
+                .putLong(id+".at",System.currentTimeMillis()).apply();
+        }
+    }
+    static String lastStatus(Context c,String id){
+        if(!AccountBrowserSlots.validContextId(id))return "账号空间无效";
+        android.content.SharedPreferences p=states(c);
+        String stage=p.getString(id+".stage","NONE");
+        String label;
+        switch(stage){
+            case "WAITING":label="等待你确认保存";break;
+            case "SAVING":label="正在保存原始响应流";break;
+            case "SAVED":label="已保存到当前账号空间";break;
+            case "CANCELLED":label="已取消";break;
+            case "INTERRUPTED":label="被新的下载请求中断";break;
+            case "FAILED_HTTP":label="HTTP 响应失败（没有写入文件）";break;
+            case "FAILED_429":label="下载响应 HTTP 429（不等于模型额度耗尽）";break;
+            case "FAILED_EMPTY":label="浏览器没有提供可保存的响应流";break;
+            case "FAILED_OWNER":label="会话已关闭或账号空间已变化";break;
+            case "FAILED_LIMIT":label="达到单文件或账号空间存储上限";break;
+            case "FAILED_STORAGE":label="目录、写入或文件改名失败";break;
+            case "FAILED_IO":label="文件流读取中断";break;
+            case "FAILED_UNKNOWN":label="保存失败（原因待真机日志核对）";break;
+            default:label="尚未捕获到下载响应";break;
+        }
+        long at=p.getLong(id+".at",0);
+        if(at<=0)return label;
+        String time=new java.text.SimpleDateFormat("MM-dd HH:mm",
+            java.util.Locale.getDefault()).format(new java.util.Date(at));
+        return time+" · "+label;
+    }
+    private static String failureStage(Throwable failure){
+        String msg=failure.getMessage();
+        if(msg==null)msg="";
+        if(msg.equals("no_live_owner")||msg.equals("download_session_ended")||
+           msg.equals("download_cancelled_on_session_close"))
+            return "FAILED_OWNER";
+        if(msg.equals("download_quota")||msg.equals("download_size_limit"))
+            return "FAILED_LIMIT";
+        if(msg.equals("cannot_create_download_dir")||
+           msg.equals("download_name_collision")||msg.equals("download_rename_failed"))
+            return "FAILED_STORAGE";
+        return failure instanceof IOException?"FAILED_IO":"FAILED_UNKNOWN";
+    }
     private GeckoBrowserDownloads(){}
 
     private static final class Transfer {
+        final Context app;
         final Object session;
         final InputStream body;
         final String contextId;
@@ -42,7 +106,8 @@ final class GeckoBrowserDownloads {
         final String token=UUID.randomUUID().toString();
         final AtomicBoolean taken=new AtomicBoolean();
         final AtomicBoolean cancelled=new AtomicBoolean();
-        Transfer(Object session,InputStream body,String id,String source,String name,BooleanSupplier owner){
+        Transfer(Context app,Object session,InputStream body,String id,String source,String name,BooleanSupplier owner){
+            this.app=app.getApplicationContext();
             this.session=session;this.body=body;this.contextId=id;this.source=source;
             this.filename=name;this.owner=owner;
         }
@@ -116,23 +181,36 @@ final class GeckoBrowserDownloads {
                         return null;
                     Object response=args[1];
                     Object value=response.getClass().getField("body").get(response);
-                    if(!(value instanceof InputStream))return null;
-                    InputStream body=(InputStream)value;
+                    InputStream body=value instanceof InputStream?(InputStream)value:null;
                     int status=((Number)response.getClass().getField("statusCode")
                         .get(response)).intValue();
-                    // An error page or redirect body is not a successful
-                    // downloaded file. Never save it as an authenticated export.
-                    if(status<200||status>=300){closeQuietly(body);return null;}
                     if(args[0]!=session||!owner.getAsBoolean()
                        ||!AccountBrowserSlots.validContextId(contextId)
                        ||isRetired(contextId)){
                         closeQuietly(body);return null;
                     }
+                    // Do not mistake HTTP errors or missing Gecko streams for a file.
+                    if(status<200||status>=300){
+                        startStage(c,contextId,UUID.randomUUID().toString(),
+                            status==429?"FAILED_429":"FAILED_HTTP");
+                        closeQuietly(body);return null;
+                    }
+                    if(body==null){
+                        startStage(c,contextId,UUID.randomUUID().toString(),"FAILED_EMPTY");
+                        return null;
+                    }
                     String source=String.valueOf(response.getClass().getField("uri").get(response));
-                    Transfer t=new Transfer(session,body,contextId,source,headerFileName(response),owner);
+                    Transfer t=new Transfer(c,session,body,contextId,source,headerFileName(response),owner);
                     Transfer older;
-                    synchronized(LOCK){older=pending;pending=t;}
-                    if(older!=null){older.cancelled.set(true);closeQuietly(older.body);}
+                    synchronized(LOCK){
+                        older=pending;pending=t;
+                        startStage(c,contextId,t.token,"WAITING");
+                    }
+                    if(older!=null){
+                        older.cancelled.set(true);
+                        noteStage(older.app,older.contextId,older.token,"INTERRUPTED");
+                        closeQuietly(older.body);
+                    }
                     try{
                         Intent ask=new Intent(c,GeckoDownloadApprovalActivity.class);
                         ask.putExtra(EXTRA_TOKEN,t.token);
@@ -175,6 +253,7 @@ final class GeckoBrowserDownloads {
         if(queued!=null)cancel(queued.token);
         if(downloading!=null){
             downloading.cancelled.set(true);
+            noteStage(downloading.app,downloading.contextId,downloading.token,"FAILED_OWNER");
             closeQuietly(downloading.body);
         }
     }
@@ -184,7 +263,11 @@ final class GeckoBrowserDownloads {
             t=pending!=null&&pending.token.equals(token)?pending:null;
             if(t!=null)pending=null;
         }
-        if(t!=null){t.cancelled.set(true);closeQuietly(t.body);}
+        if(t!=null){
+            t.cancelled.set(true);
+            noteStage(t.app,t.contextId,t.token,"CANCELLED");
+            closeQuietly(t.body);
+        }
     }
     static boolean accept(Context c,String token){
         Transfer t;
@@ -198,8 +281,10 @@ final class GeckoBrowserDownloads {
             // replace an in-progress owner without cancelling first.
             Transfer previous=active;
             active=t;
+            noteStage(c,t.contextId,t.token,"SAVING");
             if(previous!=null){
                 previous.cancelled.set(true);
+                noteStage(previous.app,previous.contextId,previous.token,"INTERRUPTED");
                 closeQuietly(previous.body);
             }
         }
@@ -357,8 +442,10 @@ final class GeckoBrowserDownloads {
                     throw new IOException("download_rename_failed");
             }
             temporary=null;
+            noteStage(app,t.contextId,t.token,"SAVED");
             Log.i(TAG,"file_saved_context_locally");
         }catch(Throwable failure){
+            noteStage(app,t.contextId,t.token,failureStage(failure));
             Log.w(TAG,"download_not_saved_"+failure.getClass().getSimpleName());
         }finally{
             if(temporary!=null)temporary.delete();

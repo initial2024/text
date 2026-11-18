@@ -21,7 +21,11 @@ public final class GeckoDownloadApprovalActivity extends Activity {
             .setNegativeButton("拒绝",(d,w)->cancel())
             .setPositiveButton("保存",(d,w)->{
                 resolved=true;
-                GeckoBrowserDownloads.accept(this,token);
+                boolean started=GeckoBrowserDownloads.accept(this,token);
+                android.widget.Toast.makeText(this,
+                    started?"开始保存；请到当前账号下载空间查看状态":
+                        "下载请求已失效，未开始保存",
+                    android.widget.Toast.LENGTH_LONG).show();
                 finish();
             })
             .setOnCancelListener(d->cancel()).show();
