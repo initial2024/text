@@ -49,7 +49,8 @@ final class AccountQuickSettings {
                 "当前账号 · 存储 MB / 运行内存 PSS（只读）",
                 AccountBrowserStore.lowMemoryOnFold(a,provider,slot)
                     ?"收起悬浮窗省内存：开启（逐账号）"
-                    :"收起悬浮窗省内存：关闭（兼容优先）"
+                    :"收起悬浮窗省内存：关闭（兼容优先）",
+                "当前账号 · 独立时区、实时显示、网站时区检测"
             },(d,which)->{
                 if(which==0)edit(a,provider,slot);
                 if(which==1)quota(a,provider,slot);
@@ -75,6 +76,7 @@ final class AccountQuickSettings {
                 if(which==9)toggleStrictNavigation(a,provider,slot);
                 if(which==10)GeckoStorageMemoryUi.show(a,provider,slot);
                 if(which==11)toggleFoldMemory(a,provider,slot);
+                if(which==12)AccountTimeZoneUi.show(a,provider,slot);
             }).setNegativeButton("取消",null).show();
     }
     private static void toggleFoldMemory(Activity a,String provider,int slot){
