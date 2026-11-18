@@ -1,0 +1,20 @@
+name: OGTZ03 signed Firefox add-on opt-in safety gate
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoTimezoneAddonUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountQuickSettings.java'
+      - 'original-core-addon/integrated-v05/tools/test_ogtz03_signed_addon.py'
+      - '.github/workflows/ogtz03-signed-addon-optin.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  signed-addon-consent-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Static no-auto-install and no-debug-source gate
+        run: python3 original-core-addon/integrated-v05/tools/test_ogtz03_signed_addon.py
