@@ -149,6 +149,12 @@ jobs:
           assert 'GeckoBrowserDownloads.lastStatus(' in manager
           assert 'refreshHandler.postDelayed(this,1000L)' in manager
           assert 'refreshCycles<180' in manager
+          # A worker may finish after status read but before the active flag.
+          # The final SAVED/FAILED state must have grace polls, then stop.
+          assert 'idleRefreshCycles=active?0:idleRefreshCycles+1;' in manager
+          assert '(active||idleRefreshCycles<3)' in manager
+          assert 'idleRefreshCycles=0;' in manager
+          assert 'managerVisible=false;' in manager
           assert 'managerVisible=false;' in manager
           assert 'refreshHandler.removeCallbacks(liveRefresh)' in manager
           assert 'onResume()' in manager and 'onPause()' in manager
