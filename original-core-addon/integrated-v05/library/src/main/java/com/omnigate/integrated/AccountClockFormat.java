@@ -27,6 +27,31 @@ final class AccountClockFormat {
             throw new IllegalArgumentException("clock_invalid_iana_timezone");
         return raw;
     }
+    // The account virtual clock changes local presentation only, NEVER
+    // Android's wall clock or Gecko JavaScript Date/Intl/timers.
+    static final long MAX_VIRTUAL_SHIFT_MS=10L*366L*24*60*60*1000;
+    static long validateVirtualShift(long deltaMs){
+        if(deltaMs==Long.MIN_VALUE||
+            deltaMs < -MAX_VIRTUAL_SHIFT_MS ||
+            deltaMs > MAX_VIRTUAL_SHIFT_MS)
+            throw new IllegalArgumentException("virtual_shift_out_of_bounds");
+        return deltaMs;
+    }
+    static long simulatedNow(long realNowMs,long deltaMs){
+        return Math.addExact(realNowMs,validateVirtualShift(deltaMs));
+    }
+    static long shiftToLocalTime(String iana,int year,int month,int day,
+            int hour,int minute,long realNowMs){
+        ZoneId zone=zone(iana);
+        java.time.LocalDateTime requested=java.time.LocalDateTime.of(
+            year,month,day,hour,minute);
+        // Refuse nonexistent wall times during a DST spring-forward gap.
+        java.time.ZonedDateTime selected=requested.atZone(zone);
+        if(!selected.toLocalDateTime().equals(requested))
+            throw new IllegalArgumentException("virtual_dst_gap");
+        long target=selected.toInstant().toEpochMilli();
+        return validateVirtualShift(Math.subtractExact(target,realNowMs));
+    }
     static ZoneId zone(String preference){
         return SYSTEM.equals(validate(preference))?
             ZoneId.systemDefault():ZoneId.of(preference);
