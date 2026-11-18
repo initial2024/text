@@ -108,7 +108,7 @@ public final class SharedTZTest {
   check("SYSTEM".equals(GeckoSharedWebTimeZone.requested(personal)),
     "default must be off");
   GeckoSharedWebTimeZone.applyAtAppBootstrap(personal);
-  check("SYSTEM_DEFAULT_NO_ENV_MODIFICATION".equals(
+  check("NATIVE_GECKO_DEFAULT_NO_OVERRIDE".equals(
     GeckoSharedWebTimeZone.bootStatus()),"system default");
   check(Os.writes==0,"default must not set environment");
   GeckoSharedWebTimeZone.setRequested(personal,"America/New_York");
