@@ -276,7 +276,7 @@ final class GeckoTimezoneAddonUi {
                             new AlertDialog.Builder(a)
                                 .setTitle("已安装：Timezone Guard")
                                 .setItems(new String[]{
-                                    "打开时区设置（仅此临时设置窗口）",
+                                    "打开时区设置（手机全屏 + 可搜索选择框）",
                                     "卸载第三方扩展 · 恢复原生 JS 时区"
                                 },(d,index)->{
                                     if(index==0)openPopup(a,addon);
@@ -327,9 +327,10 @@ final class GeckoTimezoneAddonUi {
             }).show();
     }
     private static void openPopup(Activity a,Object addon){
-        if(a.isDestroyed()||a.isFinishing())return;
+        if(a==null||a.isDestroyed()||a.isFinishing())return;
         Object session=null;
         Object view=null;
+        android.app.Dialog screen=null;
         try{
             Object meta=addon.getClass().getField("metaData").get(addon);
             String base=(String)meta.getClass().getField("baseUrl").get(meta);
@@ -340,41 +341,89 @@ final class GeckoTimezoneAddonUi {
             Object builder=b.getConstructor().newInstance();
             b.getMethod("contextId",String.class).invoke(builder,
                 AccountBrowserSlots.newContextId());
+            // Use the real mobile UA and viewport. These are only for this
+            // temporary add-on settings page, NEVER for an account session.
+            b.getMethod("userAgentMode",int.class).invoke(builder,0);
+            b.getMethod("viewportMode",int.class).invoke(builder,0);
             Object settings=b.getMethod("build").invoke(builder);
             Class<?> gs=Class.forName("org.mozilla.geckoview.GeckoSession");
             Class<?> gss=Class.forName("org.mozilla.geckoview.GeckoSessionSettings");
             Class<?> gr=Class.forName("org.mozilla.geckoview.GeckoRuntime");
             session=gs.getConstructor(gss).newInstance(settings);
+            // A separate embedded GeckoSession does not inherit the original
+            // account browser's prompt delegate. Without onChoicePrompt,
+            // HTML <select> silently appears inert. Attach BEFORE open/load.
+            final java.util.concurrent.atomic.AtomicReference<AlertDialog> choiceDialog=
+                new java.util.concurrent.atomic.AtomicReference<>();
+            GeckoAddonChoicePrompts.install(a,session,choiceDialog);
             gs.getMethod("open",gr).invoke(session,rt);
             Class<?> gv=Class.forName("org.mozilla.geckoview.GeckoView");
             view=gv.getConstructor(Context.class).newInstance(a);
             gv.getMethod("setSession",gs).invoke(view,session);
+            android.widget.LinearLayout root=new android.widget.LinearLayout(a);
+            root.setOrientation(android.widget.LinearLayout.VERTICAL);
+            root.setBackgroundColor(0xff1e1e2e);
+            int pad=Math.round(12*a.getResources().getDisplayMetrics().density);
+            android.widget.LinearLayout heading=new android.widget.LinearLayout(a);
+            heading.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            heading.setPadding(pad,pad,pad,pad);
+            android.widget.TextView title=new android.widget.TextView(a);
+            title.setText("Timezone Guard · 网页时区设置");
+            title.setTextSize(17);
+            title.setTextColor(0xffcdd6f4);
+            heading.addView(title,new android.widget.LinearLayout.LayoutParams(
+                0,-2,1));
+            android.widget.Button done=new android.widget.Button(a);
+            done.setText("完成");
+            heading.addView(done,new android.widget.LinearLayout.LayoutParams(
+                -2,-2));
+            root.addView(heading);
+            android.widget.TextView tip=new android.widget.TextView(a);
+            tip.setText("点击 Timezone 将弹出可搜索的原生时区列表。"+
+                "选完务必点插件页面里的 Save & Apply，再测试 BrowserLeaks。"+
+                "\n如不需要修改请求头，请关闭 Spoof HTTP Headers。");
+            tip.setTextColor(0xffa6adc8);
+            tip.setTextSize(12);
+            tip.setPadding(pad,0,pad,pad);
+            root.addView(tip);
             View ui=(View)view;
-            FrameLayout frame=new FrameLayout(a);
-            frame.addView(ui,new FrameLayout.LayoutParams(-1,-1));
+            ui.setBackgroundColor(0xff1e1e2e);
+            ui.setFocusable(true);
+            ui.setFocusableInTouchMode(true);
+            root.addView(ui,new android.widget.LinearLayout.LayoutParams(
+                -1,0,1f));
+            screen=new android.app.Dialog(a,
+                android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
+            screen.setContentView(root);
+            final android.app.Dialog closeScreen=screen;
             final Object closeSession=session,releaseView=view;
-            AlertDialog dialog=new AlertDialog.Builder(a)
-                .setTitle("Timezone Guard · 时区设置")
-                .setMessage("这是插件页面。修改后请返回目标账号网站手动刷新并核验 Date/Intl/Worker。")
-                .setView(frame)
-                .setPositiveButton("完成",null).create();
-            dialog.setOnDismissListener(d->{
-                try{
-                    gv.getMethod("releaseSession").invoke(releaseView);
-                    gs.getMethod("close").invoke(closeSession);
-                }catch(Exception ignored){}
+            screen.setOnDismissListener(d->{
+                GeckoAddonChoicePrompts.release(choiceDialog);
+                try{gv.getMethod("releaseSession").invoke(releaseView);}
+                catch(Exception ignored){}
+                try{gs.getMethod("close").invoke(closeSession);}
+                catch(Exception ignored){}
             });
-            dialog.show();
-            frame.getLayoutParams().height=Math.round(
-                450*a.getResources().getDisplayMetrics().density);
+            done.setOnClickListener(v->closeScreen.dismiss());
+            screen.show();
+            if(screen.getWindow()!=null){
+                screen.getWindow().setLayout(-1,-1);
+                screen.getWindow().setSoftInputMode(
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            }
+            ui.requestFocus();
             gs.getMethod("loadUri",String.class).invoke(session,
                 base+"frontend/popup.html");
         }catch(Exception failed){
-            if(session!=null)try{
-                Class.forName("org.mozilla.geckoview.GeckoSession")
-                    .getMethod("close").invoke(session);
-            }catch(Exception ignored){}
-            message(a,"插件设置界面不可用；未修改网站或账号登录状态");
+            if(screen!=null){
+                try{screen.dismiss();}catch(RuntimeException ignored){}
+            }else if(session!=null){
+                try{
+                    Class.forName("org.mozilla.geckoview.GeckoSession")
+                        .getMethod("close").invoke(session);
+                }catch(Exception ignored){}
+            }
+            message(a,"插件设置界面启动失败；原账号和插件存储未改变");
         }
     }
 }
