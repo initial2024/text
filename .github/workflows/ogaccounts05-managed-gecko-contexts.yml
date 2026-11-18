@@ -78,7 +78,7 @@ jobs:
           assert 'clearDataForSessionContext' in cleaner
           assert 'gecko_session_owner_unverified' in cleaner
           assert 'closeIfMatchesForErase' in cleaner
-          assert '非物理擦除证明' in manager
+          assert '不代表物理擦除完成' in manager
           assert 'AccountBrowserStore.rotateContext' in cleaner
           forbidden=['clearDataFromHost','clearDataFromBaseDomain','clearData(long.class)',
                      'getCookieManager','deleteAll','CookieManager.getInstance']
