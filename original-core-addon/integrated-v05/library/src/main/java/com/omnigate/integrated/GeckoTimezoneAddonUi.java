@@ -360,6 +360,16 @@ final class GeckoTimezoneAddonUi {
             Class<?> gv=Class.forName("org.mozilla.geckoview.GeckoView");
             view=gv.getConstructor(Context.class).newInstance(a);
             gv.getMethod("setSession",gs).invoke(view,session);
+            // The temporary extension page owns a separate GeckoView.
+            // Ensure Gecko's text-input proxy is actually bound to this view;
+            // otherwise Android's IME sees a non-editable surface.
+            Object textInput=gs.getMethod("getTextInput").invoke(session);
+            Object attachedTextView=textInput.getClass().getMethod("getView")
+                .invoke(textInput);
+            if(attachedTextView!=(View)view)
+                textInput.getClass().getMethod("setView",View.class)
+                    .invoke(textInput,(View)view);
+            final Object inputOwner=textInput;
             android.widget.LinearLayout root=new android.widget.LinearLayout(a);
             root.setOrientation(android.widget.LinearLayout.VERTICAL);
             root.setBackgroundColor(0xff1e1e2e);
@@ -405,13 +415,65 @@ final class GeckoTimezoneAddonUi {
                 catch(Exception ignored){}
             });
             done.setOnClickListener(v->closeScreen.dismiss());
-            screen.show();
+            // A focusable IME-capable window is mandatory for GeckoView
+            // editor input. Full-screen themes on some Android devices
+            // inherit ALT_FOCUSABLE_IM from a prior dialog.
             if(screen.getWindow()!=null){
-                screen.getWindow().setLayout(-1,-1);
+                screen.getWindow().clearFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                    android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
                 screen.getWindow().setSoftInputMode(
-                    android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
             }
-            ui.requestFocus();
+            screen.show();
+            if(screen.getWindow()!=null)screen.getWindow().setLayout(-1,-1);
+            // Use Gecko's own TextInputDelegate for keyboard visibility
+            // requests, forwarding all methods to its original default
+            // handler; never inject text or intercept webpage keystrokes.
+            // If Gecko requests the IME while Android still believes the
+            // old dialog owns input, synchronize the IMM after focus settles.
+            Class<?> textDelegate=Class.forName(
+                "org.mozilla.geckoview.GeckoSession$TextInputDelegate");
+            Object priorInputDelegate=inputOwner.getClass()
+                .getMethod("getDelegate").invoke(inputOwner);
+            Object focusedDelegate=java.lang.reflect.Proxy.newProxyInstance(
+                textDelegate.getClassLoader(),new Class<?>[]{textDelegate},
+                (proxy,method,args)->{
+                    String name=method.getName();
+                    if("equals".equals(name))return proxy==args[0];
+                    if("hashCode".equals(name))return System.identityHashCode(proxy);
+                    if("toString".equals(name))return "OGTZ05_Addon_IME_Focus_Only";
+                    Object forwarded=null;
+                    try{
+                        if(priorInputDelegate!=null)
+                            forwarded=method.invoke(priorInputDelegate,args);
+                    }catch(java.lang.reflect.InvocationTargetException err){
+                        // Do not hide Gecko/IMM exceptions from a caller.
+                        throw err.getCause()==null?err:err.getCause();
+                    }
+                    if("showSoftInput".equals(name)){
+                        ui.post(()->{
+                            if(!ui.isAttachedToWindow()||!ui.hasWindowFocus()||
+                                !closeScreen.isShowing())return;
+                            ui.requestFocus();
+                            android.view.inputmethod.InputMethodManager imm=
+                                (android.view.inputmethod.InputMethodManager)
+                                a.getSystemService(Context.INPUT_METHOD_SERVICE);
+                            if(imm!=null){
+                                imm.restartInput(ui);
+                                imm.showSoftInput(ui,
+                                    android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                            }
+                        });
+                    }
+                    return forwarded;
+                });
+            inputOwner.getClass().getMethod("setDelegate",textDelegate)
+                .invoke(inputOwner,focusedDelegate);
+            ui.post(()->{
+                if(ui.isAttachedToWindow()&&ui.hasWindowFocus())ui.requestFocus();
+            });
             gs.getMethod("loadUri",String.class).invoke(session,
                 base+"frontend/popup.html");
         }catch(Exception failed){
