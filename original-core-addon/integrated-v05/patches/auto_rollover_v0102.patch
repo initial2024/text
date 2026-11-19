@@ -1,0 +1,305 @@
+--- v0.10.1/bridge.js
++++ v0.10.2/bridge.js
+@@ -20,6 +20,12 @@
+   const MAX_AUTO_ROLLOVERS = 1;
+   const ROLLOVER_CONTEXT_MAX_CHARS = 11500;
+   const ROLLOVER_MAX_TURNS = 12;
++  // High-confidence approximate *conversation* thresholds, not account quotas.
++  // Proactive rollover only happens before a NEW text-only request, after the
++  // previous generation has actually ended. No hidden retry on uncertain UI.
++  const PROACTIVE_MIN_TURNS = 10;
++  const PROACTIVE_TURN_THRESHOLD = 42;
++  const PROACTIVE_TEXT_THRESHOLD = 48000;
+   const RELAY_ENVELOPE_PREFIX = "<<<DSH_WEB_RELAY_V2_ATTACHMENT_ENVELOPE>>>";
+   const RELAY_ENVELOPE_SUFFIX = "<<<END_DSH_WEB_RELAY_V2_ATTACHMENT_ENVELOPE>>>";
+   const ATTACHMENT_UPLOAD_TIMEOUT_MS = 20000;
+@@ -64,6 +70,8 @@
+   let rollover = { active: false, submissionId: 0, attempts: 0, replayed: false,
+     error: "", status: "idle", contextChars: 0, contextTurns: 0,
+     fromChat: "", toChat: "", submissionConfirmed: false };
++  let rolloverDetection = 'none';
++  let proactiveStatus = 'not_evaluated';
+ 
+   function visible(element) {
+     if (!element || !element.isConnected || element.hidden ||
+@@ -389,7 +397,19 @@
+     const cnNew = /(?:上限|限制|长度|上下文|轮次).{0,40}(?:请|建议)?.{0,18}(?:新建|开启|开始|创建).{0,18}(?:对话|聊天)/i;
+     const enDirect = /(?:conversation|chat).{0,36}(?:reached|exceeded|hit).{0,30}(?:limit|maximum|max length|context)/i;
+     const enNew = /(?:limit|context|max(?:imum)?|length).{0,40}(?:start|open|create).{0,18}(?:a )?new (?:chat|conversation)/i;
++    if (nonConversationLimitReason(value)) return false;
+     return cnDirect.test(value) || cnNew.test(value) || enDirect.test(value) || enNew.test(value);
++  }
++
++  // A server outage, shared account message quota, or rate limit is never a
++  // per-conversation context-cap. Creating chats cannot fix those conditions.
++  function nonConversationLimitReason(value) {
++    const text=String(value || '').slice(0,1400);
++    if (/(?:服务器暂时不可用|服务器繁忙|服务暂时不可用|网络连接失败|服务不可用|server (?:temporarily )?unavailable|server overloaded|service unavailable|try again later|503\b|502\b)/i.test(text))
++      return 'transient_server_or_network';
++    if (/(?:使用额度|账户额度|账号额度|消息额度|今日次数|每小时次数|发送过于频繁|请求太频繁|rate limit|usage limit|message limit|daily limit|hourly limit|quota exceeded|429\b)/i.test(text))
++      return 'account_or_rate_limit';
++    return '';
+   }
+ 
+   function currentLimitNoticeInfo() {
+@@ -426,6 +446,46 @@
+     + '[data-message-author-role="assistant"], [data-message-role="user"], '
+     + '[data-message-role="assistant"], [data-testid="user-message"], '
+     + '[data-testid="assistant-message"]';
++  // Only explicit role nodes in the provider's MAIN conversation content.
++  // Never scrape a sidebar, settings panel, tool output, or arbitrary prose.
++  const DEEPSEEK_ROLE_SELECTOR = '[data-message-author-role="user"], '
++    + '[data-message-author-role="assistant"], [data-message-role="user"], '
++    + '[data-message-role="assistant"], [data-testid="user-message"], '
++    + '[data-testid="assistant-message"], .user-message, .assistant-message, '
++    + '[class*="UserMessage"], [class*="AssistantMessage"]';
++  function deepseekRoleOfTurn(node) {
++    const role=roleOfTurn(node);
++    if (role) return role;
++    if (!deepseekPage()) return '';
++    const c=typeof node.className==='string'?node.className:'';
++    if (/(?:^|\s)user-message(?:\s|$)|UserMessage/.test(c)) return 'user';
++    if (/(?:^|\s)assistant-message(?:\s|$)|AssistantMessage/.test(c)) return 'assistant';
++    return '';
++  }
++  function providerTurnNodes() {
++    if (chatgptPage()) return Array.from(document.querySelectorAll(CONTEXT_ROLE_SELECTOR));
++    if (!deepseekPage()) return [];
++    const root=document.querySelector('main,[role="main"]');
++    if (!root || !visible(root)) return [];  // do not scan whole page
++    return Array.from(root.querySelectorAll(DEEPSEEK_ROLE_SELECTOR));
++  }
++  function confidentProviderTurns(limit=500) {
++    const seen=new Set(), result=[];
++    for (const item of providerTurnNodes()) {
++      if (!item.isConnected || !visible(item) || seen.has(item)) continue;
++      seen.add(item);
++      const role=deepseekPage()?deepseekRoleOfTurn(item):roleOfTurn(item);
++      if (role!=='user' && role!=='assistant') continue;
++      // Don't let a parent turn plus its child content inflate the transcript.
++      if (item.parentElement && item.parentElement.closest(CONTEXT_ROLE_SELECTOR)) continue;
++      const content=textWithMarkdownTables(item).trim();
++      if (!content || conversationLimitText(content)) continue;
++      result.push({role,content});
++      if (result.length>=limit) break;
++    }
++    return result;
++  }
++
+   function roleOfTurn(element) {
+     const role = element.getAttribute('data-message-author-role') ||
+       element.getAttribute('data-message-role') || '';
+@@ -436,32 +496,26 @@
+     return '';
+   }
+   function scopedContinuityTurns() {
+-    if (!chatgptPage()) return [];
+-    const seen = new Set();
+-    const turns = [];
+-    for (const item of document.querySelectorAll(CONTEXT_ROLE_SELECTOR)) {
+-      // A message may be matched by multiple selectors. One element = one turn.
+-      if (seen.has(item)) continue;
+-      seen.add(item);
+-      if (!item.isConnected) continue;
+-      const role = roleOfTurn(item);
+-      if (!role) continue;
+-      let content = textWithMarkdownTables(item).trim();
+-      if (!content || conversationLimitText(content)) continue;
+-      // Preserve recent substantive context, not all private history. Any
+-      // image/attachment is described only by its visible message text.
+-      if (content.length > 1700) content = content.slice(0,1700) + '…';
+-      turns.push({role, content});
+-    }
+-    const recent = turns.slice(-ROLLOVER_MAX_TURNS);
+-    let used = 0;
+-    const chosen = [];
++    const turns=confidentProviderTurns();
++    const recent=turns.slice(-ROLLOVER_MAX_TURNS);
++    let used=0;
++    const chosen=[];
+     for (let i=recent.length-1;i>=0;i--) {
+       const t=recent[i];
+-      if (used+t.content.length > ROLLOVER_CONTEXT_MAX_CHARS) break;
+-      chosen.unshift(t);used+=t.content.length;
++      const content=t.content.length>1700?t.content.slice(0,1700)+'…':t.content;
++      if (used+content.length>ROLLOVER_CONTEXT_MAX_CHARS) break;
++      chosen.unshift({role:t.role,content});used+=content.length;
+     }
+     return chosen;
++  }
++
++  function proactiveRolloverInfo() {
++    const turns=confidentProviderTurns();
++    const count=turns.length;
++    const chars=turns.reduce((total,t)=>total+t.content.length,0);
++    return { count, chars,
++      thresholdReached: count>=PROACTIVE_MIN_TURNS &&
++        (count>=PROACTIVE_TURN_THRESHOLD || chars>=PROACTIVE_TEXT_THRESHOLD) };
+   }
+ 
+   function buildRolloverContinuation(submission, turns) {
+@@ -490,20 +544,36 @@
+ 
+   // Do NOT trust just a clicked New Chat button: the old composer can remain
+   // visible during navigation, causing a duplicate send to the old thread.
++  function verifiedNewChatButton() {
++    const selector=config && config.selectors ? config.selectors.newChatButton : null;
++    const providerKnown=chatgptPage() || deepseekPage();
++    if (!providerKnown) return null;
++    const primary=selector?Array.from(document.querySelectorAll(selector)).filter(visible):[];
++    if(primary.length===1) return primary[0];
++    // DeepSeek frequently changes hashed selectors. Use only one explicit,
++    // visible, uniquely named New Chat control. No icon-only fallback.
++    if(!deepseekPage()) return null;
++    const options=Array.from(document.querySelectorAll('button,a,[role="button"]'))
++      .filter(visible).filter(el=>{
++        const text=(el.getAttribute('aria-label')||'')+' '+
++          (el.getAttribute('title')||'')+' '+(el.textContent||'');
++        return /^(?:\s*(?:新对话|新建对话|开始新对话|new chat|new conversation)\s*)$/i.test(text.trim());
++      });
++    return options.length===1?options[0]:null;
++  }
++
+   async function switchToConfirmedFreshChat() {
+-    const selector=config && config.selectors ? config.selectors.newChatButton : null;
+-    if (!selector) throw new Error('auto_rollover_new_chat_selector_missing');
+     const oldPath=location.origin+location.pathname;
+-    const oldTurns=document.querySelectorAll(CONTEXT_ROLE_SELECTOR).length;
+-    const button=Array.from(document.querySelectorAll(selector)).find(visible);
+-    if (!button) throw new Error('auto_rollover_new_chat_button_not_visible');
++    const oldTurns=confidentProviderTurns().length;
++    const button=verifiedNewChatButton();
++    if (!button) throw new Error('auto_rollover_new_chat_button_not_unique');
+     button.click();
+     rollover.status='new_chat_clicked_unconfirmed';
+     scheduleState(true);
+     const changed=await waitUntil(() => {
+       if (any(config.selectors.generating)) return false;
+       const urlChanged=location.origin+location.pathname!==oldPath;
+-      const turnsNow=document.querySelectorAll(CONTEXT_ROLE_SELECTOR).length;
++      const turnsNow=confidentProviderTurns().length;
+       const transcriptCleared=oldTurns>0 && turnsNow===0;
+       return Boolean(resolveComposer() && (urlChanged || transcriptCleared));
+     },ROLLOVER_READY_TIMEOUT_MS,120);
+@@ -585,6 +655,11 @@
+        (generationLeaseArmed && Date.now()<generationGraceUntil))return;
+     // Snapshot the only trustworthy recent context *before* navigation.
+     const turns=scopedContinuityTurns();
++    if (deepseekPage() && !turns.length) {
++      rollover.status='blocked_missing_trustworthy_deepseek_history';
++      rollover.error='auto_rollover_no_trusted_context_manual';
++      return;
++    }
+     rollover.active=true;
+     rollover.replayed=false;
+     rollover.attempts++;
+@@ -970,6 +1045,11 @@
+     );
+     const noticeReachedLimit = Boolean(lastSubmission && limitNoticeInfo.text &&
+       limitNoticeInfo.element !== lastSubmission.baselineLimitElement);
++    const observedErrorText=String(limitNoticeInfo.text || answer || '');
++    if(nonConversationLimitReason(observedErrorText))
++      rolloverDetection=nonConversationLimitReason(observedErrorText);
++    else if(strongAnswerLimit || noticeReachedLimit)
++      rolloverDetection='confirmed_conversation_context_limit';
+     if (lastSubmission && !generating && (strongAnswerLimit || noticeReachedLimit)) {
+       beginAutoRollover(strongAnswerLimit ? answer : limitNoticeInfo.text);
+     }
+@@ -1572,6 +1652,43 @@
+   async function sendRelayText(rawText) {
+     const payload = normalizeOmniGateSingleUser(parseRelayPayload(rawText));
+     if (rollover.active) throw new Error('auto_rollover_in_progress_no_retry');
++    // Proactive rollover is only for a mature text conversation with a
++    // confirmed idle browser and trustworthy role-scoped turns. No rollover
++    // when an attachment is involved, or account/server quota is suspected.
++    proactiveStatus='not_needed';
++    const pre=proactiveRolloverInfo();
++    if(pre.thresholdReached && !payload.autoTitle &&
++        !payload.attachments.some(x=>x.current)) {
++      if(any(config.selectors.generating) ||
++         (generationLeaseArmed && Date.now()<generationGraceUntil)) {
++        proactiveStatus='blocked_generation_active';
++      } else if(nonConversationLimitReason(currentLimitNotice()) ||
++                nonConversationLimitReason(chatgptAnswerText())) {
++        proactiveStatus='blocked_provider_quota_or_outage';
++      } else {
++        proactiveStatus='threshold_detected';
++        const snapshot=scopedContinuityTurns();
++        if(snapshot.length<2) {
++          proactiveStatus='blocked_context_unavailable';
++          throw new Error('proactive_rollover_context_unavailable_no_retry');
++        }
++        // Construct everything BEFORE clicking. Never serialize the full chat
++        // to website storage, localStorage, files or native diagnostics.
++        const handoff=buildRolloverContinuation({
++          prompt:payload.prompt,
++          rolloverPrompt:payload.rolloverPrompt || payload.prompt
++        },snapshot);
++        if (!verifiedNewChatButton()) {
++          proactiveStatus='blocked_new_chat_control_missing';
++          throw new Error('proactive_rollover_button_missing_no_retry');
++        }
++        proactiveStatus='new_chat_unconfirmed';
++        await switchToConfirmedFreshChat();
++        payload.prompt=handoff;
++        payload.rolloverPrompt=handoff;
++        proactiveStatus='new_chat_confirmed_handoff_ready';
++      }
++    }
+     rememberAttachments(payload.attachments);
+     resetRollover();
+     const baselineLimitInfo = currentLimitNoticeInfo();
+@@ -1637,20 +1754,19 @@
+     return payload.relayV2 ? `ok:v2:${payload.attachments.length}` : "ok";
+   }
+ 
+-  function startFreshChat() {
+-    const selector = config.selectors.newChatButton;
+-    if (!selector) return true;
+-    for (const button of document.querySelectorAll(selector)) {
+-      if (visible(button)) {
+-        button.click();
+-        uploadedAttachmentIds.clear();
+-        lastSubmission = null;
+-        resetRollover();
+-        scheduleState(true);
+-        return true;
+-      }
+-    }
+-    return false;
++  async function startFreshChat() {
++    if (!config || any(config.selectors.generating) ||
++        rollover.active ||
++        (generationLeaseArmed && Date.now()<generationGraceUntil)) return false;
++    try {
++      // Return success only when a NEW session is actually observed.
++      await switchToConfirmedFreshChat();
++    } catch (_) { return false; }
++    uploadedAttachmentIds.clear();
++    lastSubmission = null;
++    resetRollover();
++    scheduleState(true);
++    return true;
+   }
+ 
+   function getSessions() {
+@@ -1731,6 +1847,10 @@
+       fallbackToTextOnly: false,
+       finalDeliveryMode,
+       currentLimitNotice: currentLimitNotice() || null,
++      rolloverDetection,
++      proactiveStatus,
++      proactiveTurnThreshold: PROACTIVE_TURN_THRESHOLD,
++      proactiveTextThreshold: PROACTIVE_TEXT_THRESHOLD,
+       generationActivityGraceMs: GENERATION_ACTIVITY_GRACE_MS,
+       deepseekStopGoneStableMs: DEEPSEEK_STOP_GONE_STABLE_MS,
+       deepseekNoStopAnswerStableMs: DEEPSEEK_NO_STOP_ANSWER_STABLE_MS,
+@@ -1804,7 +1924,7 @@
+           respond(message.id, ensureModes(), null);
+           break;
+         case "fresh_chat":
+-          respond(message.id, startFreshChat(), null);
++          respond(message.id, await startFreshChat(), null);
+           break;
+         case "sessions":
+           respond(message.id, getSessions(), null);

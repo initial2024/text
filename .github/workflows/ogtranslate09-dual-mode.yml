@@ -1,0 +1,96 @@
+name: OGTRANSLATE09 optional original vs no-reload default
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoOriginalTranslation.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoPageTranslate.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SafePageTranslation.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/UserInitiatedTranslationShare.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateAppLanguage.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateBrowserLanguage.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatBootstrapProvider.java'
+      - 'original-core-addon/integrated-v05/library/src/main/AndroidManifest.xml'
+      - 'original-core-addon/integrated-v05/library/src/main/res/xml/omnigate_locale_config.xml'
+      - '.github/workflows/ogtranslate09-dual-mode.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require default safe mode and explicit legacy opt-in warnings
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          d=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          default=(d/'GeckoPageTranslate.java').read_text()
+          legacy=(d/'GeckoOriginalTranslation.java').read_text()
+          safety=(d/'SafePageTranslation.java').read_text()
+          overlay=(d/'ClaudeFloatingOverlay.java').read_text()
+          external=(d/'UserInitiatedTranslationShare.java').read_text()
+          locale=(d/'OmniGateAppLanguage.java').read_text()
+          bootstrap=(d/'CompatBootstrapProvider.java').read_text()
+          manifest=Path('original-core-addon/integrated-v05/library/src/main/AndroidManifest.xml').read_text()
+          locale_config=Path('original-core-addon/integrated-v05/library/src/main/res/xml/omnigate_locale_config.xml').read_text()
+          browser=(d/'IsolatedGeckoBrowser.java').read_text()
+          assert 'menu.getMenu().add(0,7,6,"高级：本次启用旧版整页翻译（可能刷新）")' in default
+          assert 'if(i==7)' in default
+          assert 'GeckoOriginalTranslation.showConsent(c,anchor,session)' in default
+          assert 'SafePageTranslation.translate(c,session,from,to,' in default
+          assert 'if(i==5){close.run();return true;}' in default
+          assert '.restoreOriginalPage()' not in default
+          assert 'getMethod("restoreOriginalPage")' not in default
+          assert 'getMethod("restoreOriginalPage")' in legacy
+          assert 'if(item.getItemId()==3)showOptions(c,anchor,ownedSession);' in legacy
+          assert 'if(item.getItemId()==2)run(c,session,null,null,true);' in legacy
+          assert '恢复原文可能重新加载网页、丢失草稿' in legacy
+          assert '仅本次启用原生整页翻译' in legacy
+          assert 'setTranslationsSessionDelegate' in legacy
+          for source in (legacy,default,safety):
+              assert 'userAgentOverride(' not in source
+              assert 'evaluateJavascript(' not in source
+              assert 'setAlwaysTranslate' not in source
+              assert 'startActivity(' not in source
+          assert 'GeckoPageTranslate.showMenu(host,translate,session,geckoView)' in browser
+          assert 'GeckoPageTranslate.showMenu(app,anchor,current,' in overlay
+          assert 'hideTranslationPanel()' in overlay
+          assert 'translationEpoch++; // Reject any late async results after cancel.' in overlay
+          print('OGTRANSLATE09_DEFAULT_SAFE_READER=PASS')
+          print('OGTRANSLATE09_LEGACY_EXPLICIT_PER_USE_CONSENT=PASS')
+          print('OGTRANSLATE09_RESTORE_RELOAD_DOUBLE_CONFIRMED=PASS')
+          assert 'downloadModel",boolean.class' in legacy
+          assert 'hasVisibleChange' in legacy
+          assert '45_000' in legacy
+          assert 'MAX_WAIT_MS=35_000L' in safety
+          assert 'hasOnDeviceService(c)' in safety
+          assert 'UserInitiatedTranslationShare.showChooser(c,source,status)' in safety
+          assert 'Intent.ACTION_SEND' in external
+          assert 'Intent.createChooser' in external
+          assert 'context.startActivity(picker)' in external
+          assert 'UserInitiatedTranslationShare.shareAutomatically' not in safety
+          assert 'OmniGateAppLanguage.register(app)' in bootstrap
+          assert 'setOverrideLocaleConfig' in locale
+          assert 'android:localeConfig="@xml/omnigate_locale_config"' in manifest
+          assert 'android:name="zh-CN"' in locale_config
+          assert 'android:name="en-US"' in locale_config
+          assert 'BROWSER_LANGUAGE_CHOICES = "zh-CN,en-US"' in locale
+          assert 'static boolean isEnglish(Context context)' in locale
+          assert 'return false;' in locale
+          assert 'return chinese;' in locale
+          assert 'setOverrideLocaleConfig' in locale
+          browser_locale=(d/'OmniGateBrowserLanguage.java').read_text()
+          assert 'applyToExisting' in browser_locale
+          assert 'getApplicationLocales()' in browser_locale
+          assert 'setLocales' in browser_locale
+          assert 'loadUri(' not in browser_locale
+          assert 'evaluateJavascript(' not in browser_locale
+          print('OGLOCALE02_NATIVE_CHINESE_APPINFO_TWO_LANGUAGES=PASS')
+          print('OGTRANSLATE10_MISSING_SYSTEM_TRANSLATOR_FAST_FAIL=PASS')
+          print('OGTRANSLATE10_EXPLICIT_USER_SHARE_ONLY=PASS')
+          print('OGLOCALE01_DYNAMIC_AND_STATIC_CONFIG_SOURCE=PASS')
+          print('OGTRANSLATE09_NO_AUTOMATED_SEND_OR_SPOOFING=PASS')
+          PY

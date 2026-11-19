@@ -1,0 +1,42 @@
+name: 'OGPROFILE03 visible account switch entrances'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - '.github/workflows/ogprofile03-visible-entry.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  entry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Guard first-screen and Settings-top account entry
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          home=(p/'OmniGateHomeActivity.java').read_text()
+          setting=(p/'CompatSettingsActivity.java').read_text()
+          browser=(p/'IsolatedGeckoBrowser.java').read_text()
+          assert 'button(main,"一键切换独立账号",true,' in home
+          assert home.index('一键切换独立账号') < home.index('LinearLayout network=card(page)')
+          assert 'button(main,"主执行账号 · 前往原版模型页",false,' in home
+          assert '未确认前不得视为已切换 API 发送账号' in home
+          assert 'accountEntry=button(page,"账号切换 / 多账号备份（独立浏览器）",true)' in setting
+          assert setting.index('accountEntry=button') < setting.index('LinearLayout connection = panel(page')
+          assert 'static void showPicker(Activity host)' in browser
+          assert 'entry.setOnClickListener(v->{picker.dismiss();show(host,provider,index);});' in browser
+          assert 'getMethod("contextId",String.class)' in browser
+          assert 'new GeckoRuntime(' not in browser
+          assert 'openOriginal(' in home
+          print('OGPROFILE03_HOME_SETTINGS_AND_FULL_SCREEN_PICKER=PASS_STATIC')
+          print('OGPROFILE03_REAL_PHONE_VISUAL_TEST=NOT_TESTED')
+          PY

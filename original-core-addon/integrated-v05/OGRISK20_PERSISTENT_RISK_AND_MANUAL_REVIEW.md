@@ -1,0 +1,7 @@
+# OGRISK20 — durable upstream risk across Android process restarts
+
+A purely in-memory breaker is insufficient: Android may kill/restart OmniGate, accidentally removing a platform-enforced cooldown. Three fixed, independent channels now persist in a private SharedPreferences namespace: `native`, `claude`, `relay`. Store only boolean manual hold, fixed reason code, and provider-derived epoch deadline. No credentials, prompts, browser content, model IDs, hostnames, cookies, IP, exception messages or account identifiers.
+
+Read is lazy after `GatewayApp.initialize(Context)`; a not-yet-initialized context fails closed rather than silently ignoring the stored 429/401 state. State changes use synchronous commit so accepted holds are durable before subsequent requests. Corruption is treated as a manual hold. On explicit human review, the settings UI shows a confirmation dialog for one chosen channel and may release the **manual hold only**; it cannot shorten a still-valid official Retry-After. There is never a silent automatic model POST or credentials swap.
+
+Local user-controlled resource concurrency=1/channel and transport reconnect limit=2 are intentionally not presented as official provider quotas or account-safe RPM values. The true provider frequency is taken only from documented headers. Account/browser-level platform challenges without an explicit HTTP status or challenge header remain unverified.

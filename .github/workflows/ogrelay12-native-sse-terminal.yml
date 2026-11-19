@@ -1,0 +1,56 @@
+name: 'OGRELAY12 verify native SSE terminal before Relay resEnd'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/RelaySseCompletionGate.java'
+      - 'original-core-addon/integrated-v05/relay-tests/RelaySseCompletionGateTest.java'
+      - '.github/workflows/ogrelay12-native-sse-terminal.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sse-terminal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Verify native SSE terminal and real Android integration source
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$R/library/src/main/java/com/omnigate/integrated/RelaySseCompletionGate.java" \
+            "$R/relay-tests/RelaySseCompletionGateTest.java"
+          java -cp "$OUT" com.omnigate.integrated.RelaySseCompletionGateTest
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java').read_text()
+          i=src.index('private void handleRequest(JSONObject msg')
+          j=src.index('private boolean send(JSONObject json',i)
+          block=src[i:j]
+          assert 'RelaySseCompletionGate completion =' in block
+          assert 'if (completion != null) completion.observe(buffer, n)' in block
+          assert 'if(completion!=null && !completion.complete())' in block
+          assert 'delivery.recordError(send(new JSONObject()' in block
+          assert 'if(delivery.canSendEnd())' in block
+          assert 'upstream_sse_incomplete_or_invalid' in block
+          assert 'isTrackedChatSse(method, path, code, conn)' in block
+          assert 'code != 200' in block
+          assert 'text/event-stream' in block
+          assert 'Content-Encoding' in block
+          assert 'response.read(buffer)' in block
+          assert 'conn.disconnect()' in block
+          assert 'resEnd' in block and 'resError' in block
+          assert 'owner.send(json.toString())' in src
+          print('OGRELAY12_SSE_EOF_WITHOUT_DONE_NO_RESEND=PASS_STATIC')
+          print('OGRELAY12_ORDINARY_HTTP_UNCHANGED=PASS_STATIC')
+          print('OGRELAY12_REAL_DEVICE_SSE=NOT_TESTED')
+          PY

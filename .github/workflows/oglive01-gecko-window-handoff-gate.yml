@@ -1,0 +1,36 @@
+name: OGLIVE01 GeckoSession bidirectional live-window handoff contract
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoLiveWindowHandoff.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/tools/test_live_gecko_window_handoff.py'
+      - '.github/workflows/oglive01-gecko-window-handoff-gate.yml'
+  pull_request:
+    branches: [original-core-addon]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoLiveWindowHandoff.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/tools/test_live_gecko_window_handoff.py'
+      - '.github/workflows/oglive01-gecko-window-handoff-gate.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  java-session-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Compile actual handoff bridge and run in-process Gecko API simulations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_live_gecko_window_handoff.py
+          echo 'OGLIVE01_REAL_ANDROID16_INPUT_SCROLL_IME_E2E=NOT_TESTED'
+          echo 'OGLIVE01_PRIVATE_KEY_OR_USER_APK_NEEDED=NO'

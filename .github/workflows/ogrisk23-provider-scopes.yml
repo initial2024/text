@@ -1,0 +1,53 @@
+name: 'OGRISK23 four official web provider risk scopes'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ProviderRiskScopes.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AndroidRiskStateStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - 'original-core-addon/integrated-v05/relay-tests/ProviderRiskScopesTest.java'
+      - '.github/workflows/ogrisk23-provider-scopes.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  scopes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Prove independent provider gates and native selection contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$R/library/src/main/java/com/omnigate/integrated/ProviderRiskScopes.java" \
+            "$R/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java" \
+            "$R/relay-tests/ProviderRiskScopesTest.java"
+          java -cp "$OUT" com.omnigate.integrated.ProviderRiskScopesTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          s=(p/'SidecarProxyServer.java').read_text()
+          ui=(p/'CompatSettingsActivity.java').read_text()
+          assert 'ProviderRiskScopes.select(' in s
+          assert 'OriginalCoreBridge.activeProviderModel()' in s
+          assert 'NATIVE_CHAT_RISK.enter(riskNow)' in s
+          assert 'if(globalNativeAdmitted)NATIVE_CHAT_RISK.exit()' in s
+          assert 'riskForProvider(selection.channel)' in s
+          assert 'provider_selection_unverified' in (p/'ProviderRiskScopes.java').read_text()
+          assert 'GLM' in ui and 'Grok' in ui
+          assert 'new AndroidRiskStateStore("glm")' in s
+          assert 'new AndroidRiskStateStore("deepseek")' in s
+          print('OGRISK23_ACTUAL_NATIVE_PROVIDER_SCOPE_BOUND=PASS_STATIC')
+          print('OGRISK23_LEGACY_NATIVE_COOLDOWN_PRESERVED=PASS_STATIC')
+          print('OGRISK23_REAL_DEVICE_E2E=NOT_TESTED')
+          PY

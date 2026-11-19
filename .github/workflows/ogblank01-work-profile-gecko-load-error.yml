@@ -1,0 +1,35 @@
+name: OGBLANK01 Gecko white-screen error and recovery source contracts
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoPageFailureUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
+      - 'original-core-addon/integrated-v05/tools/test_gecko_blank_page_gate.py'
+      - '.github/workflows/ogblank01-work-profile-gecko-load-error.yml'
+  pull_request:
+    branches: [original-core-addon]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoPageFailureUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
+      - 'original-core-addon/integrated-v05/tools/test_gecko_blank_page_gate.py'
+      - '.github/workflows/ogblank01-work-profile-gecko-load-error.yml'
+permissions: {contents: read}
+jobs:
+  java-local-error-page:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Check Gecko failure handler (source+JVM) without user data
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_gecko_blank_page_gate.py

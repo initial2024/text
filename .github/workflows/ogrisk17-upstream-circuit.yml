@@ -1,0 +1,32 @@
+name: 'OGRISK17 per-upstream fail-closed request circuit'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java'
+      - 'original-core-addon/integrated-v05/relay-tests/UpstreamRiskCircuitTest.java'
+      - '.github/workflows/ogrisk17-upstream-circuit.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  risk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Independent Java policy fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$R/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java" \
+            "$R/relay-tests/UpstreamRiskCircuitTest.java"
+          java -cp "$OUT" com.omnigate.integrated.UpstreamRiskCircuitTest
+          echo 'OGRISK17_REAL_PROVIDER_API_CALLS=NOT_TESTED'

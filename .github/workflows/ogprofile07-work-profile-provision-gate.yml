@@ -1,0 +1,31 @@
+name: OGPROFILE07 phone-only work-profile onboarding safety contracts
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AndroidProfileSafetyCenter.java'
+      - 'original-core-addon/integrated-v05/library/src/main/AndroidManifest.xml'
+      - 'original-core-addon/integrated-v05/tools/test_work_profile_onboarding.py'
+      - '.github/workflows/ogprofile07-work-profile-provision-gate.yml'
+  pull_request:
+    branches: [original-core-addon]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AndroidProfileSafetyCenter.java'
+      - 'original-core-addon/integrated-v05/library/src/main/AndroidManifest.xml'
+      - 'original-core-addon/integrated-v05/tools/test_work_profile_onboarding.py'
+      - '.github/workflows/ogprofile07-work-profile-provision-gate.yml'
+permissions: {contents: read}
+jobs:
+  safety-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Work Profile user consent and zero privilege escalation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_work_profile_onboarding.py

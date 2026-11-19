@@ -1,0 +1,67 @@
+name: 'OGBUDGET05 official API 80pc headroom and transparent web recommendations'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBudgetAdvisor.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeDirectAdapter.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/relay-tests/AccountBudgetAdvisorTest.java'
+      - '.github/workflows/ogbudget05-official-80-headroom.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  official-and-local:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Deterministic 80 percent recommendations and provider hold invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$R/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java" \
+            "$R/library/src/main/java/com/omnigate/integrated/VoluntaryAccountBudget.java" \
+            "$R/library/src/main/java/com/omnigate/integrated/AccountBudgetAdvisor.java" \
+            "$R/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java" \
+            "$R/relay-tests/AccountBudgetAdvisorTest.java"
+          java -cp "$OUT" com.omnigate.integrated.AccountBudgetAdvisorTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          side=(p/'SidecarProxyServer.java').read_text()
+          claude=(p/'ClaudeDirectAdapter.java').read_text()
+          ui=(p/'IsolatedGeckoBrowser.java').read_text()
+          store=(p/'AccountBrowserStore.java').read_text()
+          risk=(p/'UpstreamRiskCircuit.java').read_text()
+          assert 'provider_request_headroom_80_percent' in risk
+          assert 'provider_token_headroom_80_percent' in risk
+          assert 'remaining<=limit/5' in risk
+          assert side.count('activeRisk.observeOfficialHeadroom(')==2
+          assert claude.count('risk.observeOfficialHeadroom(')==2
+          assert 'x-ratelimit-limit-requests' in side
+          assert 'x-ratelimit-limit-tokens' in side
+          assert 'anthropic-ratelimit-requests-limit' in claude
+          assert 'anthropic-ratelimit-tokens-limit' in claude
+          assert '官方账号页单日额度（可留空）' in ui
+          assert '保守经验建议 8' not in ui or '纯本地经验' in ui
+          assert 'setNeutralButton("应用推荐"' in ui
+          assert 'setPositiveButton("保存自定义"' in ui
+          assert 'setUserDailyReference' in store
+          assert 'getBoolean(provider+".user_auto_switch",false)' in store
+          assert 'if(!SidecarProxyServer.voluntaryBrowserSwitchPermitted(provider))' in ui
+          print('OGBUDGET05_ANDROID_OFFICIAL_API_HEADER_WIRING=PASS_STATIC')
+          print('OGBUDGET05_NO_FAKE_WEB_QUOTA_NO_AUTO_POST_REPLAY=PASS_STATIC')
+          print('OGBUDGET05_REAL_PROVIDER_HEADER_E2E=NOT_TESTED')
+          PY

@@ -1,0 +1,125 @@
+--- bridge.js@0.10.0
++++ bridge.js@0.10.1
+@@ -5,6 +5,13 @@
+   const STATE_DEBOUNCE_MS = 300;
+   const GENERATION_ACTIVITY_GRACE_MS = 10000;
+   const COMPLETED_ASSISTANT_GRACE_MS = 5500;
++  // Fast completion is allowed only for the verified DeepSeek page, after
++  // a successful send acknowledgement and a NEW assistant answer. If a real
++  // Stop control was observed and then disappears, hold a shorter stability
++  // window. When no Stop control is ever detected, retain a longer fallback.
++  // These are completion observation leases, NOT model timeouts/cancellation.
++  const DEEPSEEK_STOP_GONE_STABLE_MS = 2800;
++  const DEEPSEEK_NO_STOP_ANSWER_STABLE_MS = 6500;
+   // Only after a NEW assistant answer is observed and the provider's actual
+   // generation control is absent. Does not click Stop or force early EOF.
+ 
+@@ -35,6 +42,11 @@
+   let lastObservedAnswer = "";
+   let lastObservedThinking = "";
+   let lastRawGenerating = false;
++  let deepseekObservedStop = false;
++  let completionEvidence = 'none';
++  // No prompts, account info, answers, cookies or API credentials recorded.
++  let requestTiming = { startedAt: 0, sendAckAt: 0,
++    firstAnswerAt: 0, stopSeenAt: 0, stopGoneAt: 0, completedAt: 0 };
+   let uploadedAttachmentIds = new Set();
+   let attachmentCache = new Map();
+   let lastSubmission = null;
+@@ -896,6 +908,18 @@
+     // lease and renew it whenever answer/thinking text changes. This deliberately
+     // delays completion; it never clicks Stop and never starts a new chat by itself.
+     const contentChanged = answer !== lastObservedAnswer || thinking !== lastObservedThinking;
++    const answerChanged = answer !== lastObservedAnswer;
++    const firstNewAnswer = Boolean(lastSubmission && answer &&
++      answer !== lastSubmission.baselineAnswer);
++    if (firstNewAnswer && !requestTiming.firstAnswerAt)
++      requestTiming.firstAnswerAt = now;
++    if (rawGenerating && deepseekPage()) {
++      deepseekObservedStop = true;
++      if (!requestTiming.stopSeenAt) requestTiming.stopSeenAt = now;
++    }
++    if (!rawGenerating && lastRawGenerating && deepseekPage() &&
++        deepseekObservedStop && !requestTiming.stopGoneAt)
++      requestTiming.stopGoneAt = now;
+     const newScopedAnswer = Boolean(chatgptPage() && lastSubmission && answer &&
+       answer !== lastSubmission.baselineAnswer && !rollover.active &&
+       lastAnswerCaptureMode.startsWith("chatgpt_scoped:"));
+@@ -911,11 +935,29 @@
+       generationGraceUntil = Math.min(generationGraceUntil,
+         now + COMPLETED_ASSISTANT_GRACE_MS);
+     }
++    const confirmedDeepSeekAnswer = Boolean(deepseekPage() && lastSubmission &&
++      deepseekSubmissionStatus === 'submitted_confirmed' && firstNewAnswer &&
++      !rollover.active && !rawGenerating);
++    if (confirmedDeepSeekAnswer && generationLeaseArmed) {
++      const settleMs = deepseekObservedStop
++        ? DEEPSEEK_STOP_GONE_STABLE_MS
++        : DEEPSEEK_NO_STOP_ANSWER_STABLE_MS;
++      // New answer/thinking bytes extend the window. A quiet recheck may
++      // shorten a legacy 10s/30s lease, never extend it. Any Stop reappearance
++      // immediately restores the conservative active-generation lease above.
++      if (contentChanged) generationGraceUntil = now + settleMs;
++      else generationGraceUntil = Math.min(generationGraceUntil, now + settleMs);
++      completionEvidence = deepseekObservedStop
++        ? 'deepseek_stop_gone_answer_stable_window'
++        : 'deepseek_new_answer_no_stop_longer_window';
++    }
+     lastRawGenerating = rawGenerating;
+     let generating = rawGenerating ||
+       Boolean(lastSubmission && generationLeaseArmed && now < generationGraceUntil);
+     lastObservedAnswer = answer;
+     lastObservedThinking = thinking;
++    if (lastSubmission && firstNewAnswer && !generating &&
++        !requestTiming.completedAt) requestTiming.completedAt = now;
+ 
+     // Auto-rollover is intentionally conservative: never infer a limit from silence,
+     // elapsed time, missing stop button, or stalled DOM. Require a new visible limit
+@@ -1559,6 +1601,10 @@
+     lastObservedAnswer = baseline.answer;
+     lastObservedThinking = baseline.thinking;
+     lastRawGenerating = false;
++    deepseekObservedStop = false;
++    completionEvidence = 'none';
++    requestTiming = { startedAt: Date.now(), sendAckAt: 0,
++      firstAnswerAt: 0, stopSeenAt: 0, stopGoneAt: 0, completedAt: 0 };
+     // The envelope may carry historical attachments so a future auto-rollover
+     // can reconstruct context. Only attachments on the latest user message are
+     // uploaded for the ordinary send; historical ones are cache-only here.
+@@ -1581,6 +1627,7 @@
+         ? await sendAutoTitlePrompt(payload.prompt)
+         : await sendPrompt(payload.prompt);
+     if (result !== "ok") throw new Error(result);
++    requestTiming.sendAckAt = Date.now();
+     // Arm a short activity lease immediately after a successful send. This
+     // protects providers that expose the first generating marker late or
+     // briefly re-render their stop control before the first answer token.
+@@ -1685,6 +1732,17 @@
+       finalDeliveryMode,
+       currentLimitNotice: currentLimitNotice() || null,
+       generationActivityGraceMs: GENERATION_ACTIVITY_GRACE_MS,
++      deepseekStopGoneStableMs: DEEPSEEK_STOP_GONE_STABLE_MS,
++      deepseekNoStopAnswerStableMs: DEEPSEEK_NO_STOP_ANSWER_STABLE_MS,
++      completionEvidence,
++      timingSendAckMs: requestTiming.sendAckAt && requestTiming.startedAt
++        ? Math.max(0, requestTiming.sendAckAt - requestTiming.startedAt) : -1,
++      timingFirstAnswerMs: requestTiming.firstAnswerAt && requestTiming.startedAt
++        ? Math.max(0, requestTiming.firstAnswerAt - requestTiming.startedAt) : -1,
++      timingStopGoneMs: requestTiming.stopGoneAt && requestTiming.startedAt
++        ? Math.max(0, requestTiming.stopGoneAt - requestTiming.startedAt) : -1,
++      timingCompletedMs: requestTiming.completedAt && requestTiming.startedAt
++        ? Math.max(0, requestTiming.completedAt - requestTiming.startedAt) : -1,
+       generationLeaseArmed,
+       generationLeaseWakePending: generationLeaseWakeTimer !== null,
+       generationLeaseRemainingMs: generationLeaseArmed ?
+@@ -1728,6 +1786,10 @@
+           lastObservedAnswer = "";
+           lastObservedThinking = "";
+           lastRawGenerating = false;
++          deepseekObservedStop = false;
++          completionEvidence = 'provider_reconfigured';
++          requestTiming = { startedAt: 0, sendAckAt: 0,
++            firstAnswerAt: 0, stopSeenAt: 0, stopGoneAt: 0, completedAt: 0 };
+           uploadedAttachmentIds.clear();
+           attachmentCache.clear();
+           lastSubmission = null;

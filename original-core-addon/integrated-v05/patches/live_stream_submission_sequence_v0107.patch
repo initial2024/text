@@ -1,0 +1,11 @@
+--- a/assets/ai_gateway_bridge/bridge.js
++++ b/assets/ai_gateway_bridge/bridge.js
+@@ -1952,6 +1952,8 @@
+       composerSelectionMode: lastSelectionMode,
+       lastSendOutcome,
+       deepseekSubmissionStatus,
++      // Monotonic only within this volatile page instance; no prompt or URL.
++      lastSubmissionSequence: lastSubmission ? lastSubmission.id : 0,
+       deepseekSubmitEvidence,
+       deepseekSendCandidateCount: deepseekPage() ? Number(Boolean(deepseekButton(resolveComposer()))) : -1,
+       plainTextPrefixHandling: lastPlainTextMarkerStatus,

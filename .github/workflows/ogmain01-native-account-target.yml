@@ -1,0 +1,111 @@
+name: 'OGMAIN01 verified native account target fence'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/MainAccountTargetStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/MainAccountRequestGuard.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/MainAccountRoutePolicy.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/NativeGeckoContextInspector.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OriginalCoreBridge.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/TitleCompat.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AutoTitleIntent.java'
+      - 'original-core-addon/integrated-v05/relay-tests/AutoTitleIntentTest.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
+      - 'original-core-addon/integrated-v05/relay-tests/MainAccountRoutePolicyTest.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/NativePrimaryContextHook.java'
+      - '.github/workflows/ogmain01-native-account-target.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  logic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Verify exact context match, user consent and no wrong-account post
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/MainAccountRoutePolicy.java" \
+            "$R/relay-tests/MainAccountRoutePolicyTest.java"
+          java -cp "$OUT" com.omnigate.integrated.MainAccountRoutePolicyTest
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/AutoTitleIntent.java" \
+            "$R/relay-tests/AutoTitleIntentTest.java"
+          java -cp "$OUT" com.omnigate.integrated.AutoTitleIntentTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          src=(p/'SidecarProxyServer.java').read_text()
+          store=(p/'MainAccountTargetStore.java').read_text()
+          ui=(p/'IsolatedGeckoBrowser.java').read_text()
+          main=(p/'OriginalCoreBridge.java').read_text()
+          inspector=(p/'NativeGeckoContextInspector.java').read_text()
+          title=(p/'TitleCompat.java').read_text()
+          classifier=(p/'AutoTitleIntent.java').read_text()
+          assert 'isBackgroundTitleRequest(byte[] body)' in title
+          assert 'AutoTitleIntent.systemInstruction(' in title
+          assert 'create a concise title for an ai coding-assistant session' in classifier
+          assert 'return only the title on one line' in classifier
+          assert src.index('TitleCompat.isBackgroundTitleRequest(request.body)') < src.index('NATIVE_CHAT_RISK.enter(riskNow)')
+          assert 'browser_background_title_disabled' in src
+          assert '.put("nativeConcurrencyInFlight",NATIVE_CHAT_RISK.inFlight())' in src
+          assert '.put("nativeConcurrencyOwnerRequestId"' in src
+          assert 'ACTIVE_NATIVE_TRACE=CURRENT_TRACE.get()' in src
+          assert 'if(ACTIVE_NATIVE_TRACE==CURRENT_TRACE.get())' in src
+          print('OGMAIN13_BACKGROUND_TITLE_NO_STARVATION_AND_TRACE=PASS_STATIC')
+          assert 'MainAccountRequestGuard.evaluate(' in src
+          assert src.index('MainAccountRequestGuard.evaluate(') < src.index('LocalHourlyApiQuota.admit(')
+          assert 'main_execution_context_not_bound' in src
+          admission=src.split('private boolean admitLocalHourlySubmission(',1)[1].split('private void proxyToFrozenCore(',1)[0]
+          assert 'main_target_validation_unavailable' in admission
+          assert 'local_hour_budget_unavailable' in admission
+          assert admission.index('MainAccountRequestGuard.evaluate(') < admission.index('LocalHourlyApiQuota.admit(')
+          assert admission.count('}catch(RuntimeException')+admission.count('}catch (RuntimeException')+admission.count('} catch(RuntimeException')+admission.count('} catch (RuntimeException') >= 2
+          assert 'admissionRejection' in src and '.put("admissionRejection",admissionRejection)' in src
+          assert 'traceAdmissionRejection("native_api_not_listening")' in src
+          print('OGMAIN11_PREUPSTREAM_503_CAUSE_DIAGNOSTICS=PASS_STATIC')
+          assert 'verifiedMainDriverUsesContext(' in main
+          assert 'driver==verifiedApiDriver()' in main
+          assert 'getContextId' in inspector and 'getSettings' in inspector
+          assert 'field(main,"browser")' in inspector
+          assert 'field(originalDriver,"bridge")' in inspector
+          assert 'field(webBridge,"session")' in inspector
+          assert 'field(server,"driver")' in inspector
+          assert 'field(browser,"provider")' in inspector
+          assert 'cls.getMethod("getSession")' in inspector
+          assert 'exactMainMatch(' in inspector
+          assert 'field(main,"driver")' in inspector
+          assert 'exactMainMatch(' in main
+          handoff=main.split('public static synchronized String requestMainOwnerHandoff(Activity caller)',1)[1].split('/** Only after the original OverlayService',1)[0]
+          assert 'diagnoseActiveNativeOwner()' in handoff
+          assert '"overlay".equals(owner.optString("ownerKind",""))' in handoff
+          assert 'inspectVerifiedApiAnswer()' in handoff
+          assert 'diagnoseVerifiedApiPage()' in handoff
+          assert 'inspectNativeAnswerForUserRequest()' not in handoff
+          assert 'diagnoseCurrentPage()' not in handoff
+          assert 'handoffPending.set(false)' in handoff
+          print('OGMAIN10_HANDOFF_USES_VERIFIED_API_OWNER=PASS_STATIC')
+          assert 'NativeModelSwitch$QuickClick' in ui
+          assert 'constructor.newInstance(host,dialog,provider,requestedSlot)' in ui
+          assert 'MainAccountTargetStore.request(host,provider,requestedSlot)' not in ui
+          assert 'if(!AccountBrowserSlots.nativeExecutorSupported(provider))' in ui
+          assert '没有登记新目标或发送请求' in ui
+          print('OGCLAUDE_NATIVE_MAIN_OWNER_SWITCH_COMPAT_PRESERVED=PASS_STATIC')
+          assert 'MainAccountTargetStore.cancel(this)' in (p/'OmniGateHomeActivity.java').read_text()
+          assert 'contextForNewNativeSession(' in store
+          print('OGMAIN01_MAIN_ACCOUNT_FENCE_WIRED=PASS_STATIC')
+          hook=(p/'NativePrimaryContextHook.java').read_text()
+          assert 'public static String contextIdForNewSession(Context context,Object nativeProvider)' in hook
+          assert 'MainAccountTargetStore.contextForNewNativeSession(' in hook
+          assert '"com.deepseek2.app.gateway.AiProvider"' in hook
+          print('OGMAIN01_NATIVE_GECKO_BUILDER_INJECTION=NOT_YET_IN_PRIVATE_APK')
+          PY

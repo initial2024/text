@@ -1,0 +1,55 @@
+name: 'OGSSE06 long reasoning safe prelude release'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SseSafePreludeFrames.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SsePrecontentBound.java'
+      - 'original-core-addon/integrated-v05/sse-tests/SseSafePreludeFramesTest.java'
+      - '.github/workflows/ogsse06-long-reasoning-safe-prelude.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  safe-prelude:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Test bounded long-thinking frame release without network or data
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$ROOT/library/src/main/java/com/omnigate/integrated/SsePrecontentBound.java" \
+            "$ROOT/library/src/main/java/com/omnigate/integrated/SseSafePreludeFrames.java" \
+            "$ROOT/sse-tests/SseSafePreludeFramesTest.java"
+          java -cp "$OUT" com.omnigate.integrated.SseSafePreludeFramesTest
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java').read_text()
+          b=src[src.index('private static boolean isSafeNativeSsePrelude('):src.index('private void proxyDirectNativeSse(')]
+          p=src[src.index('private void proxyDirectNativeSse('):src.index('private static boolean isPlainSseResponse(')]
+          assert 'CodingErrorAction.REPORT' in b
+          assert '"[DONE]".equals(data)' in b
+          assert 'choice.opt("finish_reason")' in b
+          assert 'delta.opt("tool_calls")' in b
+          assert 'SseSafePreludeFrames.safePrefixLength(combined,' in p
+          assert 'SidecarProxyServer::isSafeNativeSsePrelude' in p
+          assert 'writeChunk(downstream,combined,safeBytes)' in p
+          assert 'replaceBufferedAfterVerifiedDrain' in p
+          assert 'unverified_sse_frame_exceeds_limit' in p
+          assert 'recoverNativeEmptyAnswer(downstream,anchor,tr)' in p
+          assert 'catch(IOException closed){downstreamOpen=false;}' in p
+          assert 'writeFinalChunk(downstream)' in p
+          print('OGSSE06_ACTUAL_ANDROID_SOURCE_SAFE_NONTERMINAL_CLASSIFIER=PASS_STATIC')
+          print('OGSSE06_NATIVE_CANCEL_REPLAY_AUTOMATION=NOT_ADDED')
+          print('OGSSE06_REAL_DEVICE_LONG_THINKING=NOT_TESTED')
+          PY

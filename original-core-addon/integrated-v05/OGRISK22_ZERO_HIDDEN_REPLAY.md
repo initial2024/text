@@ -1,0 +1,3 @@
+# OGRISK22 — do not let HTTP client retry outside the circuit
+
+The Android Relay WebSocket and local HTTP forwarding must not secretly repeat a model request after the application-level risk guard accepted it once. OkHttp's connection-failure retry setting is disabled, leaving only the explicit finite WebSocket reconnect logic (max 2) with refusal on 401/403/429/challenge. The Relay-to-local HTTP POST uses fixed-length streaming, which prevents implicit buffered replay across transport/auth redirects and preserves the original request bytes. This does NOT implement retrying failed model POST, reverse proxy path rotation, account switching or rate-limit evasion. The existing native Sidecar and Claude API already set fixed-length streaming and disable redirect following.

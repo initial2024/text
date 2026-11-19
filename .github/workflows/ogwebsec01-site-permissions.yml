@@ -1,0 +1,39 @@
+name: OGWEBSEC01 site permission and downloads strict gate
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoScopedPermissionGate.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoDownloadApprovalActivity.java'
+      - '.github/workflows/ogwebsec01-site-permissions.yml'
+  workflow_dispatch:
+jobs:
+  source-gate:
+    runs-on: ubuntu-latest
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject OS-level permission inheritance and unsafe downloaded response
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          s=(p/'GeckoScopedPermissionGate.java').read_text()
+          d=(p/'GeckoBrowserDownloads.java').read_text()
+          a=(p/'GeckoDownloadApprovalActivity.java').read_text()
+          assert 'static boolean install(' in s
+          assert 'getPermissionDelegate' in s
+          assert 'gecko_permission_gate_unavailable' in s
+          assert 'contextId.equals(actual)' in s
+          assert 'callback.getClass().getMethod("reject").invoke(callback);' in s
+          assert 'if(args.length>4)reject(args[4]);' in s
+          assert 'if(kind==constant(c,"PERMISSION_GEOLOCATION"))return' not in s
+          assert 'gecko_permission_owner_mismatch' in s
+          assert 'if(status<200||status>=300)' in d
+          assert 'safeDownloadHost(info[1])' in a
+          assert 'info[1]+' not in a
+          assert 'onExternalResponse' in d
+          print('OGWEBSEC01_FAIL_CLOSED_PERMISSIONS_AND_REDACTED_DOWNLOAD=PASS')
+          PY

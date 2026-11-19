@@ -1,0 +1,30 @@
+name: OGTZ02 website timezone failed experiment fail-closed gate
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoSharedWebTimeZone.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoSharedWebsiteTimeZoneUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatBootstrapProvider.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountQuickSettings.java'
+      - 'original-core-addon/integrated-v05/tools/test_ogtz01_shared_timezone.py'
+      - '.github/workflows/ogtz01-shared-gecko-website-timezone.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  environment-optin-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Fail-closed no TZ env, preserved per-profile clocks tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_ogtz01_shared_timezone.py
+          echo 'OGTZ02_ACTUAL_BROWSERLEAKS_GECKO_TIMEZONE=USER_REPORTED_FAIL_GMT_PLUS_0800'
+          echo 'OGTZ02_ORIGINAL_PRIMARY_BROWSER_RUNTIME_EFFECT=NO_NEW_OVERRIDE'
+          echo 'OGTZ02_BROWSER_DATE_NOW_CLOCK_SHIFT=NOT_IMPLEMENTED'

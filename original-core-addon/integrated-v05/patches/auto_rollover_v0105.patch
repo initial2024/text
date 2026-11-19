@@ -1,0 +1,233 @@
+--- bridge-v0104.js
++++ bridge-v0105.js
+@@ -26,6 +26,13 @@
+   const PROACTIVE_MIN_TURNS = 10;
+   const PROACTIVE_TURN_THRESHOLD = 42;
+   const PROACTIVE_TEXT_THRESHOLD = 48000;
++  // In DeepSeek the provider can re-render its chat turns using hashed class
++  // names, leaving DOM role selectors with a false count of zero. Independently
++  // estimate long-running session size from requests whose submission was
++  // positively acknowledged; never count a rejected/uncertain POST.
++  const PROACTIVE_CONFIRMED_SEND_THRESHOLD = 12;
++  const PROACTIVE_CONFIRMED_CHAR_THRESHOLD = 32000;
++  const PROACTIVE_CONFIRMED_CHAR_MIN_SENDS = 4;
+   const RELAY_ENVELOPE_PREFIX = "<<<DSH_WEB_RELAY_V2_ATTACHMENT_ENVELOPE>>>";
+   const RELAY_ENVELOPE_SUFFIX = "<<<END_DSH_WEB_RELAY_V2_ATTACHMENT_ENVELOPE>>>";
+   const ATTACHMENT_UPLOAD_TIMEOUT_MS = 20000;
+@@ -72,6 +79,52 @@
+     fromChat: "", toChat: "", submissionConfirmed: false };
+   let rolloverDetection = 'none';
+   let proactiveStatus = 'not_evaluated';
++  // In-memory only, scoped to the current provider chat. No disk, site storage,
++  // analytics, logs or HTTP diagnostics ever contain the request/answer text.
++  let confirmedSession = { path: '', sends: 0, chars: 0, lastSubmissionId: 0 };
++  let verifiedRelayTurns = [];
++  let lastCapturedAssistantSubmission = 0;
++  function currentChatScope() {
++    return location.origin + location.pathname;
++  }
++  function alignConfirmedSession() {
++    const path=currentChatScope();
++    if (confirmedSession.path === path) return;
++    confirmedSession={path, sends:0, chars:0, lastSubmissionId:0};
++    verifiedRelayTurns=[];
++    lastCapturedAssistantSubmission=0;
++  }
++  function rememberVerifiedRelayTurn(role, text) {
++    if (role !== 'user' && role !== 'assistant') return;
++    let value=String(text || '').trim();
++    if (!value) return;
++    // Private text only exists in bounded volatile WebExtension memory.
++    if (value.length > 1700) value=value.slice(0,1700)+'…';
++    verifiedRelayTurns.push({role,content:value});
++    if (verifiedRelayTurns.length>ROLLOVER_MAX_TURNS)
++      verifiedRelayTurns.splice(0,verifiedRelayTurns.length-ROLLOVER_MAX_TURNS);
++  }
++  function rememberConfirmedSend(submission) {
++    if (!deepseekPage() || !submission || submission.autoTitle) return;
++    alignConfirmedSession();
++    if (confirmedSession.lastSubmissionId === submission.id) return;
++    confirmedSession.lastSubmissionId=submission.id;
++    confirmedSession.sends=Math.min(500,confirmedSession.sends+1);
++    const original=String(submission.rolloverPrompt || submission.prompt || '');
++    confirmedSession.chars=Math.min(500000,
++      confirmedSession.chars+Math.min(original.length,30000));
++    rememberVerifiedRelayTurn('user',original);
++  }
++  function rememberConfirmedAssistant(answer, generating) {
++    if (!deepseekPage() || !lastSubmission || generating || rollover.active ||
++        lastCapturedAssistantSubmission === lastSubmission.id) return;
++    const text=String(answer || '').trim();
++    if (!text || text===lastSubmission.baselineAnswer || conversationLimitText(text) ||
++        nonConversationLimitReason(text)) return;
++    alignConfirmedSession();
++    rememberVerifiedRelayTurn('assistant',text);
++    lastCapturedAssistantSubmission=lastSubmission.id;
++  }
+ 
+   function visible(element) {
+     if (!element || !element.isConnected || element.hidden ||
+@@ -496,7 +549,11 @@
+     return '';
+   }
+   function scopedContinuityTurns() {
+-    const turns=confidentProviderTurns();
++    let turns=confidentProviderTurns();
++    // If DeepSeek changed its DOM structure, prefer only messages that the
++    // bridge itself definitively submitted/read. Never scrape arbitrary text.
++    if (deepseekPage() && turns.length<2 && verifiedRelayTurns.length>0)
++      turns=verifiedRelayTurns;
+     const recent=turns.slice(-ROLLOVER_MAX_TURNS);
+     let used=0;
+     const chosen=[];
+@@ -513,9 +570,19 @@
+     const turns=confidentProviderTurns();
+     const count=turns.length;
+     const chars=turns.reduce((total,t)=>total+t.content.length,0);
+-    return { count, chars,
+-      thresholdReached: count>=PROACTIVE_MIN_TURNS &&
+-        (count>=PROACTIVE_TURN_THRESHOLD || chars>=PROACTIVE_TEXT_THRESHOLD) };
++    if (deepseekPage()) alignConfirmedSession();
++    const ackSends=deepseekPage()?confirmedSession.sends:0;
++    const ackChars=deepseekPage()?confirmedSession.chars:0;
++    const domReached=count>=PROACTIVE_MIN_TURNS &&
++      (count>=PROACTIVE_TURN_THRESHOLD || chars>=PROACTIVE_TEXT_THRESHOLD);
++    const confirmedReached=deepseekPage() &&
++      (ackSends>=PROACTIVE_CONFIRMED_SEND_THRESHOLD ||
++        (ackSends>=PROACTIVE_CONFIRMED_CHAR_MIN_SENDS &&
++         ackChars>=PROACTIVE_CONFIRMED_CHAR_THRESHOLD));
++    return { count, chars, ackSends, ackChars,
++      thresholdReached: Boolean(domReached || confirmedReached),
++      reason: domReached?'dom_conversation_size':
++        confirmedReached?'confirmed_request_volume':'not_reached' };
+   }
+ 
+   function buildRolloverContinuation(submission, turns) {
+@@ -553,18 +620,34 @@
+     // DeepSeek frequently changes hashed selectors. Use only one explicit,
+     // visible, uniquely named New Chat control. No icon-only fallback.
+     if(!deepseekPage()) return null;
+-    const options=Array.from(document.querySelectorAll('button,a,[role="button"]'))
++    // Locate one unambiguous provider-owned "new chat" control. React
++    // frequently uses icon-only buttons, but NEVER click an unlabeled + icon
++    // because it can mean attachment, add tool, or a different action.
++    const allowed=/^(?:新对话|新建对话|开启新对话|开始新对话|新会话|新建会话|新聊天|new chat|new conversation|start new chat|create new chat)$/i;
++    const semantic=Array.from(document.querySelectorAll('button,a,[role="button"]'))
+       .filter(visible).filter(el=>{
+-        const text=(el.getAttribute('aria-label')||'')+' '+
+-          (el.getAttribute('title')||'')+' '+(el.textContent||'');
+-        return /^(?:\s*(?:新对话|新建对话|开始新对话|new chat|new conversation)\s*)$/i.test(text.trim());
++        if (el.disabled || el.getAttribute('aria-disabled')==='true') return false;
++        const labels=[el.getAttribute('aria-label'),el.getAttribute('title'),
++          el.getAttribute('data-tooltip'),el.getAttribute('data-tip'),
++          el.textContent];
++        const test=el.getAttribute('data-testid')||'';
++        return labels.some(v=>allowed.test(String(v||'').trim())) ||
++          /^(?:new-chat|create-new-chat|new-conversation|create-conversation)(?:-button)?$/i.test(test);
+       });
+-    return options.length===1?options[0]:null;
++    const unique=Array.from(new Set(semantic));
++    if(unique.length===1)return unique[0];
++    // Prefer one explicitly named control inside the sidebar over matching
++    // header duplicates; an ambiguous set MUST NOT trigger any click.
++    const sidebar=unique.filter(el=>typeof el.closest==='function' &&
++      Boolean(el.closest('aside,[role="navigation"]')));
++    return sidebar.length===1?sidebar[0]:null;
+   }
+ 
+   async function switchToConfirmedFreshChat() {
+-    const oldPath=location.origin+location.pathname;
++    const oldPath=currentChatScope();
+     const oldTurns=confidentProviderTurns().length;
++    // Record the old chat's trusted relay history BEFORE the page changes.
++    // The caller snapshots the actual continuation text before this click.
+     const button=verifiedNewChatButton();
+     if (!button) throw new Error('auto_rollover_new_chat_button_not_unique');
+     button.click();
+@@ -579,9 +662,16 @@
+     },ROLLOVER_READY_TIMEOUT_MS,120);
+     if (!changed) throw new Error('auto_rollover_new_chat_not_confirmed_no_retry');
+     rollover.toChat='new_chat_confirmed'; // never log conversation URL/IDs
++    // A successful fresh-chat observation starts a new local counting scope.
++    confirmedSession={path:currentChatScope(),sends:0,chars:0,lastSubmissionId:0};
++    verifiedRelayTurns=[];
++    lastCapturedAssistantSubmission=0;
+   }
+ 
+   async function sendContinuationOnce(prompt) {
++    // Reuse the verified DeepSeek submit/confirmation adapter instead of the
++    // ChatGPT-oriented attachment send button used by earlier releases.
++    if (deepseekPage()) return await sendPrompt(prompt);
+     const composer=resolveComposer();
+     if (!composer) return 'auto_rollover_no_composer';
+     guardedAttachmentTextInsert(composer,prompt);
+@@ -629,6 +719,8 @@
+     await sleep(ROLLOVER_RETRY_DELAY_MS);
+     const result=await sendContinuationOnce(continuation);
+     if (result !== 'ok') throw new Error(result);
++    // Proven submitted new-chat request, never retry it automatically.
++    rememberConfirmedSend(submission);
+     submission.baselineAnswer='';
+     submission.baselineThinking='';
+     submission.baselineLimitNotice='';
+@@ -1047,6 +1139,8 @@
+       Boolean(lastSubmission && generationLeaseArmed && now < generationGraceUntil);
+     lastObservedAnswer = answer;
+     lastObservedThinking = thinking;
++    if (lastSubmission && firstNewAnswer && !generating)
++      rememberConfirmedAssistant(answer,generating);
+     if (lastSubmission && firstNewAnswer && !generating &&
+         !requestTiming.completedAt) requestTiming.completedAt = now;
+ 
+@@ -1682,7 +1776,7 @@
+                 nonConversationLimitReason(chatgptAnswerText())) {
+         proactiveStatus='blocked_provider_quota_or_outage';
+       } else {
+-        proactiveStatus='threshold_detected';
++        proactiveStatus='threshold_detected_'+pre.reason;
+         const snapshot=scopedContinuityTurns();
+         if(snapshot.length<2) {
+           proactiveStatus='blocked_context_unavailable';
+@@ -1690,9 +1784,10 @@
+         }
+         // Construct everything BEFORE clicking. Never serialize the full chat
+         // to website storage, localStorage, files or native diagnostics.
++        const originalPendingPrompt=payload.rolloverPrompt || payload.prompt;
+         const handoff=buildRolloverContinuation({
+           prompt:payload.prompt,
+-          rolloverPrompt:payload.rolloverPrompt || payload.prompt
++          rolloverPrompt:originalPendingPrompt
+         },snapshot);
+         if (!verifiedNewChatButton()) {
+           proactiveStatus='blocked_new_chat_control_missing';
+@@ -1701,7 +1796,9 @@
+         proactiveStatus='new_chat_unconfirmed';
+         await switchToConfirmedFreshChat();
+         payload.prompt=handoff;
+-        payload.rolloverPrompt=handoff;
++        // Use the actual user's task for future handoffs and metrics, not
++        // the expanded bridge prompt (which would grow without bound).
++        payload.rolloverPrompt=originalPendingPrompt;
+         proactiveStatus='new_chat_confirmed_handoff_ready';
+       }
+     }
+@@ -1760,6 +1857,7 @@
+         ? await sendAutoTitlePrompt(payload.prompt)
+         : await sendPrompt(payload.prompt);
+     if (result !== "ok") throw new Error(result);
++    rememberConfirmedSend(submission);
+     requestTiming.sendAckAt = Date.now();
+     // Arm a short activity lease immediately after a successful send. This
+     // protects providers that expose the first generating marker late or
+@@ -1865,6 +1963,11 @@
+       currentLimitNotice: currentLimitNotice() || null,
+       rolloverDetection,
+       proactiveStatus,
++      proactiveDomTurns: proactiveRolloverInfo().count,
++      proactiveConfirmedSends: deepseekPage()?confirmedSession.sends:0,
++      proactiveConfirmedChars: deepseekPage()?confirmedSession.chars:0,
++      proactiveContinuitySource: deepseekPage() && confidentProviderTurns().length<2 ?
++        (verifiedRelayTurns.length?'verified_volatile_relay':'no_trusted_history'):'provider_dom',
+       proactiveTurnThreshold: PROACTIVE_TURN_THRESHOLD,
+       proactiveTextThreshold: PROACTIVE_TEXT_THRESHOLD,
+       generationActivityGraceMs: GENERATION_ACTIVITY_GRACE_MS,

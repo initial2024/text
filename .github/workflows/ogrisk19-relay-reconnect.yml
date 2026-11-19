@@ -1,0 +1,53 @@
+name: 'OGRISK19 bounded Relay handshake reconnect and auth stop'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java'
+      - '.github/workflows/ogrisk19-relay-reconnect.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  relay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Validate bounded reconnection and existing epoch contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$R/library/src/main/java/com/omnigate/integrated/RelayConnectionEpoch.java" \
+            "$R/relay-tests/RelayConnectionEpochTest.java" \
+            "$R/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java" \
+            "$R/relay-tests/UpstreamRiskCircuitTest.java"
+          java -cp "$OUT" com.omnigate.integrated.RelayConnectionEpochTest
+          java -cp "$OUT" com.omnigate.integrated.UpstreamRiskCircuitTest
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java').read_text()
+          assert 'MAX_TRANSIENT_RECONNECTS=2' in s
+          assert 'if(reconnectAttempt>=MAX_TRANSIENT_RECONNECTS)' in s
+          assert 'response.header("Retry-After")' in s
+          assert 'response.header("cf-mitigated")' in s
+          assert 'if(code==1008)' in s
+          assert 'relayConnectionCircuit.observe(403' in s
+          assert 'relayConnectionCircuit.permission(System.currentTimeMillis())' in s
+          assert 'running=false' in s
+          assert 'epochs.ended(generation, webSocket)' in s
+          assert 'epochs.claimReconnect(generation)' in s
+          assert 'handleRequest(msg, generation, owner)' in s
+          assert 'return owner.send(json.toString())' in s
+          assert 'requestPool.shutdownNow()' in s
+          print('OGRISK19_HANDSHAKE_AUTH_429_CHALLENGE_FAIL_CLOSED=PASS_STATIC')
+          print('OGRISK19_TRANSPORT_RECONNECT_MAX_TWO=PASS_STATIC')
+          print('OGRISK19_NATIVE_MODEL_POST_AUTO_RETRY=ZERO_STATIC')
+          PY

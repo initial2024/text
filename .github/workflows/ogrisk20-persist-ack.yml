@@ -1,0 +1,57 @@
+name: 'OGRISK20 persist risk state and require explicit review'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AndroidRiskStateStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - 'original-core-addon/integrated-v05/relay-tests/UpstreamRiskCircuitTest.java'
+      - '.github/workflows/ogrisk20-persist-ack.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  persistence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Run durable cooldown, manual review and Android wiring gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java" "$R/relay-tests/UpstreamRiskCircuitTest.java"
+          java -cp "$OUT" com.omnigate.integrated.UpstreamRiskCircuitTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          gate=(p/'UpstreamRiskCircuit.java').read_text()
+          store=(p/'AndroidRiskStateStore.java').read_text()
+          side=(p/'SidecarProxyServer.java').read_text()
+          relay=(p/'CloudflareRelayClient.java').read_text()
+          ui=(p/'CompatSettingsActivity.java').read_text()
+          assert 'restoreIfNeeded();' in gate
+          assert 'An explicit review never shortens a previous official Retry-After' in gate
+          assert 'persist();' in gate
+          assert 'Context.MODE_PRIVATE' in store
+          assert '.commit()' in store
+          assert 'new AndroidRiskStateStore("native")' in side
+          assert 'new AndroidRiskStateStore("claude")' in side
+          assert 'new AndroidRiskStateStore("relay")' in relay
+          assert 'reviewRiskAfterExplicitConfirmation' in side and 'reviewRiskAfterExplicitConfirmation' in relay
+          assert '人工复核后解除硬熔断' in ui
+          assert '不能提前结束有效的 Retry-After 冷却' in ui
+          assert 'setPositiveButton("已核查，解除硬熔断"' in ui
+          assert 'omni_gate_risk_private_key' not in store
+          print('OGRISK20_RESTART_PERSISTENT_COOLDOWN_AND_MANUAL_HOLD=PASS')
+          print('OGRISK20_REVIEW_CANNOT_SHORTEN_RETRY_AFTER=PASS')
+          print('OGRISK20_PRIVATE_REDACTED_STORAGE_UI=PASS_STATIC')
+          PY

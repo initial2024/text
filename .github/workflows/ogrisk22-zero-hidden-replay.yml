@@ -1,0 +1,37 @@
+name: 'OGRISK22 no hidden HTTP/WebSocket model replay'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java'
+      - '.github/workflows/ogrisk22-zero-hidden-replay.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Verify no hidden automatic transport retry outside policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java').read_text()
+          assert '.retryOnConnectionFailure(false)' in s
+          assert '.setFixedLengthStreamingMode(bytes.length)' in s
+          assert 'try(java.io.OutputStream out=conn.getOutputStream())' in s
+          assert 'MAX_TRANSIENT_RECONNECTS=2' in s
+          assert 'if(reconnectAttempt>=MAX_TRANSIENT_RECONNECTS)' in s
+          assert 'if(code==1008)' in s
+          assert 'response.header("Retry-After")' in s
+          assert 'relayConnectionCircuit.permission' in s
+          assert 'return owner.send(json.toString())' in s
+          assert 'while ((n = response.read(buffer)) >= 0)' in s
+          print('OGRISK22_WEBSOCKET_INTERNAL_RETRY_DISABLED=PASS')
+          print('OGRISK22_LOCAL_POST_FIXED_LENGTH_NO_AUTO_REPLAY=PASS')
+          print('OGRISK22_REAL_DEVICE=NOT_TESTED')
+          PY

@@ -1,0 +1,59 @@
+name: 'OGSSE05 bounded native SSE before first verified delta'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SsePrecontentBound.java'
+      - 'original-core-addon/integrated-v05/sse-tests/SsePrecontentBoundTest.java'
+      - '.github/workflows/ogsse05-precontent-bound.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bounded-precontent:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Offline fail-closed state and exact-source invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$ROOT/library/src/main/java/com/omnigate/integrated/SseMeaningfulGate.java" \
+            "$ROOT/library/src/main/java/com/omnigate/integrated/SsePrecontentBound.java" \
+            "$ROOT/sse-tests/SsePrecontentBoundTest.java"
+          java -cp "$OUT" com.omnigate.integrated.SsePrecontentBoundTest
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java').read_text()
+          a=s.index('private static final class NativeSseContentProbe')
+          b=s.index('private static final class NativeEmptyAnchor',a)
+          probe=s[a:b]
+          a=s.index('private void proxyDirectNativeSse(')
+          b=s.index('private static boolean isPlainSseResponse(',a)
+          direct=s[a:b]
+          assert 'boolean hasTool=toolCall;' in probe
+          assert 'toolCall || "tool_calls".equals(finish)' not in probe
+          assert 'SsePrecontentBound precontent=new SsePrecontentBound();' in direct
+          assert 'readBuffered?0:n,probe.hasMeaningfulDelta()' in direct
+          assert 'SseSafePreludeFrames.safePrefixLength(combined,' in direct
+          assert 'Decision.FAIL_CLOSED_DRAIN' in direct
+          assert 'writeNativeRecoveryError(downstream,' in direct
+          assert 'unverified_sse_frame_exceeds_limit' in direct
+          assert 'if(precontent.failed())' in direct
+          assert 'if(!rawForwarding && !probe.hasMeaningfulDelta())' in direct
+          assert 'recoverNativeEmptyAnswer(downstream,anchor,tr)' in direct
+          assert 'writeFinalChunk(downstream)' in direct
+          assert 'precontent_buffer_limit_passthrough' not in direct
+          print('OGSSE05_ACTUAL_SOURCE_CAP_NO_FAKE_SUCCESS=PASS_STATIC')
+          print('OGSSE05_NO_ORIGINAL_CANCEL_OR_AUTOMATIC_POST=PASS_STATIC')
+          print('OGSSE05_ANDROID_REAL_NETWORK=NOT_TESTED')
+          PY

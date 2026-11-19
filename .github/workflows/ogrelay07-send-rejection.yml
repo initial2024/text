@@ -1,0 +1,52 @@
+name: 'OGRELAY07 no false resEnd after rejected websocket frame'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/RelayReplySendGate.java'
+      - 'original-core-addon/integrated-v05/relay-tests/RelayReplySendGateTest.java'
+      - '.github/workflows/ogrelay07-send-rejection.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  relay-send-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: JVM queue rejection and actual Android source guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/RelayReplySendGate.java" \
+             "$R/relay-tests/RelayReplySendGateTest.java"
+          java -cp "$OUT" com.omnigate.integrated.RelayReplySendGateTest
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CloudflareRelayClient.java').read_text()
+          a=s.index('private void handleRequest(JSONObject msg')
+          b=s.index('private static String readSmall(',a)
+          src=s[a:b]
+          assert 'RelayReplySendGate delivery=new RelayReplySendGate()' in src
+          assert 'delivery.recordStart(send(start, generation, owner))' in src
+          assert 'if(!delivery.canSendChunk())continue' in src
+          assert 'delivery.recordChunk(send(frame, generation, owner))' in src
+          assert 'if(delivery.canSendEnd())' in src
+          assert 'delivery.recordEnd(send(new JSONObject()' in src
+          assert 'if(delivery.canSendError())' in src
+          assert 'private boolean send(JSONObject json' in src
+          assert 'return owner.send(json.toString())' in src
+          assert 'private void send(JSONObject json' not in src
+          assert 'while ((n = response.read(buffer)) >= 0)' in src
+          assert 'if (conn != null) conn.disconnect()' in src
+          print('OGRELAY07_SOURCE_NO_SILENT_FALSE_RESEND=PASS_STATIC')
+          print('OGRELAY07_NO_MODEL_RETRY_AND_DRAIN_UPSTREAM=PASS_STATIC')
+          PY

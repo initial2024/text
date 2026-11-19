@@ -1,0 +1,49 @@
+name: 'OGRELAY09 read-only network triage without credentials'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/relay-tests/omnigate_remote_sse_receipt.mjs'
+      - 'original-core-addon/integrated-v05/relay-tests/omnigate_network_error.mjs'
+      - 'original-core-addon/integrated-v05/relay-tests/omnigate_network_error.test.mjs'
+      - '.github/workflows/ogrelay09-readonly-network-triage.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  safe-triage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Test failure classification and dry-run without any model request
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05/relay-tests
+          node --check "$R/omnigate_remote_sse_receipt.mjs"
+          node --check "$R/omnigate_network_error.mjs"
+          node --test "$R/omnigate_network_error.test.mjs"
+          node --test "$R/sse_receipt_audit.test.mjs"
+          node "$R/omnigate_remote_sse_receipt.mjs" > dry-run.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          j=json.loads(Path('dry-run.json').read_text())
+          assert j['verdict']=='DRY_RUN_NO_NETWORK' and j['requests_sent']==0
+          s=Path('original-core-addon/integrated-v05/relay-tests/omnigate_remote_sse_receipt.mjs').read_text()
+          assert "args[0]==='--diagnose'" in s
+          assert "method:'GET'" in s and "AbortSignal.timeout(12000)" in s
+          assert "redirect:'manual'" in s
+          assert "redirect:'error'" not in s
+          assert "NETWORK_FAILURE_OR_REDIRECT_REJECTED" not in s
+          assert "PUBLIC_ENDPOINT_HTTP_REDIRECT_NOT_FOLLOWED" in s
+          assert "credentials_logged:false" in s
+          assert "process.env.OMNIGATE_PUBLIC_API_KEY" in s
+          assert "method:'POST'" in s
+          print('OGRELAY09_DEFAULT_NO_NETWORK_NO_POST=PASS')
+          print('OGRELAY09_LIVE_MODEL_POST=NOT_TESTED')
+          PY

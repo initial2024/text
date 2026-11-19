@@ -1,0 +1,54 @@
+name: 'OGPROFILE01 manual Gecko isolated account slots'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/AccountBrowserStore.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - 'original-core-addon/integrated-v05/relay-tests/AccountBrowserSlotsTest.java'
+      - '.github/workflows/ogprofile01-gecko-accounts.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  slots:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Verify profile scope and no shared Gecko context
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/AccountBrowserSlots.java" "$R/relay-tests/AccountBrowserSlotsTest.java"
+          java -cp "$OUT" com.omnigate.integrated.AccountBrowserSlotsTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          s=(p/'IsolatedGeckoBrowser.java').read_text()
+          store=(p/'AccountBrowserStore.java').read_text()
+          ui=(p/'CompatSettingsActivity.java').read_text()
+          assert 'getDeclaredMethod("getInstance")' in s
+          assert 'getMethod("contextId",String.class)' in s
+          assert 'getMethod("releaseSession")' in s
+          assert 'getMethod("close")' in s
+          assert 'GeckoRuntime.getDefault(' not in s and 'GeckoRuntime.create(' not in s
+          assert 'AccountBrowserSlots.home(provider)' in s
+          assert 'AccountBrowserSlots.validContextId(id)' in s
+          assert 'Context.MODE_PRIVATE' in store and '.commit()' in store
+          assert 'MAX_SLOTS' in store
+          assert 'IsolatedGeckoBrowser.showPicker(this)' in ui
+          assert '与原版 8787 主执行登录独立' in s
+          assert 'voluntaryBrowserSwitchPermitted(provider)' in s
+          assert 'Cookie' not in (p/'AccountBrowserStore.java').read_text().split('static synchronized void select')[1]
+          print('OGPROFILE01_ISOLATED_GECKO_ACCOUNT_BOUNDARIES=PASS')
+          print('OGPROFILE01_REAL_DEVICE_LOGIN=NOT_TESTED')
+          PY

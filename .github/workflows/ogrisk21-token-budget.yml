@@ -1,0 +1,47 @@
+name: 'OGRISK21 provider token budget header enforcement'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeDirectAdapter.java'
+      - 'original-core-addon/integrated-v05/relay-tests/UpstreamRiskCircuitTest.java'
+      - '.github/workflows/ogrisk21-token-budget.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  token-budget:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Verify real risk circuit official token headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          R=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" "$R/library/src/main/java/com/omnigate/integrated/UpstreamRiskCircuit.java" "$R/relay-tests/UpstreamRiskCircuitTest.java"
+          java -cp "$OUT" com.omnigate.integrated.UpstreamRiskCircuitTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated')
+          gate=(p/'UpstreamRiskCircuit.java').read_text()
+          side=(p/'SidecarProxyServer.java').read_text()
+          claude=(p/'ClaudeDirectAdapter.java').read_text()
+          assert 'provider_token_budget_exhausted' in gate
+          assert 'observeTokenBudget(' in side and 'observeTokenBudget(' in claude
+          assert 'x-ratelimit-remaining-tokens' in side
+          assert 'x-ratelimit-reset-tokens' in side
+          assert 'anthropic-ratelimit-tokens-remaining' in claude
+          assert 'anthropic-ratelimit-tokens-reset' in claude
+          assert 'provider_cooldown_active' in gate
+          assert 'blockedUntilMs=0;' not in gate[gate.index('clearAfterExplicitUserReview'):gate.index('private void hold(')] or 'if(blockedUntilMs<=nowMs)' in gate
+          print('OGRISK21_OFFICIAL_TOKEN_REMAINING_RESET_COOLDOWN=PASS_STATIC')
+          print('OGRISK21_MANUAL_REVIEW_DOES_NOT_SHORTEN_RETRY_AFTER=PASS_STATIC')
+          PY

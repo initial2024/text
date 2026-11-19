@@ -1,0 +1,7 @@
+# OGPROFILE01 — independently isolated multi-account browser slots
+
+Provides manual account browser switching for DeepSeek, GLM/智谱清言, ChatGPT and Grok within the existing OmniGate settings activity, without adding an extra manifest activity. Two fresh isolated slots per provider by default, user may add up to five per provider. Each browser slot uses a generated persistent GeckoView contextId stored privately; login is performed manually and persists only within that slot's Gecko storage. Switching closes the prior GeckoSession before opening the next slot. No cookie/token export or copying, no automatic prompt send, no provider rate-limit evasion.
+
+Official GeckoView `GeckoSessionSettings.Builder.contextId` partitions cookies and localStorage: https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSessionSettings.Builder.html . Use reflection only to attach to the original app's already running GeckoRuntime; never instantiate another GeckoRuntime or silently use the default unisolated Gecko session. If GeckoRuntime is unavailable, fail closed and tell the user to launch the original provider page.
+
+**Boundary:** standalone isolated browser accounts do NOT become the original native WebDriver/8787 model execution account. Native owner switching would require a separate verified handoff contract. Account switching is strictly user-initiated, never triggered by 401/403/429 or platform challenges. CI validates scope and Android compilation but does not establish real device login/session continuity.

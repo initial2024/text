@@ -1,0 +1,136 @@
+--- bridge.js
++++ bridge-v101.js
+@@
+   let lastSubmission = null;
+   let submissionSeq = 0;
++  // Redacted handshake consumed by the native Sidecar. The sequence is
++  // monotonic inside this page bridge; the status never contains user text.
++  let lastSubmissionStatus = "idle";
+@@
+   async function sendPrompt(value) {
+     const composer = resolveComposer();
+     if (!composer) {
++      lastSubmissionStatus = "composer_unavailable";
+       lastSendOutcome = lastSelectionMode === "ambiguous_editables"
+         ? "ambiguous_editables" : "no_composer";
+       return lastSendOutcome;
+     }
+     lastSendOutcome = "composer_selected:" + lastSelectionMode;
+-    if (composer.matches("textarea")) fillTextarea(composer, value);
+-    else if (composer.isContentEditable === true ||
+-        composer.getAttribute("contenteditable") === "true") fillEditable(composer, value);
+-    else { lastSendOutcome = "unsupported_editor"; return lastSendOutcome; }
+-
+-    const ready = await waitUntil(() => Boolean(currentSendButton()), 4000, 100);
+-    if (ready) {
+-      const submit = currentSendButton();
+-      if (submit) {
+-        submit.click();
+-        lastSendOutcome = "send_button_clicked_unconfirmed";
+-        scheduleState(true);
+-        return "ok";
+-      }
+-    }
+-    lastSendOutcome = "send_button_not_ready";
+-    scheduleState(true);
+-    return lastSendOutcome;
++    lastSubmissionStatus = "inserting_prompt";
++    try { guardedAttachmentTextInsert(composer, value); }
++    catch (_) {
++      lastSubmissionStatus = "prompt_insert_rejected";
++      lastSendOutcome = "ordinary_prompt_insert_rejected";
++      scheduleState(true);
++      return lastSendOutcome;
++    }
++    const retained = await waitUntil(() => {
++      const live = resolveComposer();
++      return Boolean(live && composerHasPrompt(live, value));
++    }, 4500, 100);
++    if (!retained) {
++      lastSubmissionStatus = "prompt_not_retained";
++      lastSendOutcome = "ordinary_prompt_not_retained";
++      scheduleState(true);
++      return lastSendOutcome;
++    }
++    const userSelector = '[data-message-author-role="user"], [data-message-role="user"], '
++      + '[data-conversation-role="user"], [data-role="user"], [data-testid="user-message"]';
++    const beforeUserCount = chatgptPage() ? document.querySelectorAll(userSelector).length : 0;
++    const beforeGenerating = any(config && config.selectors && config.selectors.generating);
++    const beforeAnswer = chatgptAnswerText();
++    const sendReady = await waitUntil(() => {
++      const live = resolveComposer();
++      return Boolean(live && composerHasPrompt(live, value) &&
++        (attachmentSendControl(live) ||
++         (live.closest && live.closest("form") &&
++          typeof live.closest("form").requestSubmit === "function")));
++    }, 10000, 120);
++    if (!sendReady) {
++      lastSubmissionStatus = "send_control_not_ready";
++      lastSendOutcome = "ordinary_send_control_not_ready";
++      scheduleState(true);
++      return lastSendOutcome;
++    }
++    const live = resolveComposer();
++    const button = live && attachmentSendControl(live);
++    const form = live && live.closest && live.closest("form");
++    let method = "none";
++    if (form && typeof form.requestSubmit === "function") {
++      if (button && button.form === form) form.requestSubmit(button);
++      else form.requestSubmit();
++      method = button ? "form_request_submit_with_button" : "form_request_submit_without_button";
++    } else if (button) {
++      button.click();
++      method = "button_click";
++    } else {
++      lastSubmissionStatus = "send_control_not_ready";
++      lastSendOutcome = "ordinary_no_safe_submit_action";
++      scheduleState(true);
++      return lastSendOutcome;
++    }
++    lastSubmissionStatus = "send_attempted";
++    lastSendOutcome = "ordinary_send_attempted:" + method;
++    scheduleState(true);
++    const acknowledged = await waitUntil(() => {
++      if (chatgptPage() && explicitUserTurnMatches(value, beforeUserCount)) return true;
++      const current = resolveComposer();
++      const cleared = !current || !composerHasPrompt(current, value);
++      const generating = !beforeGenerating &&
++        any(config && config.selectors && config.selectors.generating);
++      const answer = chatgptAnswerText();
++      const answerChanged = Boolean(answer && answer !== beforeAnswer);
++      return cleared && (generating || answerChanged);
++    }, 12000, 150);
++    if (!acknowledged) {
++      lastSubmissionStatus = "send_not_confirmed";
++      lastSendOutcome = "ordinary_send_not_confirmed_no_retry:" + method;
++      scheduleState(true);
++      return "ordinary_send_not_confirmed_no_retry";
++    }
++    lastSubmissionStatus = "submitted_confirmed";
++    scheduleState(true);
++    return "ok";
+   }
+@@
+     lastSubmission = submission;
++    lastSubmissionStatus = "prepared_not_sent";
+@@
+-    if (result !== "ok") throw new Error(result);
++    if (result !== "ok") {
++      if (lastSubmissionStatus !== "send_not_confirmed")
++        lastSubmissionStatus = "send_failed_before_confirmation";
++      throw new Error(result);
++    }
++    lastSubmissionStatus = "submitted_confirmed";
+@@
+       composerSelectionMode: lastSelectionMode,
+       lastSendOutcome,
++      lastSubmissionSequence: submissionSeq,
++      deepseekSubmissionStatus: lastSubmissionStatus,
+@@
+           lastSubmission = null;
++          submissionSeq = 0;
++          lastSubmissionStatus = "idle";
+@@
+     lastSubmission = null;
++    submissionSeq = 0;
++    lastSubmissionStatus = "idle";

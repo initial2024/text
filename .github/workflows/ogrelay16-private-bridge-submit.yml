@@ -1,0 +1,38 @@
+name: 'OGRELAY16 private page bridge submit contract patch audit'
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/patch/bridge-ordinary-submit-v101.patch'
+      - 'original-core-addon/integrated-v05/OGRELAY16_PRIVATE_BRIDGE_SUBMIT.md'
+      - '.github/workflows/ogrelay16-private-bridge-submit.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  patch-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Verify one-shot confirmed submit contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('original-core-addon/patch/bridge-ordinary-submit-v101.patch').read_text()
+          assert 'lastSubmissionSequence: submissionSeq' in p
+          assert 'deepseekSubmissionStatus: lastSubmissionStatus' in p
+          assert 'lastSubmissionStatus = "submitted_confirmed"' in p
+          assert 'ordinary_send_not_confirmed_no_retry' in p
+          assert 'form.requestSubmit' in p
+          assert 'guardedAttachmentTextInsert' in p
+          assert 'return cleared && (generating || answerChanged)' in p
+          assert 'KeyboardEvent' not in p
+          assert 'auto-retry' not in p.lower()
+          assert 'return "ok";' in p
+          print('OGRELAY16_PRIVATE_BRIDGE_CORRELATION_FIELDS=PASS')
+          print('OGRELAY16_SINGLE_SUBMIT_AND_ACK_REQUIRED=PASS')
+          print('OGRELAY16_NO_SYNTHETIC_ENTER_OR_RETRY=PASS')
+          PY

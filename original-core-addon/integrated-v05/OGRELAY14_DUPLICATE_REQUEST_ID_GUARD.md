@@ -1,0 +1,6 @@
+# OGRELAY14 — no duplicate native model work on repeated Relay request id
+The existing OmniGate Android Relay client has an exact socket epoch gate (OGRELAY03), an outgoing acceptance gate (OGRELAY07) and a six-request limit (OGRELAY13), but did not deduplicate a repeated incoming `req` frame with the same `id`. Duplicates within one socket or across reconnect could initiate two separate local model HTTP requests.
+
+New bounded `RelayActiveRequestIds` reserves each raw request id globally for the lifetime of the original native request; a duplicate gets sanitized 409 and **no HTTP POST**, while the original request is left to finish naturally. The id is released in every worker `finally`, capacity refusal and executor rejection, and the guard is synchronized against concurrent frames. Duplicate old frames cannot migrate to the new socket. JSON fields other than id are never retained.
+
+Offline fixtures verify same-id duplicates, cross-generation semantics, concurrent racing callers, release/reuse, malformed ids. Same-HEAD Android compile/DEX and signer preflight must pass. This patch does not prove public Relay receipt, Android UI incremental paint, or real model tool-loop completion. No user APK or cloud config was modified at source commit time. Formal packaging remains subject to independent APK signature, manifest and real-device acceptance.

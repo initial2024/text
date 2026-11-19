@@ -1,0 +1,62 @@
+name: OGSSE04 native SSE meaningful delta is independent from diagnostics
+on:
+  push:
+    branches: [work/omnigate-integrated-v05]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SseMeaningfulGate.java'
+      - 'original-core-addon/integrated-v05/sse-tests/SseMeaningfulGateTest.java'
+      - '.github/workflows/ogsse04-signal-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sse-signal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Exercise pure Java signal and exact source invariants (offline)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=original-core-addon/integrated-v05
+          OUT="$(mktemp -d)"
+          trap 'rm -rf "$OUT"' EXIT
+          javac -d "$OUT" \
+            "$ROOT/library/src/main/java/com/omnigate/integrated/SseMeaningfulGate.java" \
+            "$ROOT/sse-tests/SseMeaningfulGateTest.java"
+          java -cp "$OUT" com.omnigate.integrated.SseMeaningfulGateTest
+          python3 - <<'PY'
+          from pathlib import Path
+          src=Path('original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarProxyServer.java').read_text()
+          begin=src.index('private static final class NativeSseContentProbe')
+          end=src.index('private static final class NativeEmptyAnchor',begin)
+          probe=src[begin:end]
+          upstream=src[src.index('private void proxyDirectNativeSse('):src.index('private static boolean isPlainSseResponse(',src.index('private void proxyDirectNativeSse('))]
+          assert 'if(tr==null||bytes==null)return' not in probe
+          assert 'if(bytes==null)return;' in probe
+          assert 'signal.observe(hasText,hasTool)' in probe
+          assert 'long at=tr==null?-1:' in probe
+          assert 'if(tr!=null)' in probe
+          assert 'boolean hasMeaningfulDelta(){return signal.isReady();}' in probe
+          # OGSSE05 wraps the same signal in a bounded precontent state machine.
+          assert 'readBuffered?0:n,probe.hasMeaningfulDelta()' in upstream
+          assert 'SseSafePreludeFrames.safePrefixLength(combined,' in upstream
+          assert 'if(decision==SsePrecontentBound.Decision.START_FORWARD)' in upstream
+          assert 'if(precontent.failed())' in upstream
+          assert 'if(!rawForwarding && !probe.hasMeaningfulDelta())' in upstream
+          assert 'nativeSseContentEvents>0 || tr.nativeSseToolCallEvents>0' not in upstream
+          assert 'recoverNativeEmptyAnswer(downstream,anchor,tr)' in upstream
+          assert 'writeChunk(downstream,pending,pending.length)' in upstream
+          assert 'writeFinalChunk(downstream)' in upstream
+          print('OGSSE04_REAL_UPSTREAM_TRANSPORT_NO_TELEMETRY_COUPLING=PASS_STATIC')
+          print('OGSSE04_ORIGINAL_EMPTY_RECOVERY_AND_NO_CANCEL=UNCHANGED')
+          print('OGSSE04_REAL_DEVICE_E2E=NOT_TESTED')
+          PY
