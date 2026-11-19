@@ -50,9 +50,8 @@ final class AccountQuickSettings {
                 AccountBrowserStore.lowMemoryOnFold(a,provider,slot)
                     ?"收起悬浮窗省内存：开启（逐账号）"
                     :"收起悬浮窗省内存：关闭（兼容优先）",
-                "当前账号 · 独立时区、实时显示、网站时区检测",
-                "网页时区 · 真机未生效（已停用实验）",
-                "共享网页时区 · 可选Firefox扩展试验 / 卸载"
+                "当前账号 · 本地时钟（仅应用内显示）及网页时区检测",
+                "Firefox 时区扩展（试验 / 卸载）"
             },(d,which)->{
                 if(which==0)edit(a,provider,slot);
                 if(which==1)quota(a,provider,slot);
@@ -79,8 +78,7 @@ final class AccountQuickSettings {
                 if(which==10)GeckoStorageMemoryUi.show(a,provider,slot);
                 if(which==11)toggleFoldMemory(a,provider,slot);
                 if(which==12)AccountTimeZoneUi.show(a,provider,slot);
-                if(which==13)GeckoSharedWebsiteTimeZoneUi.show(a);
-                if(which==14)GeckoTimezoneAddonUi.show(a);
+                if(which==13)GeckoTimezoneAddonUi.show(a);
             }).setNegativeButton("取消",null).show();
     }
     private static void toggleFoldMemory(Activity a,String provider,int slot){
