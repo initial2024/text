@@ -26,9 +26,10 @@ assert '"install",String.class' in addon and '"uninstall",wc' in addon
 assert '"list"' in addon
 assert '"moz-extension://"' in addon
 assert 'AccountBrowserSlots.newContextId()' in addon
-assert 'if(which==14)GeckoTimezoneAddonUi.show(a);' in quick
-assert 'if(which==13)GeckoSharedWebsiteTimeZoneUi.show(a);' in quick
-assert '"网页时区 · 真机未生效（已停用实验）"' in quick
+assert 'if(which==13)GeckoTimezoneAddonUi.show(a);' in quick
+assert 'GeckoSharedWebsiteTimeZoneUi.show(a)' not in quick
+assert '真机未生效（已停用实验）' not in quick
+assert '仅应用内显示' in quick
 assert 'Os.setenv' not in failclosed and 'Os.unsetenv' not in failclosed
 for forbidden in ('Runtime.getRuntime().exec(', 'System.loadLibrary(', 'GeckoRuntime.create(',
                   'remoteDebuggingEnabled(', 'TimeZone.setDefault(', 'clearData(',
@@ -41,6 +42,19 @@ assert 'new android.app.Dialog(a,' in addon
 assert 'Theme_DeviceDefault_NoActionBar_Fullscreen' in addon
 assert 'GeckoAddonChoicePrompts.install(a,session,choiceDialog)' in addon
 assert 'GeckoAddonChoicePrompts.release(choiceDialog)' in addon
+assert 'getMethod("getTextInput").invoke(session)' in addon
+assert 'getMethod("setView",View.class)' in addon
+assert 'FLAG_ALT_FOCUSABLE_IM' in addon
+assert 'FLAG_NOT_FOCUSABLE' in addon
+assert 'getMethod("getDelegate").invoke(inputOwner)' in addon
+assert 'getMethod("setDelegate",textDelegate)' in addon
+assert 'imm.restartInput(ui)' in addon
+assert 'imm.showSoftInput(ui,' in addon
+assert 'if("showSoftInput".equals(name))' in addon
+assert 'method.invoke(priorInputDelegate,args)' in addon
+assert 'userAgentMode",int.class' in addon
+assert 'viewportMode",int.class' in addon
+
 assert 'base+"frontend/popup.html"' in addon
 assert 'private static void showActions' in addon
 menu=addon.split('private static void showActions',1)[1].split('private static void message',1)[0]
