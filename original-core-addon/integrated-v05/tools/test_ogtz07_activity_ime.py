@@ -16,6 +16,24 @@ check('new android.app.Dialog' not in popup, "Dialog-hosted GeckoView still used
 check('base+"frontend/popup.html"' in ui, "extension popup URL changed")
 check('static Object originalRuntime()' in ui, "existing runtime access missing")
 
+# Preserve OGTZ03's security/consent contract while replacing only its old
+# Dialog-hosted configuration-page assumption.
+check('"timezoneguard@3radiance.dev"' in ui, "third-party add-on identity changed")
+check('"https://addons.mozilla.org/firefox/downloads/file/5224737/timezone_guard-1.7.xpi"' in ui,
+      "signed AMO XPI URL changed")
+check('"https://addons.mozilla.org/en-US/firefox/addon/timezone-guard/"' in ui,
+      "AMO information page changed")
+check('setPositiveButton("授予并安装"' in ui and 'setNegativeButton("拒绝"' in ui,
+      "explicit extension install consent removed")
+check('promptResponse(false)' in ui, "permission denial path missing")
+check('"install",String.class' in ui and '"uninstall",wc' in ui and '"list"' in ui,
+      "extension lifecycle controls changed")
+for forbidden in ('Runtime.getRuntime().exec(', 'System.loadLibrary(',
+                  'GeckoRuntime.create(', 'remoteDebuggingEnabled(',
+                  'TimeZone.setDefault(', 'deleteDatabase(', 'clearData(',
+                  'getCookie(', 'getCookies('):
+    check(forbidden not in ui, "unsafe add-on host behavior: "+forbidden)
+
 check('openTimezoneAddonActivityMode()' in settings, "Activity addon mode missing")
 check('setContentView(page);' in settings, "Activity does not own extension view")
 check('getMethod("setView",View.class).invoke(input,browser)' in settings,
