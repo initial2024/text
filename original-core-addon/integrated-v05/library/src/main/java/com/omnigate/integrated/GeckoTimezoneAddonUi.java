@@ -58,6 +58,7 @@ final class GeckoTimezoneAddonUi {
             .setItems(new String[]{
                 "查看 Mozilla 扩展说明与权限",
                 "手动安装签名扩展（须再次批准权限）",
+                "Cloudflare 验证循环 · 网站例外设置",
                 "查看已安装状态 / 打开设置 / 卸载"
             },(dialog,which)->{
                 if(which==0){
@@ -66,8 +67,25 @@ final class GeckoTimezoneAddonUi {
                         message(a,"无法打开扩展介绍页面");
                     }
                 }else if(which==1)offerInstall(a);
+                else if(which==2)showVerificationCompatibilityGuide(a);
                 else listAndManage(a);
             }).setNegativeButton("取消",null).show();
+    }
+
+    /** A documented user-controlled exception, never a challenge bypass. */
+    private static void showVerificationCompatibilityGuide(Activity a){
+        if(a==null||a.isDestroyed()||a.isFinishing())return;
+        new AlertDialog.Builder(a)
+            .setTitle("Timezone Guard · Cloudflare 兼容设置")
+            .setMessage("如果启用第三方时区插件后反复出现人机验证，请先在插件设置中关闭 Spoof HTTP Headers，" +
+                "并将出现验证循环的网站主域名添加到 Site Exceptions（每行一个，不要填写完整 URL）。\\n\\n" +
+                "例外网站及其框架会使用浏览器原生时区；其他网站仍按你选择的时区显示。" +
+                "保存后完整关闭并重新打开受影响网页。请自己手动完成网站验证。" +
+                "\\n\\n此操作不修改 Cookie、账号空间、登录信息，不保证任何网站一定通过验证。" +
+                "如仍然循环，请关闭或卸载该扩展。")
+            .setNegativeButton("返回",null)
+            .setPositiveButton("打开已安装插件设置",(d,w)->listAndManage(a))
+            .show();
     }
 
     private static void message(Activity a,String m){
