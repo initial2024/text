@@ -72,6 +72,11 @@ final class GeckoTimezoneAddonUi {
             }).setNegativeButton("取消",null).show();
     }
 
+    private static void message(Activity a,String m){
+        if(a!=null&&!a.isDestroyed()&&!a.isFinishing())
+            Toast.makeText(a,m,Toast.LENGTH_LONG).show();
+    }
+
     /** A documented user-controlled exception, never a challenge bypass. */
     private static void showVerificationCompatibilityGuide(Activity a){
         if(a==null||a.isDestroyed()||a.isFinishing())return;
@@ -86,11 +91,6 @@ final class GeckoTimezoneAddonUi {
             .setNegativeButton("返回",null)
             .setPositiveButton("打开已安装插件设置",(d,w)->listAndManage(a))
             .show();
-    }
-
-    private static void message(Activity a,String m){
-        if(a!=null&&!a.isDestroyed()&&!a.isFinishing())
-            Toast.makeText(a,m,Toast.LENGTH_LONG).show();
     }
 
     private static Object originalRuntime() throws Exception{
