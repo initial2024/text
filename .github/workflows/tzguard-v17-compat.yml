@@ -1,0 +1,46 @@
+name: Timezone Guard v1.7 compatibility (unsigned test)
+on:
+  push:
+    branches:
+      - fix/timezone-guard-v17-cloudflare-compat
+    paths:
+      - 'third_party/timezone-guard-v1.7-compat/**'
+      - '.github/workflows/tzguard-v17-compat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout compatibility branch
+        uses: actions/checkout@v4
+      - name: Download pinned official v1.7 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --connect-timeout 15 --max-time 90 \
+            -o /tmp/timezone-guard-v1.7.zip \
+            https://github.com/3Radiance/Timezone-Guard/releases/download/v1.7/timezone-guard-v1.7.zip
+          echo '001a210b33d6faa953341478539de6a4d737499a95ea92849807c9dcd1fd9d5b  /tmp/timezone-guard-v1.7.zip' \
+            | sha256sum --check
+      - name: Synthetic exception bridge regression
+        run: |
+          node third_party/timezone-guard-v1.7-compat/test-bridge.cjs
+      - name: Package extension without touching app signing or profiles
+        run: |
+          python3 third_party/timezone-guard-v1.7-compat/build.py \
+            /tmp/timezone-guard-v1.7.zip dist
+      - name: Upload unsigned development packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: timezone-guard-v17-compat-unsigned
+          path: |
+            dist/Timezone-Guard-v1.7-compat-UNSIGNED.zip
+            dist/Timezone-Guard-v1.7-compat-UNSIGNED.xpi
+            dist/SHA256SUMS.txt
+          retention-days: 14
+          if-no-files-found: error
