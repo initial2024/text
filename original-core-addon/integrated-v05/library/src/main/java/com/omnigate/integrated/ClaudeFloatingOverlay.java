@@ -200,6 +200,7 @@ public final class ClaudeFloatingOverlay {
             GeckoLiveWindowHandoff.move(sourceView,nextView,existing,id);
             session=existing;
             geckoView=nextView;
+            bindOverlayGeckoImeBridge(false);
             selectedProvider=provider;
             selected=slot;
             if(overlayClock!=null)overlayClock.refresh();
@@ -826,10 +827,66 @@ public final class ClaudeFloatingOverlay {
         }
     }
 
+    private static void bindOverlayGeckoImeBridge(boolean requestFocus){
+        if(session==null||!(geckoView instanceof View)||app==null)return;
+        View visual=(View)geckoView;
+        try{
+            visual.setFocusable(true);
+            visual.setFocusableInTouchMode(true);
+            Object input=session.getClass().getMethod("getTextInput").invoke(session);
+            Class<?> delegate=Class.forName(
+                "org.mozilla.geckoview.GeckoSession$TextInputDelegate");
+            // No custom delegate: GeckoView's built-in bridge owns the
+            // InputConnection and forwards soft-keyboard requests to Android.
+            input.getClass().getMethod("setDelegate",delegate)
+                .invoke(input,new Object[]{null});
+            input.getClass().getMethod("setView",View.class).invoke(input,visual);
+            try{session.getClass().getMethod("setActive",boolean.class)
+                .invoke(session,true);}catch(ReflectiveOperationException ignored){}
+            if(requestFocus){
+                visual.post(()->{
+                    if(minimized||!visual.isAttachedToWindow()||
+                        !visual.hasWindowFocus())return;
+                    visual.requestFocus();
+                    android.view.inputmethod.InputMethodManager imm=
+                        (android.view.inputmethod.InputMethodManager)
+                            app.getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if(imm!=null)imm.restartInput(visual);
+                });
+            }
+        }catch(Exception failed){
+            android.util.Log.w("OmniGateOverlay","gecko_ime_bridge_bind_failed",failed);
+        }
+    }
+
     private static void setOverlayFocusable(boolean enabled){
         if(window==null||manager==null||root==null)return;
         if(minimized)enabled=false;
-        if(inputFocusHeld==enabled)return;
+
+        // Expanded overlays stay IME-capable even when we merely dismiss the
+        // current keyboard. Previously we added FLAG_NOT_FOCUSABLE here, then
+        // removed it only on ACTION_DOWN. Gecko could request the keyboard in
+        // that same touch before WindowManager completed the flag transition,
+        // losing the editable InputConnection on Android 16/OEM builds.
+        if(!enabled&&!minimized){
+            inputFocusHeld=true;
+            window.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            window.flags &= ~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;
+            android.view.inputmethod.InputMethodManager ime=
+                (android.view.inputmethod.InputMethodManager)
+                    app.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if(ime!=null&&root.getWindowToken()!=null)
+                ime.hideSoftInputFromWindow(root.getWindowToken(),0);
+            root.clearFocus();
+            try{manager.updateViewLayout(root,window);}catch(RuntimeException ignored){}
+            bindOverlayGeckoImeBridge(false);
+            return;
+        }
+
+        if(inputFocusHeld==enabled){
+            if(enabled)bindOverlayGeckoImeBridge(true);
+            return;
+        }
         inputFocusHeld=enabled;
         if(enabled){
             window.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
@@ -838,12 +895,13 @@ public final class ClaudeFloatingOverlay {
             window.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
             android.view.inputmethod.InputMethodManager ime=
                 (android.view.inputmethod.InputMethodManager)
-                app.getSystemService(Context.INPUT_METHOD_SERVICE);
-            if(ime!=null)ime.hideSoftInputFromWindow(root.getWindowToken(),0);
+                    app.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if(ime!=null&&root.getWindowToken()!=null)
+                ime.hideSoftInputFromWindow(root.getWindowToken(),0);
             root.clearFocus();
         }
-        try{manager.updateViewLayout(root,window);}
-        catch(RuntimeException ignored){}
+        try{manager.updateViewLayout(root,window);}catch(RuntimeException ignored){}
+        if(enabled)bindOverlayGeckoImeBridge(true);
     }
     private static void showAccounts(){
         if(account==null)return;
@@ -1094,6 +1152,7 @@ public final class ClaudeFloatingOverlay {
             return false;
         });
         viewport.addView((View)visual,new FrameLayout.LayoutParams(-1,-1));
+        bindOverlayGeckoImeBridge(false);
         // Native Gecko selection actions remain scoped to this one session.
         // No DOM extraction, injected JS or silent clipboard read.
         GeckoSelectionControls.overlay(created,account,
@@ -1294,8 +1353,10 @@ public final class ClaudeFloatingOverlay {
     private static void setMinimized(boolean value){
         if(root==null||manager==null)return;
         minimized=value;
-        // Minimized always returns IME ownership to the underlying app.
-        // Expanded starts passive and only acquires focus on direct input.
+        // Minimized returns IME ownership to the underlying app. Expanded
+        // remains declared focusable so the first tap on a web editor cannot
+        // race a WindowManager flag update; the keyboard itself stays hidden
+        // until an editor/native field requests it.
         setOverlayFocusable(false);
         if(value){
             hideTranslationPanel();
