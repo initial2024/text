@@ -20,7 +20,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 original-core-addon/integrated-v05/tools/test_ogtz03_signed_addon.py
           python3 original-core-addon/integrated-v05/tools/test_ogtz07_activity_ime.py
       - uses: actions/setup-java@v4
         with:
