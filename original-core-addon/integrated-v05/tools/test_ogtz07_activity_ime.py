@@ -56,6 +56,21 @@ check('postDelayed(()->requestNativeSearchIme' in choice,
 check('filter.setFocusableInTouchMode(true)' in choice, "native search not touch-focusable")
 check('imm.showSoftInput(input' in choice, "native picker keyboard request missing")
 
+overlay=(p/"ClaudeFloatingOverlay.java").read_text()
+check('bindOverlayGeckoImeBridge(false)' in overlay,
+      "overlay GeckoView input bridge not rebound after session/view handoff")
+check('input.getClass().getMethod("setDelegate",delegate)' in overlay and
+      '.invoke(input,new Object[]{null})' in overlay,
+      "overlay must restore GeckoView default TextInputDelegate")
+check('window.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE' in overlay,
+      "expanded overlay never becomes an IME-capable window")
+check('if(!enabled&&!minimized)' in overlay and 'inputFocusHeld=true;' in overlay,
+      "expanded overlay still returns to FLAG_NOT_FOCUSABLE between web taps")
+check('ime.hideSoftInputFromWindow' in overlay,
+      "outside/native navigation should still dismiss the current keyboard")
+check('TimeZone.setDefault(' not in overlay and 'clearData(' not in overlay,
+      "overlay IME fix must not alter timezone globally or clear profile data")
+
 # Binding must happen after Activity content view exists.
 check(settings.index('setContentView(page);') <
       settings.index('getMethod("setView",View.class).invoke(input,browser)'),
@@ -63,6 +78,6 @@ check(settings.index('setContentView(page);') <
 
 print("OGTZ07_ACTIVITY_OWNED_GECKOVIEW=PASS")
 print("OGTZ07_DEFAULT_TEXT_INPUT_DELEGATE=PASS")
-print("OGTZ07_NATIVE_SEARCH_FOCUS_TIMING=PASS")
+print("OGTZ07_NATIVE_SEARCH_FOCUS_TIMING=PASS")\nprint("OGTZ07_FLOATING_WEB_EDITOR_IME_WINDOW=PASS")
 print("OGTZ07_PROFILE_OR_COOKIE_CLEARING=NO")
 print("OGTZ07_VIVO_ANDROID16_IME_E2E=PENDING")
