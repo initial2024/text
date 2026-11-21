@@ -47,11 +47,17 @@ import java.util.UUID;
  */
 public final class CompatSettingsActivity extends Activity {
     private static final String LOCAL_URL = "http://127.0.0.1:8787/v1";
+    static final String EXTRA_TIMEZONE_ADDON_URL =
+        "com.omnigate.integrated.extra.TIMEZONE_ADDON_URL";
     private static final int PICK_DOCUMENT = 556;
     private static final int MAX_FILE_BYTES = 8 * 1024 * 1024;
     private final Handler main = new Handler(Looper.getMainLooper());
 
     private TextView serviceState, healthState, uploadState, replyState, publicStatus;
+    private boolean timezoneAddonMode;
+    private Object timezoneAddonSession, timezoneAddonView, timezoneAddonTextInput;
+    private java.util.concurrent.atomic.AtomicReference<android.app.AlertDialog>
+        timezoneAddonChoiceDialog;
     private EditText upstreamKey, publicKey, relayKey, relayBaseUrl, prompt;
     private Spinner models;
     private TextView localBadge, upstreamBadge, upstreamGuide;
@@ -259,9 +265,108 @@ public final class CompatSettingsActivity extends Activity {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
 
+    /**
+     * OGTZ07: display the signed WebExtension settings in this Activity's
+     * own window. This avoids a GeckoView nested in AlertDialog, which can
+     * lose Android's served-view/InputConnection state on Android 16/OEM IMEs.
+     */
+    private boolean openTimezoneAddonActivityMode(){
+        Intent launch=getIntent();
+        String url=launch==null?null:launch.getStringExtra(EXTRA_TIMEZONE_ADDON_URL);
+        if(url==null)return false;
+        timezoneAddonMode=true;
+        if(!url.startsWith("moz-extension://")||
+            !url.endsWith("/frontend/popup.html")){
+            Toast.makeText(this,"插件设置地址无效",Toast.LENGTH_LONG).show();
+            finish();
+            return true;
+        }
+        getWindow().clearFlags(
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+            android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+        getWindow().setSoftInputMode(
+            android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
+            android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED);
+        getWindow().setStatusBarColor(0xFF1E1E2E);
+        getWindow().setNavigationBarColor(0xFF1E1E2E);
+        try{
+            Object runtime=GeckoTimezoneAddonUi.originalRuntime();
+            Class<?> b=Class.forName("org.mozilla.geckoview.GeckoSessionSettings$Builder");
+            Object builder=b.getConstructor().newInstance();
+            b.getMethod("contextId",String.class).invoke(builder,
+                AccountBrowserSlots.newContextId());
+            b.getMethod("userAgentMode",int.class).invoke(builder,0);
+            b.getMethod("viewportMode",int.class).invoke(builder,0);
+            Object settings=b.getMethod("build").invoke(builder);
+            Class<?> gs=Class.forName("org.mozilla.geckoview.GeckoSession");
+            Class<?> gss=Class.forName("org.mozilla.geckoview.GeckoSessionSettings");
+            Class<?> gr=Class.forName("org.mozilla.geckoview.GeckoRuntime");
+            Object session=gs.getConstructor(gss).newInstance(settings);
+            timezoneAddonChoiceDialog=new java.util.concurrent.atomic.AtomicReference<>();
+            GeckoAddonChoicePrompts.install(this,session,timezoneAddonChoiceDialog);
+            gs.getMethod("open",gr).invoke(session,runtime);
+            Class<?> gv=Class.forName("org.mozilla.geckoview.GeckoView");
+            Object gecko=gv.getConstructor(Context.class).newInstance(this);
+            gv.getMethod("setSession",gs).invoke(gecko,session);
+            View browser=(View)gecko;
+            browser.setFocusable(true);
+            browser.setFocusableInTouchMode(true);
+
+            LinearLayout page=vertical();
+            page.setBackgroundColor(0xFF1E1E2E);
+            LinearLayout bar=new LinearLayout(this);
+            bar.setOrientation(LinearLayout.HORIZONTAL);
+            bar.setGravity(Gravity.CENTER_VERTICAL);
+            int pad=dp(12);
+            bar.setPadding(pad,pad,pad,pad);
+            TextView title=text("Timezone Guard · 网页时区设置",17,0xFFCDD6F4,true);
+            bar.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+            Button done=new Button(this);
+            done.setAllCaps(false);done.setText("完成");
+            done.setOnClickListener(v->finish());
+            bar.addView(done,new LinearLayout.LayoutParams(-2,-2));
+            page.addView(bar);
+            TextView note=text("输入框由 GeckoView 原生 InputConnection 直接连接系统键盘；"+
+                "选择时区后点 Save & Apply。建议保持 Spoof HTTP Headers 关闭。",
+                12,0xFFA6ADC8,false);
+            note.setPadding(pad,0,pad,pad);
+            page.addView(note);
+            page.addView(browser,new LinearLayout.LayoutParams(-1,0,1));
+            setContentView(page);
+
+            Object input=gs.getMethod("getTextInput").invoke(session);
+            Class<?> delegate=Class.forName(
+                "org.mozilla.geckoview.GeckoSession$TextInputDelegate");
+            // Explicit null restores GeckoView's built-in IMM forwarding.
+            input.getClass().getMethod("setDelegate",delegate)
+                .invoke(input,new Object[]{null});
+            input.getClass().getMethod("setView",View.class).invoke(input,browser);
+            try{gs.getMethod("setActive",boolean.class).invoke(session,true);}
+            catch(ReflectiveOperationException ignored){}
+            timezoneAddonSession=session;
+            timezoneAddonView=gecko;
+            timezoneAddonTextInput=input;
+            browser.post(()->{
+                if(browser.isAttachedToWindow()&&browser.hasWindowFocus()){
+                    browser.requestFocus();
+                    android.view.inputmethod.InputMethodManager imm=
+                        (android.view.inputmethod.InputMethodManager)
+                            getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if(imm!=null)imm.restartInput(browser);
+                }
+            });
+            gs.getMethod("loadUri",String.class).invoke(session,url);
+        }catch(Exception failure){
+            Toast.makeText(this,"插件设置页启动失败；账号数据未清理",Toast.LENGTH_LONG).show();
+            finish();
+        }
+        return true;
+    }
+
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
         GatewayApp.initialize(getApplicationContext());
+        if(openTimezoneAddonActivityMode())return;
         getWindow().setStatusBarColor(0xFFF4F6FC);
         getWindow().setNavigationBarColor(0xFFF4F6FC);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
@@ -725,6 +830,32 @@ public final class CompatSettingsActivity extends Activity {
         margin(note, text("8787 不设读取截止时间；原 1601、网站及 Android 后台仍可能中断。", 12, 0xFF5C6582, false), 0);
 
         updateState();
+    }
+
+    @Override protected void onDestroy(){
+        if(timezoneAddonMode){
+            if(timezoneAddonChoiceDialog!=null)
+                GeckoAddonChoicePrompts.release(timezoneAddonChoiceDialog);
+            if(timezoneAddonSession!=null){
+                try{timezoneAddonSession.getClass().getMethod("setActive",boolean.class)
+                    .invoke(timezoneAddonSession,false);}catch(Exception ignored){}
+            }
+            if(timezoneAddonTextInput!=null){
+                try{timezoneAddonTextInput.getClass().getMethod("setView",View.class)
+                    .invoke(timezoneAddonTextInput,new Object[]{null});}
+                catch(Exception ignored){}
+            }
+            if(timezoneAddonView!=null){
+                try{timezoneAddonView.getClass().getMethod("releaseSession")
+                    .invoke(timezoneAddonView);}catch(Exception ignored){}
+            }
+            if(timezoneAddonSession!=null){
+                try{timezoneAddonSession.getClass().getMethod("close")
+                    .invoke(timezoneAddonSession);}catch(Exception ignored){}
+            }
+            timezoneAddonSession=null;timezoneAddonView=null;timezoneAddonTextInput=null;
+        }
+        super.onDestroy();
     }
 
     @Override protected void onResume() {
