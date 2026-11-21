@@ -1,0 +1,51 @@
+name: OGTZ06 Timezone Guard settings IME focus (source and compile)
+on:
+  push:
+    branches: [fix/ogtz06-extension-popup-ime-focus]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoTimezoneAddonUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoAddonChoicePrompts.java'
+      - 'original-core-addon/integrated-v05/tools/test_ogtz06_popup_ime.py'
+      - '.github/workflows/ogtz06-popup-ime-focus.yml'
+  workflow_dispatch:
+
+permissions: {contents: read}
+jobs:
+  source-and-android-compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Focus and data-safety source checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_ogtz03_signed_addon.py
+          python3 original-core-addon/integrated-v05/tools/test_ogtz06_popup_ime.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Ensure Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'platforms;android-35' 'build-tools;35.0.0'
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+      - name: Compile original integration library
+        working-directory: original-core-addon/integrated-v05
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon :library:assembleRelease
+          test -s library/build/outputs/aar/library-release.aar
+          echo 'OGTZ06_LIBRARY_COMPILE=PASS'
+          echo 'OGTZ06_ANDROID_VIVO_IME_E2E=NOT_TESTED'
+          echo 'OGTZ06_SIGNED_APK=NO'
