@@ -118,6 +118,9 @@ final class GeckoAddonChoicePrompts {
                     root.addView(info);
                     EditText filter=new EditText(a);
                     filter.setSingleLine(true);
+                    filter.setFocusable(true);
+                    filter.setFocusableInTouchMode(true);
+                    filter.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
                     filter.setHint("搜索时区 / Timezone");
                     root.addView(filter);
                     ListView list=new ListView(a);
@@ -162,14 +165,32 @@ final class GeckoAddonChoicePrompts {
                         picker.dismiss();
                     });
                     currentPicker.set(picker);
+                    picker.setOnShowListener(d->{
+                        android.view.Window w=picker.getWindow();
+                        if(w!=null){
+                            w.clearFlags(
+                                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                                android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+                            int width=a.getResources().getDisplayMetrics().widthPixels;
+                            int height=a.getResources().getDisplayMetrics().heightPixels;
+                            w.setLayout((int)(width*0.96f),(int)(height*0.76f));
+                            w.setSoftInputMode(
+                                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
+                                android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+                        }
+                        filter.requestFocus();
+                        // Wait until the native Dialog window owns focus; the
+                        // earlier post could run before InputMethodManager had
+                        // switched its served window on some Android 16 OEMs.
+                        View decor=w==null?filter:w.getDecorView();
+                        decor.postDelayed(()->requestNativeSearchIme(a,filter,picker),120L);
+                    });
+                    filter.setOnTouchListener((v,event)->{
+                        if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP)
+                            filter.post(()->requestNativeSearchIme(a,filter,picker));
+                        return false;
+                    });
                     picker.show();
-                    if(picker.getWindow()!=null){
-                        int width=a.getResources().getDisplayMetrics().widthPixels;
-                        int height=a.getResources().getDisplayMetrics().heightPixels;
-                        picker.getWindow().setLayout((int)(width*0.96f),(int)(height*0.76f));
-                        picker.getWindow().setSoftInputMode(
-                            android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-                    }
                     refresh.run();
                 }catch(Exception failed){
                     settle(finished,result,prompt,null);
@@ -177,6 +198,20 @@ final class GeckoAddonChoicePrompts {
                 return result;
             });
         session.getClass().getMethod("setPromptDelegate",iface).invoke(session,delegate);
+    }
+
+    private static void requestNativeSearchIme(Activity a,EditText input,
+            AlertDialog picker){
+        if(!picker.isShowing()||!input.isAttachedToWindow()||
+            !input.hasWindowFocus())return;
+        input.requestFocus();
+        android.view.inputmethod.InputMethodManager imm=
+            (android.view.inputmethod.InputMethodManager)
+                a.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+        if(imm==null)return;
+        imm.restartInput(input);
+        imm.showSoftInput(input,
+            android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
     }
 
     static void release(AtomicReference<AlertDialog> picker){

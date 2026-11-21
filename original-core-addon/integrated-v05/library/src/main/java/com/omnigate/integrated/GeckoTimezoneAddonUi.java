@@ -58,6 +58,7 @@ final class GeckoTimezoneAddonUi {
             .setItems(new String[]{
                 "查看 Mozilla 扩展说明与权限",
                 "手动安装签名扩展（须再次批准权限）",
+                "Cloudflare 验证循环 · 网站例外设置",
                 "查看已安装状态 / 打开设置 / 卸载"
             },(dialog,which)->{
                 if(which==0){
@@ -66,6 +67,7 @@ final class GeckoTimezoneAddonUi {
                         message(a,"无法打开扩展介绍页面");
                     }
                 }else if(which==1)offerInstall(a);
+                else if(which==2)showVerificationCompatibilityGuide(a);
                 else listAndManage(a);
             }).setNegativeButton("取消",null).show();
     }
@@ -75,7 +77,23 @@ final class GeckoTimezoneAddonUi {
             Toast.makeText(a,m,Toast.LENGTH_LONG).show();
     }
 
-    private static Object originalRuntime() throws Exception{
+    /** A documented user-controlled exception, never a challenge bypass. */
+    private static void showVerificationCompatibilityGuide(Activity a){
+        if(a==null||a.isDestroyed()||a.isFinishing())return;
+        new AlertDialog.Builder(a)
+            .setTitle("Timezone Guard · Cloudflare 兼容设置")
+            .setMessage("如果启用第三方时区插件后反复出现人机验证，请先在插件设置中关闭 Spoof HTTP Headers，" +
+                "并将出现验证循环的网站主域名添加到 Site Exceptions（每行一个，不要填写完整 URL）。\\n\\n" +
+                "例外网站及其框架会使用浏览器原生时区；其他网站仍按你选择的时区显示。" +
+                "保存后完整关闭并重新打开受影响网页。请自己手动完成网站验证。" +
+                "\\n\\n此操作不修改 Cookie、账号空间、登录信息，不保证任何网站一定通过验证。" +
+                "如仍然循环，请关闭或卸载该扩展。")
+            .setNegativeButton("返回",null)
+            .setPositiveButton("打开已安装插件设置",(d,w)->listAndManage(a))
+            .show();
+    }
+
+    static Object originalRuntime() throws Exception{
         Class<?> c=Class.forName("org.mozilla.geckoview.GeckoRuntime");
         Method m=c.getDeclaredMethod("getInstance");m.setAccessible(true);
         Object rt=m.invoke(null);
@@ -328,163 +346,20 @@ final class GeckoTimezoneAddonUi {
     }
     private static void openPopup(Activity a,Object addon){
         if(a==null||a.isDestroyed()||a.isFinishing())return;
-        Object session=null;
-        Object view=null;
-        android.app.Dialog screen=null;
         try{
             Object meta=addon.getClass().getField("metaData").get(addon);
             String base=(String)meta.getClass().getField("baseUrl").get(meta);
             if(base==null||!base.startsWith("moz-extension://")||!base.endsWith("/"))
                 throw new IllegalStateException("INVALID_EXTENSION_ORIGIN");
-            Object rt=originalRuntime();
-            Class<?> b=Class.forName("org.mozilla.geckoview.GeckoSessionSettings$Builder");
-            Object builder=b.getConstructor().newInstance();
-            b.getMethod("contextId",String.class).invoke(builder,
-                AccountBrowserSlots.newContextId());
-            // Use the real mobile UA and viewport. These are only for this
-            // temporary add-on settings page, NEVER for an account session.
-            b.getMethod("userAgentMode",int.class).invoke(builder,0);
-            b.getMethod("viewportMode",int.class).invoke(builder,0);
-            Object settings=b.getMethod("build").invoke(builder);
-            Class<?> gs=Class.forName("org.mozilla.geckoview.GeckoSession");
-            Class<?> gss=Class.forName("org.mozilla.geckoview.GeckoSessionSettings");
-            Class<?> gr=Class.forName("org.mozilla.geckoview.GeckoRuntime");
-            session=gs.getConstructor(gss).newInstance(settings);
-            // A separate embedded GeckoSession does not inherit the original
-            // account browser's prompt delegate. Without onChoicePrompt,
-            // HTML <select> silently appears inert. Attach BEFORE open/load.
-            final java.util.concurrent.atomic.AtomicReference<AlertDialog> choiceDialog=
-                new java.util.concurrent.atomic.AtomicReference<>();
-            GeckoAddonChoicePrompts.install(a,session,choiceDialog);
-            gs.getMethod("open",gr).invoke(session,rt);
-            Class<?> gv=Class.forName("org.mozilla.geckoview.GeckoView");
-            view=gv.getConstructor(Context.class).newInstance(a);
-            gv.getMethod("setSession",gs).invoke(view,session);
-            // The temporary extension page owns a separate GeckoView.
-            // Ensure Gecko's text-input proxy is actually bound to this view;
-            // otherwise Android's IME sees a non-editable surface.
-            Object textInput=gs.getMethod("getTextInput").invoke(session);
-            Object attachedTextView=textInput.getClass().getMethod("getView")
-                .invoke(textInput);
-            if(attachedTextView!=(View)view)
-                textInput.getClass().getMethod("setView",View.class)
-                    .invoke(textInput,(View)view);
-            final Object inputOwner=textInput;
-            android.widget.LinearLayout root=new android.widget.LinearLayout(a);
-            root.setOrientation(android.widget.LinearLayout.VERTICAL);
-            root.setBackgroundColor(0xff1e1e2e);
-            int pad=Math.round(12*a.getResources().getDisplayMetrics().density);
-            android.widget.LinearLayout heading=new android.widget.LinearLayout(a);
-            heading.setOrientation(android.widget.LinearLayout.HORIZONTAL);
-            heading.setPadding(pad,pad,pad,pad);
-            android.widget.TextView title=new android.widget.TextView(a);
-            title.setText("Timezone Guard · 网页时区设置");
-            title.setTextSize(17);
-            title.setTextColor(0xffcdd6f4);
-            heading.addView(title,new android.widget.LinearLayout.LayoutParams(
-                0,-2,1));
-            android.widget.Button done=new android.widget.Button(a);
-            done.setText("完成");
-            heading.addView(done,new android.widget.LinearLayout.LayoutParams(
-                -2,-2));
-            root.addView(heading);
-            android.widget.TextView tip=new android.widget.TextView(a);
-            tip.setText("点击 Timezone 将弹出可搜索的原生时区列表。"+
-                "选完务必点插件页面里的 Save & Apply，再测试 BrowserLeaks。"+
-                "\n如不需要修改请求头，请关闭 Spoof HTTP Headers。");
-            tip.setTextColor(0xffa6adc8);
-            tip.setTextSize(12);
-            tip.setPadding(pad,0,pad,pad);
-            root.addView(tip);
-            View ui=(View)view;
-            ui.setBackgroundColor(0xff1e1e2e);
-            ui.setFocusable(true);
-            ui.setFocusableInTouchMode(true);
-            root.addView(ui,new android.widget.LinearLayout.LayoutParams(
-                -1,0,1f));
-            screen=new android.app.Dialog(a,
-                android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
-            screen.setContentView(root);
-            final android.app.Dialog closeScreen=screen;
-            final Object closeSession=session,releaseView=view;
-            screen.setOnDismissListener(d->{
-                GeckoAddonChoicePrompts.release(choiceDialog);
-                try{gv.getMethod("releaseSession").invoke(releaseView);}
-                catch(Exception ignored){}
-                try{gs.getMethod("close").invoke(closeSession);}
-                catch(Exception ignored){}
-            });
-            done.setOnClickListener(v->closeScreen.dismiss());
-            // A focusable IME-capable window is mandatory for GeckoView
-            // editor input. Full-screen themes on some Android devices
-            // inherit ALT_FOCUSABLE_IM from a prior dialog.
-            if(screen.getWindow()!=null){
-                screen.getWindow().clearFlags(
-                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                    android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
-                screen.getWindow().setSoftInputMode(
-                    android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
-                    android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
-            }
-            screen.show();
-            if(screen.getWindow()!=null)screen.getWindow().setLayout(-1,-1);
-            // Use Gecko's own TextInputDelegate for keyboard visibility
-            // requests, forwarding all methods to its original default
-            // handler; never inject text or intercept webpage keystrokes.
-            // If Gecko requests the IME while Android still believes the
-            // old dialog owns input, synchronize the IMM after focus settles.
-            Class<?> textDelegate=Class.forName(
-                "org.mozilla.geckoview.GeckoSession$TextInputDelegate");
-            Object priorInputDelegate=inputOwner.getClass()
-                .getMethod("getDelegate").invoke(inputOwner);
-            Object focusedDelegate=java.lang.reflect.Proxy.newProxyInstance(
-                textDelegate.getClassLoader(),new Class<?>[]{textDelegate},
-                (proxy,method,args)->{
-                    String name=method.getName();
-                    if("equals".equals(name))return proxy==args[0];
-                    if("hashCode".equals(name))return System.identityHashCode(proxy);
-                    if("toString".equals(name))return "OGTZ05_Addon_IME_Focus_Only";
-                    Object forwarded=null;
-                    try{
-                        if(priorInputDelegate!=null)
-                            forwarded=method.invoke(priorInputDelegate,args);
-                    }catch(java.lang.reflect.InvocationTargetException err){
-                        // Do not hide Gecko/IMM exceptions from a caller.
-                        throw err.getCause()==null?err:err.getCause();
-                    }
-                    if("showSoftInput".equals(name)){
-                        ui.post(()->{
-                            if(!ui.isAttachedToWindow()||!ui.hasWindowFocus()||
-                                !closeScreen.isShowing())return;
-                            ui.requestFocus();
-                            android.view.inputmethod.InputMethodManager imm=
-                                (android.view.inputmethod.InputMethodManager)
-                                a.getSystemService(Context.INPUT_METHOD_SERVICE);
-                            if(imm!=null){
-                                imm.restartInput(ui);
-                                imm.showSoftInput(ui,
-                                    android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
-                            }
-                        });
-                    }
-                    return forwarded;
-                });
-            inputOwner.getClass().getMethod("setDelegate",textDelegate)
-                .invoke(inputOwner,focusedDelegate);
-            ui.post(()->{
-                if(ui.isAttachedToWindow()&&ui.hasWindowFocus())ui.requestFocus();
-            });
-            gs.getMethod("loadUri",String.class).invoke(session,
+            // OGTZ07: use the already-declared app Activity rather than an
+            // AlertDialog-hosted GeckoView. Activity-owned windows give
+            // GeckoView a normal Android InputConnection/IME lifecycle on
+            // Android 16 and OEM keyboards.
+            Intent i=new Intent(a,CompatSettingsActivity.class);
+            i.putExtra(CompatSettingsActivity.EXTRA_TIMEZONE_ADDON_URL,
                 base+"frontend/popup.html");
+            a.startActivity(i);
         }catch(Exception failed){
-            if(screen!=null){
-                try{screen.dismiss();}catch(RuntimeException ignored){}
-            }else if(session!=null){
-                try{
-                    Class.forName("org.mozilla.geckoview.GeckoSession")
-                        .getMethod("close").invoke(session);
-                }catch(Exception ignored){}
-            }
             message(a,"插件设置界面启动失败；原账号和插件存储未改变");
         }
     }
