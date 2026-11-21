@@ -49,3 +49,39 @@ jobs:
           echo 'OGTZ06_LIBRARY_COMPILE=PASS'
           echo 'OGTZ06_ANDROID_VIVO_IME_E2E=NOT_TESTED'
           echo 'OGTZ06_SIGNED_APK=NO'
+      - name: Compile standalone DEX for existing OmniGate compatibility classes
+        shell: bash
+        working-directory: original-core-addon/integrated-v05
+        run: |
+          set -euo pipefail
+          mkdir -p standalone-dex/inputs standalone-dex/output
+          unzip -p library/build/outputs/aar/library-release.aar classes.jar > standalone-dex/inputs/compat.jar
+          OKHTTP="$(find "$HOME/.gradle/caches/modules-2/files-2.1/com.squareup.okhttp3/okhttp" -type f -name 'okhttp-4.12.0.jar' | head -1)"
+          OKIO="$(find "$HOME/.gradle/caches/modules-2/files-2.1/com.squareup.okio/okio-jvm" -type f -name 'okio-jvm-*.jar' | head -1)"
+          test -s "$OKHTTP"
+          test -s "$OKIO"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/build-tools/35.0.0/d8" --release --min-api 26 \
+            --lib "$SDK_ROOT/platforms/android-35/android.jar" \
+            --output standalone-dex/output \
+            standalone-dex/inputs/compat.jar "$OKHTTP" "$OKIO"
+          test -s standalone-dex/output/classes.dex
+          echo 'OGTZ06_DEX_BUILD=PASS'
+      - name: Package public SDK build-tools locally for user-controlled signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          test -x "$SDK_ROOT/build-tools/35.0.0/zipalign"
+          test -x "$SDK_ROOT/build-tools/35.0.0/apksigner"
+          tar -C "$SDK_ROOT/build-tools" -czf "$RUNNER_TEMP/android-build-tools-35.tar.gz" 35.0.0
+          ls -lh "$RUNNER_TEMP/android-build-tools-35.tar.gz"
+      - name: Upload unsigned DEX and build tools (never APK or signing keys)
+        uses: actions/upload-artifact@v4
+        with:
+          name: OGTZ06-unsigned-dex-and-public-build-tools
+          path: |
+            original-core-addon/integrated-v05/standalone-dex/output/classes.dex
+            ${{ runner.temp }}/android-build-tools-35.tar.gz
+          retention-days: 3
+          if-no-files-found: error
