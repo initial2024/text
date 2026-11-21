@@ -191,9 +191,8 @@ public final class ClaudeFloatingOverlay {
                 throw new IllegalStateException("overlay_gecko_view_invalid");
             View visual=(View)nextView;
             visual.setOnTouchListener((view,event)->{
-                if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
-                    setOverlayFocusable(true);
-                return false;
+                onOverlayGeckoTouch(view,event);
+                return false; // deliver real taps to GeckoView
             });
             viewport.addView(visual,new FrameLayout.LayoutParams(-1,-1));
             // GeckoView.releaseSession does NOT close or reload the session.
@@ -826,6 +825,56 @@ public final class ClaudeFloatingOverlay {
         }
     }
 
+    /** Restore the Android IME owner after the overlay gains window focus.
+     * No text injection, no navigation and no forced keyboard for normal taps.
+     * Only the GeckoView holding the same live GeckoSession may be rebound.
+     */
+    private static void reconcileOverlayGeckoInput(View expected,Object expectedSession,
+            int attempt){
+        if(expected==null||expectedSession==null||app==null||
+                !showing()||minimized||!inputFocusHeld||
+                geckoView!=expected||session!=expectedSession||
+                !expected.isAttachedToWindow())return;
+        if(!expected.hasWindowFocus()){
+            if(attempt<2)expected.postDelayed(
+                ()->reconcileOverlayGeckoInput(expected,expectedSession,attempt+1),64L);
+            return;
+        }
+        expected.setFocusable(true);
+        expected.setFocusableInTouchMode(true);
+        if(!expected.hasFocus())expected.requestFocus();
+        if(!expected.hasFocus())return;
+        try{
+            Object textInput=expectedSession.getClass().getMethod("getTextInput")
+                .invoke(expectedSession);
+            Object attached=textInput.getClass().getMethod("getView").invoke(textInput);
+            if(attached!=expected){
+                textInput.getClass().getMethod("setView",View.class)
+                    .invoke(textInput,expected);
+            }
+            android.view.inputmethod.InputMethodManager ime=
+                (android.view.inputmethod.InputMethodManager)
+                    app.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if(ime!=null)ime.restartInput(expected);
+        }catch(Exception problem){
+            android.util.Log.w("OmniGateOverlay","gecko_ime_rebind_unavailable",
+                problem);
+        }
+        // The default Gecko TextInputDelegate decides if an actual HTML
+        // editor requests the keyboard. Never call showSoftInput blindly.
+    }
+
+    private static void onOverlayGeckoTouch(View browser,MotionEvent event){
+        if(event.getActionMasked()==MotionEvent.ACTION_DOWN){
+            setOverlayFocusable(true);
+        }else if(event.getActionMasked()==MotionEvent.ACTION_UP){
+            final Object owner=session;
+            if(owner!=null&&geckoView==browser)
+                browser.postDelayed(()->reconcileOverlayGeckoInput(
+                    browser,owner,0),48L);
+        }
+    }
+
     private static void setOverlayFocusable(boolean enabled){
         if(window==null||manager==null||root==null)return;
         if(minimized)enabled=false;
@@ -1087,10 +1136,9 @@ public final class ClaudeFloatingOverlay {
         geckoView=visual;
         viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
         ((View)visual).setOnTouchListener((v,event)->{
-            // GeckoView needs focus to open its own soft keyboard. It should
-            // not retain that focus once the user taps outside or folds away.
-            if(event.getActionMasked()==MotionEvent.ACTION_DOWN)
-                setOverlayFocusable(true);
+            // Reconcile on every user tap, including after a previous focus
+            // attempt failed. Leave real Gecko touch dispatch untouched.
+            onOverlayGeckoTouch(v,event);
             return false;
         });
         viewport.addView((View)visual,new FrameLayout.LayoutParams(-1,-1));
