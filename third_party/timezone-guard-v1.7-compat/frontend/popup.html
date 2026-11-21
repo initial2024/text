@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 320px;
+      padding: 16px;
+      margin: 0;
+
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+      background: #1e1e2e;
+      color: #cdd6f4;
+    }
+
+    h3 {
+      margin: 0 0 16px 0;
+
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+      color: #cdd6f4;
+    }
+
+    .section {
+      margin-bottom: 14px;
+    }
+
+    .section > label:not(.setting-row) {
+      display: block;
+
+      margin-bottom: 5px;
+
+      font-size: 11px;
+      font-weight: 500;
+      color: #a6adc8;
+
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* =========================
+       SETTINGS ROW
+       ========================= */
+
+    .toggle-section {
+      margin-bottom: 9px;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+
+      width: 100%;
+      min-height: 58px;
+
+      padding: 10px 11px;
+
+      border: 1px solid #313244;
+      border-radius: 9px;
+
+      background: #242436;
+
+      cursor: pointer;
+      user-select: none;
+
+      transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        transform 0.1s ease;
+    }
+
+    .setting-row:hover {
+      background: #29293d;
+      border-color: #45475a;
+    }
+
+    .setting-row:active {
+      transform: scale(0.985);
+    }
+
+    .setting-info {
+      min-width: 0;
+
+      display: flex;
+      flex-direction: column;
+
+      gap: 3px;
+    }
+
+    .setting-title {
+      color: #cdd6f4;
+
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 16px;
+    }
+
+    .setting-description {
+      color: #7f849c;
+
+      font-size: 10px;
+      line-height: 13px;
+    }
+
+    /* =========================
+       SWITCH
+       ========================= */
+
+    .switch {
+      position: relative;
+
+      display: inline-flex;
+
+      width: 38px;
+      height: 22px;
+
+      flex: 0 0 38px;
+    }
+
+    .switch input {
+      position: absolute;
+
+      width: 1px;
+      height: 1px;
+
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .switch-track {
+      position: absolute;
+      inset: 0;
+
+      border-radius: 999px;
+
+      background: #45475a;
+
+      transition:
+        background 0.2s ease,
+        box-shadow 0.2s ease;
+    }
+
+    .switch-thumb {
+      position: absolute;
+
+      top: 3px;
+      left: 3px;
+
+      width: 16px;
+      height: 16px;
+
+      border-radius: 50%;
+
+      background: #cdd6f4;
+
+      box-shadow:
+        0 1px 2px rgba(0, 0, 0, 0.35);
+
+      transition:
+        transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+        background 0.2s ease;
+    }
+
+    /* ON */
+
+    .switch input:checked + .switch-track {
+      background: #89b4fa;
+    }
+
+    .switch input:checked + .switch-track .switch-thumb {
+      transform: translateX(16px);
+      background: #1e1e2e;
+    }
+
+    /* Keyboard focus */
+
+    .switch input:focus-visible + .switch-track {
+      box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.3);
+    }
+
+    /* =========================
+       SELECTS / INPUT
+       ========================= */
+
+    select,
+    input[type="text"] {
+      width: 100%;
+
+      padding: 8px 9px;
+
+      border: 1px solid #45475a;
+      border-radius: 6px;
+
+      outline: none;
+
+      background: #313244;
+      color: #cdd6f4;
+
+      font-family: inherit;
+      font-size: 13px;
+
+      transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
+    }
+
+    select {
+      cursor: pointer;
+    }
+
+    input[type="text"] {
+      margin-bottom: 0;
+
+      font-family: monospace;
+    }
+
+    select:focus,
+    input[type="text"]:focus,
+    textarea:focus {
+      border-color: #89b4fa;
+
+      box-shadow: 0 0 0 2px rgba(137, 180, 250, 0.12);
+    }
+
+    textarea {
+      width: 100%;
+
+      min-height: 72px;
+
+      padding: 8px 9px;
+
+      border: 1px solid #45475a;
+      border-radius: 6px;
+
+      outline: none;
+
+      background: #313244;
+      color: #cdd6f4;
+
+      font-family: monospace;
+      font-size: 12px;
+
+      resize: vertical;
+
+      transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
+    }
+
+    select option,
+    select optgroup {
+      background: #313244;
+      color: #cdd6f4;
+    }
+
+    /* =========================
+       BUTTON
+       ========================= */
+
+    button {
+      width: 100%;
+
+      padding: 9px 10px;
+
+      border: none;
+      border-radius: 7px;
+
+      background: #89b4fa;
+      color: #1e1e2e;
+
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+
+      cursor: pointer;
+
+      transition:
+        background 0.15s ease,
+        transform 0.1s ease;
+    }
+
+    button:hover {
+      background: #74a8f9;
+    }
+
+    button:active {
+      transform: scale(0.985);
+    }
+
+    /* =========================
+       STATUS
+       ========================= */
+
+    #status {
+      min-height: 14px;
+
+      margin-top: 9px;
+
+      color: #a6e3a1;
+
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+  <base target="_blank">
+</head>
+
+<body>
+  <h3>TimeZone-Guard</h3>
+
+  <!-- Extension Enabled -->
+  <div class="section toggle-section">
+    <label class="setting-row" for="enabledToggle">
+
+      <span class="setting-info">
+        <span class="setting-title">
+          Extension Enabled
+        </span>
+
+        <span class="setting-description">
+          Enable timezone spoofing
+        </span>
+      </span>
+
+      <span class="switch">
+        <input
+          type="checkbox"
+          id="enabledToggle"
+          checked
+        >
+        <span class="switch-track">
+          <span class="switch-thumb"></span>
+        </span>
+      </span>
+
+    </label>
+  </div>
+
+
+  <!-- Spoof HTTP Headers -->
+
+  <div class="section toggle-section">
+    <label class="setting-row" for="spoofHeadersToggle">
+
+      <span class="setting-info">
+        <span class="setting-title">
+          Spoof HTTP Headers
+        </span>
+
+        <span class="setting-description">
+          Modify timezone-related headers
+        </span>
+      </span>
+
+      <span class="switch">
+        <input
+          type="checkbox"
+          id="spoofHeadersToggle"
+        >
+        <span class="switch-track">
+          <span class="switch-thumb"></span>
+        </span>
+      </span>
+
+    </label>
+  </div>
+
+
+  <!-- Timezone -->
+
+  <div class="section">
+    <label for="tzSelect">
+      Timezone
+    </label>
+
+    <select id="tzSelect">
+    </select>
+  </div>
+
+
+  <!-- User Agent -->
+
+  <div class="section">
+    <label for="uaPresetSelect">
+      User-Agent Presets
+    </label>
+
+    <select id="uaPresetSelect">
+      <option value="">
+        Default (No Spoof)
+      </option>
+
+      <optgroup label="Chrome 124">
+        <option value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36">
+          Windows
+        </option>
+        <option value="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36">
+          macOS
+        </option>
+        <option value="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36">
+          Linux
+        </option>
+      </optgroup>
+
+      <optgroup label="Firefox 125">
+        <option value="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0">
+          Windows
+        </option>
+        <option value="Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:125.0) Gecko/20100101 Firefox/125.0">
+          macOS
+        </option>
+        <option value="Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0">
+          Linux
+        </option>
+      </optgroup>
+    </select>
+
+    <label
+      for="uaInput"
+      style="margin-top: 10px;"
+    >
+      Custom User-Agent
+    </label>
+    <input
+      type="text"
+      id="uaInput"
+      placeholder="Set UA"
+    >
+  </div>
+
+  <!-- Site Exceptions -->
+
+  <div class="section">
+    <label for="whitelistInput">
+      Site Exceptions
+    </label>
+    <textarea
+      id="whitelistInput"
+      placeholder="example.com&#10;&#10;One domain per line. Subdomains are included. Listed sites stay native — frames and requests they spawn inherit this. Empty = spoof everywhere"
+      spellcheck="false"
+    ></textarea>
+  </div>
+
+  <!-- Save -->
+  <button id="saveBtn">
+    Save & Apply
+  </button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+
+</body>
+</html>
