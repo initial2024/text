@@ -165,29 +165,32 @@ final class GeckoAddonChoicePrompts {
                         picker.dismiss();
                     });
                     currentPicker.set(picker);
-                    picker.show();
-                    if(picker.getWindow()!=null){
-                        picker.getWindow().clearFlags(
-                            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-                            android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
-                        int width=a.getResources().getDisplayMetrics().widthPixels;
-                        int height=a.getResources().getDisplayMetrics().heightPixels;
-                        picker.getWindow().setLayout((int)(width*0.96f),(int)(height*0.76f));
-                        picker.getWindow().setSoftInputMode(
-                            android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
-                            android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
-                    }
-                    // Android may not give a newly-shown Dialog IME ownership
-                    // until the window is focused; this user-invoked picker
-                    // owns its own native EditText, independent of GeckoView.
-                    filter.requestFocus();
-                    filter.setOnTouchListener((v,event)->{
-                        if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP){
-                            filter.post(()->requestNativeSearchIme(a,filter,picker));
+                    picker.setOnShowListener(d->{
+                        android.view.Window w=picker.getWindow();
+                        if(w!=null){
+                            w.clearFlags(
+                                android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                                android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+                            int width=a.getResources().getDisplayMetrics().widthPixels;
+                            int height=a.getResources().getDisplayMetrics().heightPixels;
+                            w.setLayout((int)(width*0.96f),(int)(height*0.76f));
+                            w.setSoftInputMode(
+                                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
+                                android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
                         }
-                        return false; // preserve cursor movement and selection
+                        filter.requestFocus();
+                        // Wait until the native Dialog window owns focus; the
+                        // earlier post could run before InputMethodManager had
+                        // switched its served window on some Android 16 OEMs.
+                        View decor=w==null?filter:w.getDecorView();
+                        decor.postDelayed(()->requestNativeSearchIme(a,filter,picker),120L);
                     });
-                    filter.post(()->requestNativeSearchIme(a,filter,picker));
+                    filter.setOnTouchListener((v,event)->{
+                        if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP)
+                            filter.post(()->requestNativeSearchIme(a,filter,picker));
+                        return false;
+                    });
+                    picker.show();
                     refresh.run();
                 }catch(Exception failed){
                     settle(finished,result,prompt,null);
