@@ -58,6 +58,7 @@ final class GeckoTimezoneAddonUi {
             .setItems(new String[]{
                 "查看 Mozilla 扩展说明与权限",
                 "手动安装签名扩展（须再次批准权限）",
+                "Cloudflare 验证循环 · 网站例外设置",
                 "查看已安装状态 / 打开设置 / 卸载"
             },(dialog,which)->{
                 if(which==0){
@@ -66,6 +67,7 @@ final class GeckoTimezoneAddonUi {
                         message(a,"无法打开扩展介绍页面");
                     }
                 }else if(which==1)offerInstall(a);
+                else if(which==2)showVerificationCompatibilityGuide(a);
                 else listAndManage(a);
             }).setNegativeButton("取消",null).show();
     }
@@ -73,6 +75,22 @@ final class GeckoTimezoneAddonUi {
     private static void message(Activity a,String m){
         if(a!=null&&!a.isDestroyed()&&!a.isFinishing())
             Toast.makeText(a,m,Toast.LENGTH_LONG).show();
+    }
+
+    /** A documented user-controlled exception, never a challenge bypass. */
+    private static void showVerificationCompatibilityGuide(Activity a){
+        if(a==null||a.isDestroyed()||a.isFinishing())return;
+        new AlertDialog.Builder(a)
+            .setTitle("Timezone Guard · Cloudflare 兼容设置")
+            .setMessage("如果启用第三方时区插件后反复出现人机验证，请先在插件设置中关闭 Spoof HTTP Headers，" +
+                "并将出现验证循环的网站主域名添加到 Site Exceptions（每行一个，不要填写完整 URL）。\\n\\n" +
+                "例外网站及其框架会使用浏览器原生时区；其他网站仍按你选择的时区显示。" +
+                "保存后完整关闭并重新打开受影响网页。请自己手动完成网站验证。" +
+                "\\n\\n此操作不修改 Cookie、账号空间、登录信息，不保证任何网站一定通过验证。" +
+                "如仍然循环，请关闭或卸载该扩展。")
+            .setNegativeButton("返回",null)
+            .setPositiveButton("打开已安装插件设置",(d,w)->listAndManage(a))
+            .show();
     }
 
     private static Object originalRuntime() throws Exception{
@@ -326,6 +344,29 @@ final class GeckoTimezoneAddonUi {
                 });
             }).show();
     }
+    /**
+     * GeckoView owns the editable InputConnection; the host only makes its
+     * real window/view the active Android IME target. Never inject keystrokes.
+     */
+    private static void showPopupIme(Activity a,View ui,android.app.Dialog screen){
+        if(!screen.isShowing()||!ui.isAttachedToWindow()||!ui.hasWindowFocus())return;
+        if(!ui.hasFocus())ui.requestFocus();
+        android.view.inputmethod.InputMethodManager imm=
+            (android.view.inputmethod.InputMethodManager)
+                a.getSystemService(Context.INPUT_METHOD_SERVICE);
+        if(imm==null)return;
+        // Gecko can have Android View focus without becoming the IME served
+        // view after a Dialog switch. Re-acquire it only when it is stale.
+        if(!imm.isActive(ui)){
+            ui.clearFocus();
+            ui.requestFocus();
+        }
+        if(!ui.hasFocus())return;
+        imm.restartInput(ui);
+        imm.showSoftInput(ui,
+            android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+    }
+
     private static void openPopup(Activity a,Object addon){
         if(a==null||a.isDestroyed()||a.isFinishing())return;
         Object session=null;
@@ -407,6 +448,13 @@ final class GeckoTimezoneAddonUi {
             screen.setContentView(root);
             final android.app.Dialog closeScreen=screen;
             final Object closeSession=session,releaseView=view;
+            // Touch must still reach GeckoView. This is focus bookkeeping only,
+            // not a synthetic tap, JS event or text injection.
+            ui.setOnTouchListener((v,event)->{
+                if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN&&
+                    closeScreen.isShowing()&&!v.hasFocus())v.requestFocus();
+                return false;
+            });
             screen.setOnDismissListener(d->{
                 GeckoAddonChoicePrompts.release(choiceDialog);
                 try{gv.getMethod("releaseSession").invoke(releaseView);}
@@ -424,10 +472,15 @@ final class GeckoTimezoneAddonUi {
                     android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
                 screen.getWindow().setSoftInputMode(
                     android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
-                    android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+                    android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED);
             }
             screen.show();
-            if(screen.getWindow()!=null)screen.getWindow().setLayout(-1,-1);
+            if(screen.getWindow()!=null){
+                screen.getWindow().clearFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
+                    android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM);
+                screen.getWindow().setLayout(-1,-1);
+            }
             // Use Gecko's own TextInputDelegate for keyboard visibility
             // requests, forwarding all methods to its original default
             // handler; never inject text or intercept webpage keystrokes.
@@ -453,24 +506,28 @@ final class GeckoTimezoneAddonUi {
                         throw err.getCause()==null?err:err.getCause();
                     }
                     if("showSoftInput".equals(name)){
+                        // Gecko has confirmed that the web editor wants IME.
+                        // Run after normal focus dispatch, not synchronously
+                        // inside Gecko's delegate callback.
+                        ui.post(()->showPopupIme(a,ui,closeScreen));
+                    }else if("restartInput".equals(name)){
+                        // The active editor changed, but don't force a keyboard
+                        // open for non-editable content or hidden fields.
                         ui.post(()->{
-                            if(!ui.isAttachedToWindow()||!ui.hasWindowFocus()||
-                                !closeScreen.isShowing())return;
-                            ui.requestFocus();
+                            if(!closeScreen.isShowing()||!ui.hasWindowFocus()||
+                                !ui.hasFocus())return;
                             android.view.inputmethod.InputMethodManager imm=
                                 (android.view.inputmethod.InputMethodManager)
-                                a.getSystemService(Context.INPUT_METHOD_SERVICE);
-                            if(imm!=null){
-                                imm.restartInput(ui);
-                                imm.showSoftInput(ui,
-                                    android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
-                            }
+                                    a.getSystemService(Context.INPUT_METHOD_SERVICE);
+                            if(imm!=null)imm.restartInput(ui);
                         });
                     }
                     return forwarded;
                 });
             inputOwner.getClass().getMethod("setDelegate",textDelegate)
                 .invoke(inputOwner,focusedDelegate);
+            // Focus the GeckoView on first window attachment; do not show
+            // a keyboard until the user selects a real HTML edit field.
             ui.post(()->{
                 if(ui.isAttachedToWindow()&&ui.hasWindowFocus())ui.requestFocus();
             });
