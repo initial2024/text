@@ -93,7 +93,7 @@ final class GeckoTimezoneAddonUi {
             .show();
     }
 
-    private static Object originalRuntime() throws Exception{
+    static Object originalRuntime() throws Exception{
         Class<?> c=Class.forName("org.mozilla.geckoview.GeckoRuntime");
         Method m=c.getDeclaredMethod("getInstance");m.setAccessible(true);
         Object rt=m.invoke(null);
