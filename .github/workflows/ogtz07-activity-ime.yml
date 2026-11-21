@@ -6,6 +6,7 @@ on:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoTimezoneAddonUi.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoAddonChoicePrompts.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
       - 'original-core-addon/integrated-v05/tools/test_ogtz07_activity_ime.py'
       - '.github/workflows/ogtz07-activity-ime.yml'
   workflow_dispatch:
