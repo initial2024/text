@@ -35,7 +35,7 @@ jobs:
           overlay=get('ClaudeFloatingOverlay.java')
           home=get('OmniGateHomeActivity.java')
           settings=get('CompatSettingsActivity.java')
-          assert 'MAX_SLOTS=5' in slots
+          assert 'MAX_SLOTS=12' in slots
           assert 'newContextId()' in prefs and 'rotateContext(' in prefs
           assert 'actual.equals(expectedOldId)' in prefs
           assert 'Math.addExact(now,HOUR_MS*hours)' in metadata
