@@ -599,7 +599,11 @@ final class IsolatedGeckoBrowser {
                 int index=AccountBrowserStore.create(host,provider);
                 renderTabs();switchTo(index);
             }catch(RuntimeException ex){
-                state.setText("新增失败："+ex.getClass().getSimpleName());
+                if("slot_capacity_reached".equals(ex.getMessage())){
+                    state.setText("当前平台已达到 "+AccountBrowserSlots.MAX_SLOTS+" 个账号槽位上限；现有登录资料不受影响");
+                }else{
+                    state.setText("新增失败："+ex.getClass().getSimpleName()+"；请检查账号空间设置，勿清除登录资料");
+                }
             }
         });
         Button back=button("后退");back.setOnClickListener(v->callSession("goBack"));
