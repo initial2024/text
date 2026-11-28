@@ -12,6 +12,7 @@ on:
       - 'original-core-addon/integrated-v05/tools/test_ogui11_vault.py'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/LocalPasswordCenter.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/LocalPasswordAdvice.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/PasswordGeneratorUi.java'
       - 'original-core-addon/integrated-v05/relay-tests/LocalPasswordAdviceTest.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoAccountIsolationAudit.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/Account*.java'
