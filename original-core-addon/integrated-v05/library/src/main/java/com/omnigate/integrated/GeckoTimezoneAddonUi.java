@@ -42,7 +42,7 @@ final class GeckoTimezoneAddonUi {
             .setTitle("共享网页时区 · 扩展试验说明")
             .setMessage("候选：Mozilla 签名的 Timezone Guard v1.7（第三方 MIT 开源）。"+
                 "\\n此扩展可能读取/修改所有网站内容，并影响主网页与全部辅助 Gecko 账号。"+
-                "另一 Android 工作资料不会自动继承。"+
+                "另一 Android 工作资料不会自动继承。临时空间需单独授权扩展访问私密网页。"+
                 "\\n\\n此方案不是引擎级时区修改，Date/Intl/Worker 兼容性必须真机实测。"+
                 "安装只允许你主动发起，并须再次批准实际权限。"+
                 "不用远程调试，不改设备时间。")
@@ -291,14 +291,21 @@ final class GeckoTimezoneAddonUi {
                             }
                             if(found==null){message(a,"当前 GeckoRuntime 未安装 Timezone Guard");return;}
                             final Object addon=found;
+                            Boolean allowed=privatePermission(addon);
                             new AlertDialog.Builder(a)
                                 .setTitle("已安装：Timezone Guard")
                                 .setItems(new String[]{
                                     "打开时区设置（手机全屏 + 可搜索选择框）",
+                                    allowed==null?"临时空间扩展权限：无法读取":
+                                        allowed?"撤销临时空间扩展权限（已允许）":
+                                        "允许在临时空间运行（当前关闭）",
                                     "卸载第三方扩展 · 恢复原生 JS 时区"
                                 },(d,index)->{
                                     if(index==0)openPopup(a,addon);
-                                    else confirmUninstall(a,addon);
+                                    else if(index==1){
+                                        if(allowed==null)message(a,"当前 Gecko 无法核验私密浏览权限，不修改授权");
+                                        else confirmPrivatePermission(a,addon,!allowed);
+                                    }else confirmUninstall(a,addon);
                                 }).setNegativeButton("关闭",null).show();
                         });
                     }
@@ -313,6 +320,57 @@ final class GeckoTimezoneAddonUi {
             }
         });
     }
+    // Do not change the default install prompt or grant private access silently.
+    private static Boolean privatePermission(Object addon){
+        try{
+            if(!ADDON_ID.equals(addon.getClass().getField("id").get(addon)))return null;
+            Object metadata=addon.getClass().getField("metaData").get(addon);
+            return metadata.getClass().getField("allowedInPrivateBrowsing").getBoolean(metadata);
+        }catch(Exception unsupported){return null;}
+    }
+    private static void confirmPrivatePermission(Activity a,Object addon,boolean allow){
+        if(a.isFinishing()||a.isDestroyed())return;
+        new AlertDialog.Builder(a)
+            .setTitle(allow?"允许 Timezone Guard 访问临时空间？":"撤销临时空间访问权限？")
+            .setMessage(allow
+                ?"该第三方扩展可能读取或修改私密网页内容，包括登录页面；扩展自己的设置可能跨普通与临时空间保留。仅在你同意后授权。不关闭 Gecko 私密模式，不合并或复制账号 Cookie。"
+                :"仅撤销此扩展的私密网页访问；普通空间设置不变。")
+            .setNegativeButton("取消",null)
+            .setPositiveButton(allow?"允许":"撤销",(d,w)->{
+                if(!busy.compareAndSet(false,true)){message(a,"已有扩展操作进行中");return;}
+                HandlerThread thread=new HandlerThread("OGTZ-private-permission");
+                thread.start();
+                new Handler(thread.getLooper()).post(()->{
+                    try{
+                        Object ct=controller(originalRuntime());
+                        Class<?> wc=Class.forName("org.mozilla.geckoview.WebExtension");
+                        if(privatePermission(addon)==null)
+                            throw new IllegalStateException("unknown_private_permission");
+                        Object pending=ct.getClass()
+                            .getMethod("setAllowedInPrivateBrowsing",wc,boolean.class)
+                            .invoke(ct,addon,allow);
+                        observe(pending,new Delivered(){
+                            @Override public void value(Object updated){
+                                Boolean observed=privatePermission(updated);
+                                thread.quitSafely();busy.set(false);
+                                a.runOnUiThread(()->message(a,
+                                    Boolean.valueOf(allow).equals(observed)
+                                    ?(allow?"已授权临时空间；请关闭并重新打开临时网页测试":"已撤销；请关闭并重新打开临时网页")
+                                    :"Gecko 未确认目标权限状态，请重新查看已安装扩展"));
+                            }
+                            @Override public void error(Throwable err){
+                                thread.quitSafely();busy.set(false);
+                                a.runOnUiThread(()->message(a,"扩展权限修改失败；请重新检查实际状态"));
+                            }
+                        });
+                    }catch(Exception failed){
+                        thread.quitSafely();busy.set(false);
+                        a.runOnUiThread(()->message(a,"当前 Gecko 不支持或无法修改临时空间扩展权限"));
+                    }
+                });
+            }).show();
+    }
+
     private static void confirmUninstall(Activity a,Object addon){
         new AlertDialog.Builder(a).setTitle("卸载 Timezone Guard？")
             .setMessage("将移除扩展及其扩展存储，原有账号 Cookie 与 GeckoSession 不清理。"+

@@ -49,6 +49,7 @@ final class IsolatedGeckoBrowser {
     private final Dialog dialog;
     private final LinearLayout tabs;
     private final FrameLayout display;
+    private final GeckoLoadIndicator pageProgress;
     private final LinearLayout root;
     private final Button fullscreenExit;
     private final EditText addressInput;
@@ -326,6 +327,7 @@ final class IsolatedGeckoBrowser {
         }
         // On success the SAME GeckoSession is now attached to the overlay.
         // Do not call GeckoSession.close() from Dialog.onDismiss.
+        pageProgress.clear();
         session=null;
         geckoView=null;
         selected=-1;
@@ -542,6 +544,7 @@ final class IsolatedGeckoBrowser {
             root.addView(mainTarget,targetParams);
         display=new FrameLayout(host);
         root.addView(display,new LinearLayout.LayoutParams(-1,0,1));
+        pageProgress=new GeckoLoadIndicator(host,display);
         // One movable, low-obstruction edge handle. No buttons over the
         // website's top navigation; Back also exits fullscreen.
         fullscreenExit=button("⋮");
@@ -1040,17 +1043,21 @@ final class IsolatedGeckoBrowser {
                         }
                         started[0]=android.os.SystemClock.elapsedRealtime();
                         host.runOnUiThread(()->{
-                            if(session==ownedSession&&dialog.isShowing())
+                            if(session==ownedSession&&dialog.isShowing()){
+                                pageProgress.start(ownedSession);
                                 state.setText(provider.toUpperCase(java.util.Locale.ROOT)+
                                     " 网页正在加载 · 未触发自动刷新或更换账号");
+                            }
                         });
                     }else if("onProgressChange".equals(event)&&
-                            "claude".equals(provider)&&args[1] instanceof Integer){
+                            args[1] instanceof Integer){
                         int percent=(Integer)args[1];
                         if(percent>=0&&percent<=100)host.runOnUiThread(()->{
-                            if(session==ownedSession&&dialog.isShowing()&&lastPageFailure==null)
-                                state.setText("Claude 基础页面 "+percent+
-                                    "% · 不代表网页登录或模型功能已经就绪");
+                            if(session==ownedSession&&dialog.isShowing()&&lastPageFailure==null){
+                                pageProgress.progress(ownedSession,percent);
+                                state.setText(provider.toUpperCase(java.util.Locale.ROOT)+
+                                    " 基础页面 "+percent+"% · 不代表网页登录或模型功能已经就绪");
+                            }
                         });
                     }else if("onPageStop".equals(event)&&args[1] instanceof Boolean){
                         boolean success=(Boolean)args[1];
@@ -1060,6 +1067,7 @@ final class IsolatedGeckoBrowser {
                             java.util.Locale.ROOT,"%.1fs",elapsed/1000.0):"未记录";
                         host.runOnUiThread(()->{
                             if(session!=ownedSession||!dialog.isShowing())return;
+                            pageProgress.stop(ownedSession);
                             if(lastPageFailure!=null){
                                 state.setText(lastPageFailure+
                                     " · 未自动重试，请点击“主页”手动重新打开");
@@ -1126,12 +1134,14 @@ final class IsolatedGeckoBrowser {
         }
         try{
             GeckoBrowserTransfers.cancelSession(host,session);
+            pageProgress.request(session);
             session.getClass().getMethod("loadUri",String.class).invoke(session,url);
             currentUrl=url;
             addressInput.setText(url);
             if(url.startsWith("http://"))
                 state.setText("HTTP 未加密，勿在此网站输入密码或验证码");
         }catch(Throwable failure){
+            pageProgress.stop(session);
             new AlertDialog.Builder(host).setTitle("导航失败")
                 .setMessage("无法在当前隔离浏览器中打开网页："+failure.getClass().getSimpleName())
                 .setPositiveButton("确定",null).show();
@@ -1166,6 +1176,7 @@ final class IsolatedGeckoBrowser {
                         host.runOnUiThread(()->{
                             if(session==ownedSession && dialog.isShowing()){
                                 lastPageFailure=reason;
+                                pageProgress.stop(ownedSession);
                                 state.setText(reason+
                                     " · 这是 Gecko 网络/证书错误；不自动重启网页");
                             }
@@ -1609,6 +1620,7 @@ final class IsolatedGeckoBrowser {
                     if(session!=created||!dialog.isShowing())return;
                     contentProcessTerminated=true;
                     lastPageFailure=event;
+                    pageProgress.stop(created);
                     state.setText(event+
                         " · Gecko 内容进程终止；请手动点“主页”重建此账号网页。"+
                         " Cookie 和账号空间 ID 未清理，未自动重发请求");
@@ -1631,11 +1643,18 @@ final class IsolatedGeckoBrowser {
     }
     private void callSession(String method){
         if(session==null)return;
-        try{session.getClass().getMethod(method).invoke(session);}
-        catch(Throwable failure){state.setText("网页操作失败："+failure.getClass().getSimpleName());}
+        try{
+            if("reload".equals(method))pageProgress.request(session);
+            session.getClass().getMethod(method).invoke(session);
+        }
+        catch(Throwable failure){
+            pageProgress.stop(session);
+            state.setText("网页操作失败："+failure.getClass().getSimpleName());
+        }
     }
     private void releaseSession(){
         Object prior=session,view=geckoView;
+        pageProgress.clear();
         GeckoBrowserTransfers.cancelSession(host,prior);
         GeckoBrowserDownloads.cancelSession(prior);
         String guestId=guestContextId;
