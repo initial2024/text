@@ -75,6 +75,11 @@ public final class CompatSettingsActivity extends Activity {
         choose.setOnClickListener(v->LocalPasswordCenter.pick(this));
         Button close=button(root,"返回",false);close.setOnClickListener(v->finish());
         setContentView(root);
+        String saveToken=getIntent().getStringExtra("vault_save_token");
+        if(saveToken!=null){
+            root.post(()->LocalPasswordCenter.consumeNativeSave(this,saveToken));
+            return true;
+        }
         String provider=getIntent().getStringExtra("vault_provider");
         int slot=getIntent().getIntExtra("vault_slot",-1);
         if(provider!=null&&slot>=0)root.post(()->LocalPasswordCenter.show(this,provider,slot));
