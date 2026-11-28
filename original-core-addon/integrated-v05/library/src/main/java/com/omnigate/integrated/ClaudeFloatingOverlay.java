@@ -60,16 +60,16 @@ public final class ClaudeFloatingOverlay {
     private static boolean fullscreenWindow;
     private static int compactX,compactY;
     private static boolean inputFocusHeld;
-    private static final int BUBBLE_SIZE_DP=52;
+    private static final int BUBBLE_SIZE_DP=48;
     // Native window geometry only; never rewrite site CSS, DPR or JS viewport.
     private static int compactWidth(){
         int screen=app.getResources().getDisplayMetrics().widthPixels;
-        return Math.min(Math.round(screen*.94f),dp(app,440));
+        return Math.min(Math.round(screen*.84f),dp(app,342));
     }
     private static int compactHeight(){
         int screen=app.getResources().getDisplayMetrics().heightPixels;
-        int target=Math.round(screen*(tallWindow?.70f:.51f));
-        return Math.max(dp(app,300),Math.min(target,dp(app,tallWindow?720:540)));
+        int target=Math.round(screen*(tallWindow?.65f:.43f));
+        return Math.min(Math.max(dp(app,260),Math.min(target,dp(app,tallWindow?620:400))),Math.max(dp(app,160),screen-dp(app,48)));
     }
     private static Object session,geckoView;
     private static boolean sessionCloseFailed;
@@ -88,12 +88,18 @@ public final class ClaudeFloatingOverlay {
     private static int dp(Context c,int v){
         return Math.round(c.getResources().getDisplayMetrics().density*v);
     }
+    private static android.graphics.drawable.GradientDrawable rounded(Context c,int color,int radius){
+        android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable();
+        d.setColor(color);d.setCornerRadius(dp(c,radius));return d;
+    }
     private static Button button(Context c,String title){
         Button b=new Button(c);
         b.setAllCaps(false);b.setText(title);b.setTextSize(12);
-        b.setMinHeight(0);b.setMinimumHeight(0);
-        b.setTextColor(0xFFF7F9FF);b.setPadding(dp(c,3),0,dp(c,3),0);
-        b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF303858));
+        b.setMinHeight(0);b.setMinimumHeight(0);b.setMinWidth(0);b.setMinimumWidth(0);
+        b.setTextColor(0xFFF1F5FF);b.setPadding(dp(c,4),0,dp(c,4),0);
+        b.setBackgroundTintList(null);
+        b.setBackground(new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x337DE1DC),rounded(c,0xFF26364B,9),null));
         return b;
     }
     public static boolean showing(){return root!=null && manager!=null;}
@@ -286,7 +292,8 @@ public final class ClaudeFloatingOverlay {
         root=new LinearLayout(app);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(app,2),dp(app,2),dp(app,2),dp(app,2));
-        root.setBackgroundColor(0xFF11192E);
+        root.setBackground(rounded(app,0xFF142234,14));
+        root.setClipToOutline(true);
         // Tapping any other app always releases the IME focus previously
         // acquired for the Claude address field or Gecko text input.
         root.setOnTouchListener((v,event)->{
@@ -303,7 +310,8 @@ public final class ClaudeFloatingOverlay {
         // from address editor and overlay close.
         LinearLayout title=new LinearLayout(app);
         title.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(title,new LinearLayout.LayoutParams(-1,dp(app,40)));
+        title.setPadding(dp(app,3),dp(app,3),dp(app,3),dp(app,3));
+        root.addView(title,new LinearLayout.LayoutParams(-1,dp(app,42)));
         accountClockText=new TextView(app);
         accountClockText.setTextSize(11);
         accountClockText.setTextColor(0xFFC9D6F8);
@@ -331,7 +339,7 @@ public final class ClaudeFloatingOverlay {
         caption.setGravity(Gravity.CENTER);
         caption.setSingleLine(true);
         caption.setContentDescription("拖动悬浮窗位置");
-        title.addView(caption,new LinearLayout.LayoutParams(dp(app,28),-1));
+        title.addView(caption,new LinearLayout.LayoutParams(dp(app,22),-1));
         final float[] drag=new float[2];
         final int[] pos=new int[2];
         caption.setOnTouchListener((v,event)->{
@@ -353,26 +361,26 @@ public final class ClaudeFloatingOverlay {
         account=button(app,"账号 ▾");
         account.setSingleLine(true);
         account.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        title.addView(account,new LinearLayout.LayoutParams(0,dp(app,38),1));
+        title.addView(account,new LinearLayout.LayoutParams(0,dp(app,34),1));
         account.setOnClickListener(v->showAccounts());
-        quickControl=button(app,"设置");
+        quickControl=button(app,"⚙");
         quickControl.setContentDescription("仅管理当前账号的标签备注和额度记录");
-        title.addView(quickControl,new LinearLayout.LayoutParams(dp(app,42),dp(app,38)));
+        title.addView(quickControl,new LinearLayout.LayoutParams(dp(app,34),dp(app,34)));
         quickControl.setOnClickListener(v->{
             if(quickOpen)hideQuickSettings();else showQuickSettings();
         });
         fullscreenControl=button(app,"全屏");
         fullscreenControl.setContentDescription("返回全屏，保留当前网页");
-        title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,51),dp(app,38)));
+        title.addView(fullscreenControl,new LinearLayout.LayoutParams(dp(app,43),dp(app,34)));
         fullscreenControl.setOnClickListener(v->setFullscreenWindow(!fullscreenWindow));
         returnToPageControl=button(app,"回全页");
         returnToPageControl.setContentDescription(
             "返回原账号空间全屏网页，不刷新也不重新登录");
         title.addView(returnToPageControl,
-            new LinearLayout.LayoutParams(dp(app,57),dp(app,38)));
+            new LinearLayout.LayoutParams(dp(app,48),dp(app,34)));
         returnToPageControl.setOnClickListener(v->returnLivePage());
         fold=button(app,"—");
-        title.addView(fold,new LinearLayout.LayoutParams(dp(app,38),dp(app,38)));
+        title.addView(fold,new LinearLayout.LayoutParams(dp(app,34),dp(app,34)));
         fold.setContentDescription("收起或展开 Claude 悬浮窗");
         // A collapsed bubble is draggable without forcing keyboard focus.
         final float[] handleDown=new float[2];
@@ -406,7 +414,7 @@ public final class ClaudeFloatingOverlay {
         });
         fold.setOnClickListener(v->setMinimized(!minimized));
         closeControl=button(app,"×");
-        title.addView(closeControl,new LinearLayout.LayoutParams(dp(app,34),dp(app,38)));
+        title.addView(closeControl,new LinearLayout.LayoutParams(dp(app,32),dp(app,34)));
         closeControl.setOnClickListener(v->close());
         body=new LinearLayout(app);body.setOrientation(LinearLayout.VERTICAL);
         root.addView(body,new LinearLayout.LayoutParams(-1,0,1));
@@ -458,7 +466,11 @@ public final class ClaudeFloatingOverlay {
         fullscreenFooter=button(app,"全屏");
         fullscreenFooter.setContentDescription("全屏／还原当前网页，不刷新");
         for(Button b:new Button[]{back,reload,home,translate,addressControl,fullscreenFooter})
-            footer.addView(b,new LinearLayout.LayoutParams(0,dp(app,38),1));
+            {
+                LinearLayout.LayoutParams item=new LinearLayout.LayoutParams(0,dp(app,34),1);
+                item.setMargins(dp(app,2),dp(app,2),dp(app,2),dp(app,2));
+                footer.addView(b,item);
+            }
         back.setOnClickListener(v->callSession("goBack"));
         reload.setOnClickListener(v->callSession("reload"));
         home.setOnClickListener(v->navigate(AccountBrowserSlots.home(selectedProvider)));
@@ -1336,6 +1348,7 @@ public final class ClaudeFloatingOverlay {
                 ?"还原悬浮窗，保留网页"
                 :"返回全屏，保留当前网页");
         }
+        root.setBackground(rounded(app,0xFF142234,minimized?24:(fullscreenWindow?0:14)));
         manager.updateViewLayout(root,window);
     }
 
@@ -1392,7 +1405,12 @@ public final class ClaudeFloatingOverlay {
             compactX=window.x;
             compactY=window.y;
         }
-        fold.setText(value?"C":"—");
+        fold.setText(value?"◈":"—");
+        fold.setBackground(rounded(app,value?0xFF176E72:0xFF26364B,value?24:9));
+        root.setBackground(rounded(app,0xFF142234,value?24:(fullscreenWindow?0:14)));
+        LinearLayout.LayoutParams foldSize=(LinearLayout.LayoutParams)fold.getLayoutParams();
+        foldSize.width=dp(app,value?38:34);foldSize.height=dp(app,value?38:34);
+        fold.setLayoutParams(foldSize);
         fold.setContentDescription(value?"展开 Claude 网页悬浮窗":"收起 Claude 网页悬浮窗");
         applyWindowGeometry();
         // Gecko's documented setActive(false) reduces hidden-page memory,
