@@ -252,6 +252,112 @@ final class LocalPasswordCenter {
         return true;
     }
 
+    // One explicit request to use a saved password in a specific focused
+    // native form. No global login lookup or automatic submission.
+    private static PendingFill pendingFill;
+    private static final class PendingFill{
+        final String token=UUID.randomUUID().toString();
+        final String provider,id;
+        final int slot;
+        final Object session;
+        final GeckoNewPasswordFill.Target target;
+        final java.util.function.Supplier<String> page;
+        final java.util.function.BooleanSupplier owner,foreground;
+        final long until=android.os.SystemClock.elapsedRealtime()+60000;
+        PendingFill(String p,int s,String i,Object browser,GeckoNewPasswordFill.Target t,
+            java.util.function.Supplier<String> source,java.util.function.BooleanSupplier gate,
+            java.util.function.BooleanSupplier visible){
+            provider=p;slot=s;id=i;session=browser;target=t;page=source;owner=gate;foreground=visible;
+        }
+        boolean live(){
+            try{return android.os.SystemClock.elapsedRealtime()<until&&owner.getAsBoolean();}
+            catch(RuntimeException e){return false;}
+        }
+    }
+    static void requestNativeFill(Activity host,String p,int slot,String id,Object session,
+            java.util.function.Supplier<String> page,java.util.function.BooleanSupplier owner,
+            java.util.function.BooleanSupplier foreground){
+        if(!ready(host)||!same(host,p,slot,id)||!owner.getAsBoolean())return;
+        try{
+            GeckoNewPasswordFill.Target target=GeckoNewPasswordFill.focused(session,page.get(),"current-password");
+            PendingFill request=new PendingFill(p,slot,id,session,target,page,owner,foreground);
+            pendingFill=request;
+            Intent i=new Intent(host,CompatSettingsActivity.class);
+            i.putExtra(CompatSettingsActivity.EXTRA_PASSWORD_MODE,true);
+            i.putExtra("vault_fill_token",request.token);
+            try{host.startActivity(i);}catch(RuntimeException failure){
+                if(pendingFill==request)pendingFill=null;throw failure;
+            }
+            SAVE_HANDLER.postDelayed(()->{if(pendingFill==request)pendingFill=null;},60000);
+        }catch(Exception invalid){msg(host,"先点击网站明确标记的登录密码框；未确认来源时不填充");}
+    }
+    static boolean consumeNativeFill(Activity a,String token){
+        if(token==null)return false;
+        PendingFill request=pendingFill;
+        if(request==null||!request.token.equals(token)){msg(a,"填充请求已失效");return true;}
+        pendingFill=null;
+        if(!request.live()||!same(a,request.provider,request.slot,request.id)){
+            msg(a,"账号或网页已变化，已取消");return true;
+        }
+        auth(a,request.provider,request.slot,request.id,()->{
+            if(!request.live()||!same(a,request.provider,request.slot,request.id))return;
+            try{
+                JSONArray rows=load(a,request.id);
+                ArrayList<String> names=new ArrayList<>(),ids=new ArrayList<>();
+                for(int i=0;i<rows.length();i++){
+                    JSONObject row=rows.getJSONObject(i);
+                    if(request.target.origin.equals(row.getString("origin"))){
+                        names.add(row.getString("user"));ids.add(row.getString("id"));
+                    }
+                }
+                if(names.isEmpty()){msg(a,"此账号空间没有该网站的已保存密码");a.finish();return;}
+                AlertDialog choice=new AlertDialog.Builder(a)
+                    .setTitle("选择 "+request.target.origin+" 的密码")
+                    .setItems(names.toArray(new String[0]),(x,j)->auth(a,request.provider,request.slot,request.id,()->{
+                        if(!request.live()||!same(a,request.provider,request.slot,request.id))return;
+                        try{
+                            JSONArray fresh=load(a,request.id);
+                            for(int k=0;k<fresh.length();k++){
+                                JSONObject row=fresh.getJSONObject(k);
+                                if(ids.get(j).equals(row.getString("id"))&&request.target.origin.equals(row.getString("origin"))){
+                                    String pw=row.getString("password");
+                                    if(pw.isEmpty()||pw.length()>4096)throw new IllegalStateException("invalid_password");
+                                    a.finish();
+                                    // Wait for the original browser window to return, bounded.
+                                    // Never fill while another Activity is covering the target.
+                                    deliverNativeFill(a.getApplicationContext(),request,new String[]{pw},0);
+                                    return;
+                                }
+                            }
+                            msg(a,"记录已不存在");
+                        }catch(Exception failure){msg(a,"密码库未解锁或记录不可用");}
+                    })).setNegativeButton("取消",(x,w)->a.finish()).create();
+                secure(choice);
+            }catch(Exception failure){msg(a,"密码库读取失败");}
+        });
+        return true;
+    }
+    private static void deliverNativeFill(Context c,PendingFill r,String[] value,int attempt){
+        SAVE_HANDLER.postDelayed(()->{
+            try{
+                if(value[0]==null||!r.live()||!r.id.equals(existing(c,r.provider,r.slot)))
+                    throw new IllegalStateException("owner_changed");
+                if(!r.foreground.getAsBoolean()){
+                    if(attempt<9){deliverNativeFill(c,r,value,attempt+1);return;}
+                    throw new IllegalStateException("window_not_visible");
+                }
+                GeckoNewPasswordFill.Target now=GeckoNewPasswordFill.focused(r.session,r.page.get(),"current-password");
+                if(!GeckoNewPasswordFill.sameTarget(r.target,now))
+                    throw new IllegalStateException("field_changed");
+                GeckoNewPasswordFill.fill(now,value[0]);
+                value[0]=null;
+                Toast.makeText(c,"已请求填入所选密码；请检查用户名后自行提交",Toast.LENGTH_SHORT).show();
+            }catch(Exception rejected){
+                value[0]=null;Toast.makeText(c,"原输入框或账号已变化，已取消填充",Toast.LENGTH_SHORT).show();
+            }
+        },150);
+    }
+
     static void launch(Activity a,String provider,int slot){
         if(!ready(a))return;
         android.content.Intent i=new android.content.Intent(a,CompatSettingsActivity.class);
