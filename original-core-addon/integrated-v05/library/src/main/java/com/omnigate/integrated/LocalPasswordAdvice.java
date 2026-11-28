@@ -56,11 +56,23 @@ final class LocalPasswordAdvice {
         if(n<8)result=Math.min(result,25);
         else if(n<12)result=Math.min(result,55);
         else if(n<16)result=Math.min(result,75);
-        String user=username==null?"":username.trim().toLowerCase(Locale.ROOT);
-        int at=user.indexOf('@');if(at>=0)user=user.substring(0,at);
-        if(user.length()>=4&&p.contains(user))result=Math.min(result,35);
+        if(containsUsername(password,username))result=Math.min(result,35);
+        // Length alone does not establish the strength of all-numeric passwords.
+        if(p.matches("[0-9]+"))result=Math.min(result,55);
         if(reused)result=Math.min(result,40);
         return Math.min(100,result);
+    }
+    static boolean containsUsername(String password,String username){
+        String user=username==null?"":username.trim().toLowerCase(Locale.ROOT);
+        int at=user.indexOf('@');if(at>=0)user=user.substring(0,at);
+        return password!=null&&user.length()>=4&&password.toLowerCase(Locale.ROOT).contains(user);
+    }
+    // Bit flags allow categories to overlap without inflating affected-record count.
+    static int risks(String password,String username,boolean reused){
+        if(password==null)password="";
+        return (score(password,username,false)<60?1:0)|(reused?2:0)|
+            (password.codePointCount(0,password.length())<15?4:0)|
+            (containsUsername(password,username)?8:0);
     }
     static String label(int score){
         return score<30?"弱":score<60?"一般":score<80?"较强":"强";
