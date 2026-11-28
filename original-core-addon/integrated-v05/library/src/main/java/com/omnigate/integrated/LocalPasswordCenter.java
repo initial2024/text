@@ -186,6 +186,13 @@ final class LocalPasswordCenter {
         });
         dialog.show();
     }
+    private static boolean reused(JSONArray rows,String password,String exceptRecord)throws Exception{
+        for(int i=0;i<rows.length();i++){
+            JSONObject row=rows.getJSONObject(i);
+            if(!row.getString("id").equals(exceptRecord)&&password.equals(row.getString("password")))return true;
+        }
+        return false;
+    }
     private static void list(Activity a,String p,int slot,String id){
         if(!same(a,p,slot,id))return;
         try{
@@ -193,7 +200,11 @@ final class LocalPasswordCenter {
             String[] labels=new String[rows.length()],recordIds=new String[rows.length()];
             for(int i=0;i<labels.length;i++){
                 JSONObject row=rows.getJSONObject(i);
-                labels[i]=row.getString("origin")+" · "+row.getString("user");
+                int score=LocalPasswordAdvice.score(row.getString("password"),row.getString("user"),
+                    reused(rows,row.getString("password"),row.getString("id")));
+                labels[i]=row.getString("origin")+" · "+row.getString("user")+
+                    "\n本地强度 "+score+"/100 · "+LocalPasswordAdvice.label(score)+
+                    (reused(rows,row.getString("password"),row.getString("id"))?" · 库内重复":"");
                 recordIds[i]=row.getString("id");
             }
             AlertDialog d=new AlertDialog.Builder(a)
@@ -217,6 +228,31 @@ final class LocalPasswordCenter {
             field.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
             field.setSaveEnabled(false);root.addView(field);
         }
+        TextView strength=new TextView(a);
+        strength.setText("密码强度 0/100（本地估计，非泄露检测）");
+        root.addView(strength);
+        android.text.TextWatcher watcher=new android.text.TextWatcher(){
+            public void beforeTextChanged(CharSequence s,int start,int count,int after){}
+            public void onTextChanged(CharSequence s,int start,int before,int count){
+                int score=LocalPasswordAdvice.score(pass.getText().toString(),user.getText().toString(),false);
+                strength.setText("密码强度 "+score+"/100 · "+LocalPasswordAdvice.label(score)+
+                    "\n本地估计，保存时检查本空间重复密码");
+            }
+            public void afterTextChanged(android.text.Editable s){}
+        };
+        pass.addTextChangedListener(watcher);user.addTextChangedListener(watcher);
+        android.widget.Button generate=new android.widget.Button(a);
+        generate.setText("推荐随机强密码");
+        generate.setFilterTouchesWhenObscured(true);
+        root.addView(generate);
+        generate.setOnClickListener(v->new AlertDialog.Builder(a)
+            .setTitle("生成独立随机密码")
+            .setItems(new String[]{"20位 · 字母数字及符号","24位 · 字母数字及符号","32位 · 仅字母数字"},
+                (choice,index)->{
+                    if(!same(a,p,slot,id))return;
+                    try{pass.setText(LocalPasswordAdvice.generate(index==0?20:index==1?24:32,index!=2));}
+                    catch(RuntimeException failure){msg(a,"密码生成失败");}
+                }).setNegativeButton("取消",null).show());
         AlertDialog d=new AlertDialog.Builder(a).setTitle("手动添加此空间的密码")
             .setView(root).setNegativeButton("取消",null)
             .setPositiveButton("验证并保存",null).create();
@@ -243,9 +279,10 @@ final class LocalPasswordCenter {
                         }
                     }
                     if(rows.length()>=MAX_ENTRIES){msg(a,"此空间已达到100条记录");return;}
+                    boolean duplicate=reused(rows,pw,null);
                     rows.put(new JSONObject().put("id",UUID.randomUUID().toString())
                         .put("origin",o).put("user",u).put("password",pw));
-                    save(a,id,rows);d.dismiss();msg(a,"已加密保存到此账号空间");
+                    save(a,id,rows);d.dismiss();msg(a,duplicate?"已加密保存；警告：本空间内存在重复密码":"已加密保存到此账号空间");
                 }catch(Exception failure){msg(a,"保存失败；未覆盖原密码库");}
             });
         });
@@ -258,7 +295,11 @@ final class LocalPasswordCenter {
             if(row==null){msg(a,"记录已不存在");return;}
             String recordId=row.getString("id");
             TextView value=new TextView(a);value.setPadding(24,16,24,16);
-            value.setText(row.getString("origin")+"\n"+row.getString("user")+"\n\n"+row.getString("password"));
+            boolean duplicate=reused(all,row.getString("password"),recordId);
+            int score=LocalPasswordAdvice.score(row.getString("password"),row.getString("user"),duplicate);
+            value.setText(row.getString("origin")+"\n"+row.getString("user")+
+                "\n本地强度 "+score+"/100 · "+LocalPasswordAdvice.label(score)+
+                (duplicate?" · 本空间内重复":"")+"\n\n"+row.getString("password"));
             value.setTextIsSelectable(false);
             AlertDialog d=new AlertDialog.Builder(a).setTitle("此空间的密码 · 15秒后隐藏")
                 .setView(value).setNegativeButton("关闭",null)
