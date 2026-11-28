@@ -8,7 +8,8 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 /** Only writes a newly generated password to a user-selected native new-password node.
- * Never reads node values, saved credentials, DOM, or the shared runtime password store.
+ * Never reads node values, DOM, or the shared runtime password store.
+ * Saved-password filling requires a separate authenticated, user-selected vault operation.
  */
 final class GeckoNewPasswordFill {
     private GeckoNewPasswordFill(){}
@@ -20,12 +21,17 @@ final class GeckoNewPasswordFill {
         return new URI("https",null,u.getHost().toLowerCase(java.util.Locale.ROOT),
             u.getPort()==443?-1:u.getPort(),null,null,null).toASCIIString();
     }
-    private static final class Target {
+    static final class Target {
         Object structure,node;
         int id;
         String origin;
     }
     private static Target focused(Object session,String page)throws Exception{
+        return focused(session,page,"new-password");
+    }
+    static Target focused(Object session,String page,String purpose)throws Exception{
+        if(!"new-password".equals(purpose)&&!"current-password".equals(purpose))
+            throw new IllegalArgumentException("purpose");
         if(session==null||!Boolean.TRUE.equals(session.getClass().getMethod("isOpen").invoke(session)))
             throw new IllegalStateException("closed");
         String origin=pageOrigin(page);
@@ -46,12 +52,22 @@ final class GeckoNewPasswordFill {
         int passwordHint=Class.forName("org.mozilla.geckoview.Autofill$Hint").getField("PASSWORD").getInt(null);
         String ac=(String)n.getMethod("getAttribute",String.class).invoke(node,"autocomplete");
         if(hint!=passwordHint||ac==null||
-            !ac.toLowerCase(java.util.Locale.ROOT).trim().matches("(?:[a-z0-9_-]+\\s+)*new-password"))
+            !ac.toLowerCase(java.util.Locale.ROOT).trim().matches("(?:[a-z0-9_-]+\\s+)*"+purpose))
             throw new IllegalStateException("not_explicit_new_password");
         Object data=tree.getClass().getMethod("dataFor",n).invoke(tree,node);
         Target t=new Target();t.structure=tree;t.node=node;t.origin=origin;
         t.id=((Number)data.getClass().getMethod("getId").invoke(data)).intValue();
         return t;
+    }
+    static boolean sameTarget(Target original,Target now){
+        return now.structure==original.structure&&now.node==original.node&&
+            now.id==original.id&&now.origin.equals(original.origin);
+    }
+    static void fill(Target target,String password)throws Exception{
+        SparseArray<CharSequence> values=new SparseArray<>();values.put(target.id,password);
+        try{target.structure.getClass().getMethod("autofill",SparseArray.class)
+                .invoke(target.structure,values);}
+        finally{values.clear();}
     }
     static void show(Activity host,Object session,Supplier<String> committedPage,BooleanSupplier owner){
         if(host==null||host.isFinishing()||host.isDestroyed()||!owner.getAsBoolean())return;
@@ -69,9 +85,7 @@ final class GeckoNewPasswordFill {
                 if(now.structure!=original.structure||now.node!=original.node||
                     now.id!=original.id||!now.origin.equals(original.origin))
                     throw new IllegalStateException("field_changed");
-                SparseArray<CharSequence> values=new SparseArray<>();values.put(now.id,password);
-                now.structure.getClass().getMethod("autofill",SparseArray.class)
-                    .invoke(now.structure,values);
+                fill(now,password);
                 Toast.makeText(host,"已请求原生填入新密码；请检查表单后自行提交",Toast.LENGTH_LONG).show();
             }catch(Exception rejected){
                 Toast.makeText(host,"页面或输入框已变化，已取消填入；请重新选择密码框",Toast.LENGTH_LONG).show();
