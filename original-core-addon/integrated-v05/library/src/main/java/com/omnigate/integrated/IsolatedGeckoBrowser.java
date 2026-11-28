@@ -54,6 +54,8 @@ final class IsolatedGeckoBrowser {
     private final Button fullscreenExit;
     private final EditText addressInput;
     private String currentUrl;
+    private String committedPasswordPage;
+    private long passwordPageEpoch;
     private String lastPageFailure;
     private boolean contentProcessTerminated;
     private boolean fullscreenMode;
@@ -814,7 +816,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,12,10,"生成新密码（注册时使用）");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
-                case 12:PasswordGeneratorUi.show(host,null);return true;
+                case 12:generateForPage();return true;
                 case 1:showPicker(host);return true;
                 case 2:
                     if(selected>=0)AccountQuickSettings.show(host,provider,selected);
@@ -895,6 +897,22 @@ final class IsolatedGeckoBrowser {
         host.startActivity(intent);
     }
 
+    private void generateForPage(){
+        final Object owner=session;
+        final int slot=selected;
+        final long epoch=passwordPageEpoch;
+        if(guestWindow||owner==null||slot<0||committedPasswordPage==null){
+            PasswordGeneratorUi.show(host,null);return;
+        }
+        final String id=AccountBrowserStore.contextId(host,provider,slot);
+        GeckoNewPasswordFill.show(host,owner,()->committedPasswordPage,()->{
+            try{return !guestWindow&&selected==slot&&session==owner&&
+                passwordPageEpoch==epoch&&ownsLiveSession(owner)&&
+                id.equals(AccountBrowserStore.contextId(host,provider,slot));}
+            catch(RuntimeException e){return false;}
+        });
+    }
+
     private void showFullscreenActions(){
         if(!fullscreenMode)return;
         PopupMenu menu=new PopupMenu(host,fullscreenExit);
@@ -912,7 +930,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,12,9,"生成新密码（注册时使用）");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
-                case 12:PasswordGeneratorUi.show(host,null);return true;
+                case 12:generateForPage();return true;
                 case 1:showAddressDialog();return true;
                 case 2:callSession("goBack");return true;
                 case 3:callSession("reload");return true;
@@ -1051,6 +1069,7 @@ final class IsolatedGeckoBrowser {
                     if(args==null||args.length<2||args[0]!=ownedSession)return null;
                     if("onPageStart".equals(event)){
                         if(session==ownedSession){
+                            committedPasswordPage=null;passwordPageEpoch++;
                             GeckoBrowserTransfers.cancelSession(host,ownedSession);
                             lastPageFailure=null;
                             contentProcessTerminated=false;
@@ -1185,6 +1204,7 @@ final class IsolatedGeckoBrowser {
                             ()->GeckoLiveWindowHandoff.owns(ownedSession),strict);
                     if("onLoadError".equals(method.getName())&&
                             args!=null&&args.length>=3&&args[0]==ownedSession){
+                        if(session==ownedSession){committedPasswordPage=null;passwordPageEpoch++;}
                         Object failure=args[2];
                         String reason=GeckoPageFailureUi.detail(failure);
                         host.runOnUiThread(()->{
@@ -1198,7 +1218,8 @@ final class IsolatedGeckoBrowser {
                         return GeckoPageFailureUi.response(provider,failure);
                     }
                     if("onLocationChange".equals(method.getName()) &&
-                        args!=null && args.length>1 && args[1] instanceof String){
+                        args!=null && args.length>1 && args[0]==ownedSession && args[1] instanceof String){
+                        if(session==ownedSession){committedPasswordPage=(String)args[1];passwordPageEpoch++;}
                         String current=(String)args[1];
                         host.runOnUiThread(()->{
                             if(session==ownedSession &&
@@ -1673,6 +1694,7 @@ final class IsolatedGeckoBrowser {
         GeckoBrowserDownloads.cancelSession(prior);
         String guestId=guestContextId;
         session=null;geckoView=null;selected=-1;currentUrl=null;guestContextId=null;
+        committedPasswordPage=null;passwordPageEpoch++;
         lastPageFailure=null;contentProcessTerminated=false;
         if(view!=null){
             try{view.getClass().getMethod("releaseSession").invoke(view);}
