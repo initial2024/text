@@ -486,6 +486,14 @@ final class LocalPasswordCenter {
             field.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
             field.setSaveEnabled(false);root.addView(field);
         }
+        android.widget.Button paste=new android.widget.Button(a);
+        paste.setText("粘贴密码");paste.setFilterTouchesWhenObscured(true);root.addView(paste);
+        paste.setOnClickListener(v->{
+            if(!same(a,p,slot,id)||!pass.isAttachedToWindow())return;
+            pass.requestFocus();
+            if(!pass.onTextContextMenuItem(android.R.id.paste))
+                msg(a,"系统剪贴板为空或当前工作资料禁止粘贴");
+        });
         TextView strength=new TextView(a);
         strength.setText("密码强度 0/100（本地估计，非泄露检测）");
         root.addView(strength);

@@ -3,7 +3,11 @@ package com.omnigate.integrated;
 import android.app.Activity;
 import android.util.Log;
 import android.view.View;
-import android.widget.PopupMenu;
+import android.widget.PopupWindow;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.view.Gravity;
+import android.view.ViewGroup;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.function.BooleanSupplier;
@@ -24,7 +28,7 @@ final class GeckoSelectionControls {
         try{
             Class<?> delegate=Class.forName(
                 "org.mozilla.geckoview.GeckoSession$SelectionActionDelegate");
-            final PopupMenu[] active={null};
+            final PopupWindow[] active={null};
             Object proxy=Proxy.newProxyInstance(delegate.getClassLoader(),
                 new Class<?>[]{delegate},(object,method,args)->{
                     String name=method.getName();
@@ -49,7 +53,15 @@ final class GeckoSelectionControls {
                     if(selection==null||!anchor.isAttachedToWindow())return null;
                     if(active[0]!=null){active[0].dismiss();active[0]=null;}
                     makeFocusable.run();
-                    PopupMenu popup=new PopupMenu(anchor.getContext(),anchor);
+                    LinearLayout panel=new LinearLayout(anchor.getContext());
+                    panel.setOrientation(LinearLayout.HORIZONTAL);
+                    android.graphics.drawable.GradientDrawable bg=new android.graphics.drawable.GradientDrawable();
+                    bg.setColor(0xffe8edf5);bg.setCornerRadius(20f);panel.setBackground(bg);
+                    PopupWindow popup=new PopupWindow(panel,ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,false);
+                    popup.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+                    popup.setTouchable(true);popup.setOutsideTouchable(false);
+                    popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NEEDED);popup.setElevation(8f);
                     final String[] actions={
                         "org.mozilla.geckoview.COPY",
                         "org.mozilla.geckoview.PASTE",
@@ -62,29 +74,32 @@ final class GeckoSelectionControls {
                         .getMethod("isActionAvailable",String.class);
                     boolean any=false;
                     for(int i=0;i<actions.length;i++){
-                        if(Boolean.TRUE.equals(available.invoke(selection,actions[i]))){
-                            popup.getMenu().add(0,i+1,i,labels[i]);any=true;
-                        }
+                        final int index=i;
+                        if(!Boolean.TRUE.equals(available.invoke(selection,actions[i])))continue;
+                        Button button=new Button(anchor.getContext());
+                        button.setText(labels[i]);button.setAllCaps(false);
+                        button.setTextSize(13);button.setFilterTouchesWhenObscured(true);
+                        panel.addView(button);any=true;
+                        button.setOnClickListener(v->{
+                            try{
+                                if(active[0]!=popup||!anchor.isAttachedToWindow()||
+                                    !anchor.hasWindowFocus()||!owner.getAsBoolean())return;
+                                if(Boolean.TRUE.equals(available.invoke(selection,actions[index])))
+                                    selection.getClass().getMethod("execute",String.class)
+                                        .invoke(selection,actions[index]);
+                            }catch(Throwable expired){
+                                Log.w(TAG,"native_selection_expired_no_clipboard_read");
+                            }finally{popup.dismiss();}
+                        });
                     }
                     if(!any)return null;
-                    popup.setOnMenuItemClickListener(item->{
-                        int index=item.getItemId()-1;
-                        if(index<0||index>=actions.length)return true;
-                        try{
-                            if(!owner.getAsBoolean())return true;
-                            if(Boolean.TRUE.equals(available.invoke(selection,actions[index])))
-                                selection.getClass().getMethod("execute",String.class)
-                                    .invoke(selection,actions[index]);
-                        }catch(Throwable expired){
-                            Log.w(TAG,"native_selection_expired_no_clipboard_read");
-                        }
-                        return true;
-                    });
-                    popup.setOnDismissListener(menu->{
-                        if(active[0]==popup)active[0]=null;
-                    });
-                    active[0]=popup;
-                    popup.show();
+                    popup.setOnDismissListener(()->{if(active[0]==popup)active[0]=null;});
+                    try{
+                        popup.showAtLocation(anchor,Gravity.TOP|Gravity.CENTER_HORIZONTAL,0,
+                            Math.round(56*anchor.getResources().getDisplayMetrics().density));
+                        active[0]=popup;
+                        anchor.postDelayed(()->{if(active[0]==popup)popup.dismiss();},15000L);
+                    }catch(RuntimeException detached){popup.dismiss();}
                     return null;
                 });
             owned.getClass().getMethod("setSelectionActionDelegate",delegate)
@@ -99,25 +114,10 @@ final class GeckoSelectionControls {
         }
     }
 
-    /** Native full-page Activity can use Gecko's official ActionMode menu. */
-    static void fullPage(Object owned,Activity host){
-        if(owned==null||host==null||host.isFinishing()||host.isDestroyed())
+    /** The full-page browser is a Dialog, not the underlying Activity window. */
+    static void fullPage(Object owned,Activity host,View anchor,BooleanSupplier owner){
+        if(host==null||host.isFinishing()||host.isDestroyed())
             throw new IllegalArgumentException("page_selection_owner_missing");
-        try{
-            Class<?> delegate=Class.forName(
-                "org.mozilla.geckoview.GeckoSession$SelectionActionDelegate");
-            Object nativeDelegate=Class.forName(
-                "org.mozilla.geckoview.BasicSelectionActionDelegate")
-                .getConstructor(Activity.class).newInstance(host);
-            owned.getClass().getMethod("setSelectionActionDelegate",delegate)
-                .invoke(owned,nativeDelegate);
-            if(owned.getClass().getMethod("getSelectionActionDelegate")
-                .invoke(owned)!=nativeDelegate)
-                throw new IllegalStateException("page_selection_delegate_owner_mismatch");
-        }catch(Throwable unavailable){
-            Log.w(TAG,"page_selection_delegate_unavailable",unavailable);
-            throw new IllegalStateException(
-                "page_gecko_native_copy_paste_unavailable",unavailable);
-        }
+        overlay(owned,anchor,owner,()->{});
     }
 }
