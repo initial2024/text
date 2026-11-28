@@ -72,6 +72,7 @@ final class LocalPasswordCenter {
         KeyGenerator g=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore");
         g.init(new KeyGenParameterSpec.Builder(alias(id),
             KeyProperties.PURPOSE_ENCRYPT|KeyProperties.PURPOSE_DECRYPT)
+            .setKeySize(256)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setRandomizedEncryptionRequired(true)
@@ -121,7 +122,7 @@ final class LocalPasswordCenter {
         KeyStore k=keys();if(k.containsAlias(alias(id)))k.deleteEntry(alias(id));
         file(c,id).delete();
     }
-    private static String origin(String raw)throws Exception{
+    static String origin(String raw)throws Exception{
         URI u=new URI(raw.trim());
         if(!"https".equalsIgnoreCase(u.getScheme())||u.getHost()==null||u.getRawUserInfo()!=null||
            u.getRawQuery()!=null||u.getRawFragment()!=null||
@@ -219,8 +220,10 @@ final class LocalPasswordCenter {
         AlertDialog d=new AlertDialog.Builder(a).setTitle("手动添加此空间的密码")
             .setView(root).setNegativeButton("取消",null)
             .setPositiveButton("验证并保存",null).create();
-        d.setOnDismissListener(x->pass.setText(""));
+        d.setOnDismissListener(x->{pass.setText("");user.setText("");site.setText("");});
         secure(d);
+        for(EditText field:new EditText[]{site,user,pass})field.setFilterTouchesWhenObscured(true);
+        d.getButton(AlertDialog.BUTTON_POSITIVE).setFilterTouchesWhenObscured(true);
         d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
             if(!same(a,p,slot,id)){d.dismiss();return;}
             final String o,u,pw;
