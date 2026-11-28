@@ -49,6 +49,37 @@ public final class CompatSettingsActivity extends Activity {
     private static final String LOCAL_URL = "http://127.0.0.1:8787/v1";
     static final String EXTRA_TIMEZONE_ADDON_URL =
         "com.omnigate.integrated.extra.TIMEZONE_ADDON_URL";
+    static final String EXTRA_PASSWORD_MODE="com.omnigate.integrated.extra.PASSWORD_MODE";
+    private static final int VAULT_AUTH=557;
+    private boolean passwordMode;
+    private Runnable pendingVaultAuthentication;
+    void requestVaultAuthentication(Runnable action){
+        if(!passwordMode||isFinishing()||isDestroyed()||pendingVaultAuthentication!=null)return;
+        android.app.KeyguardManager lock=getSystemService(android.app.KeyguardManager.class);
+        if(lock==null||!lock.isDeviceSecure())return;
+        Intent verify=lock.createConfirmDeviceCredentialIntent("解锁独立密码库","仅用于本机身份验证，不使用系统密码管理器");
+        if(verify==null)return;
+        pendingVaultAuthentication=action;
+        try{startActivityForResult(verify,VAULT_AUTH);}
+        catch(RuntimeException failure){pendingVaultAuthentication=null;toast("锁屏验证无法启动");}
+    }
+    private boolean openPasswordMode(){
+        if(!getIntent().getBooleanExtra(EXTRA_PASSWORD_MODE,false))return false;
+        passwordMode=true;
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+        LinearLayout root=vertical();root.setPadding(dp(18),dp(20),dp(18),dp(20));
+        root.setBackgroundColor(0xFFF4F6FC);
+        margin(root,text("独立密码管理中心",24,0xFF342B58,true),12);
+        margin(root,text("按已初始化账号空间隔离；需要设备锁屏验证。不会自动读取登录表单、使用系统密码库或上传密码。",14,0xFF586080,false),12);
+        Button choose=button(root,"选择账号空间",true);
+        choose.setOnClickListener(v->LocalPasswordCenter.pick(this));
+        Button close=button(root,"返回",false);close.setOnClickListener(v->finish());
+        setContentView(root);
+        String provider=getIntent().getStringExtra("vault_provider");
+        int slot=getIntent().getIntExtra("vault_slot",-1);
+        if(provider!=null&&slot>=0)root.post(()->LocalPasswordCenter.show(this,provider,slot));
+        return true;
+    }
     private static final int PICK_DOCUMENT = 556;
     private static final int MAX_FILE_BYTES = 8 * 1024 * 1024;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -365,6 +396,7 @@ public final class CompatSettingsActivity extends Activity {
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        if(openPasswordMode())return;
         GatewayApp.initialize(getApplicationContext());
         if(openTimezoneAddonActivityMode())return;
         getWindow().setStatusBarColor(0xFFF4F6FC);
@@ -397,6 +429,8 @@ public final class CompatSettingsActivity extends Activity {
         accountEntry.setOnClickListener(v->IsolatedGeckoBrowser.showPicker(this));
         Button accountManager=button(page,"账号管理",false);
         accountManager.setOnClickListener(v->AccountManagerUi.show(this));
+        Button vaultEntry=button(page,"独立密码管理中心",false);
+        vaultEntry.setOnClickListener(v->LocalPasswordCenter.launch(this,null,-1));
         margin(page,text("DeepSeek / GLM / ChatGPT / Grok / Claude｜网页登录独立存储；"+
             "不会切换原版 8787 模型执行账号",12,0xFF637086,false),8);
         Button addonEntry=button(page,"浏览器扩展 / 权限",false);
@@ -845,6 +879,7 @@ public final class CompatSettingsActivity extends Activity {
     }
 
     @Override protected void onDestroy(){
+        pendingVaultAuthentication=null;
         if(timezoneAddonMode){
             if(timezoneAddonChoiceDialog!=null)
                 GeckoAddonChoicePrompts.release(timezoneAddonChoiceDialog);
@@ -872,6 +907,7 @@ public final class CompatSettingsActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        if(passwordMode)return;
         OmniGateBrowserLanguage.syncIfExisting(this);
         if (localBadge != null && upstreamBadge != null) updateState();
         refreshRelayStatus();
@@ -1060,7 +1096,12 @@ public final class CompatSettingsActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != PICK_DOCUMENT) return;
+        if(requestCode==VAULT_AUTH){
+            Runnable action=pendingVaultAuthentication;pendingVaultAuthentication=null;
+            if(passwordMode&&resultCode==RESULT_OK&&action!=null&&!isFinishing()&&!isDestroyed())action.run();
+            return;
+        }
+        if(passwordMode||requestCode != PICK_DOCUMENT) return;
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
             uploadState.setText("已取消文件选择");
             return;
