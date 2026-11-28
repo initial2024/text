@@ -113,7 +113,8 @@ public final class OmniGateHomeActivity extends Activity {
             ()->IsolatedGeckoBrowser.showPicker(this));
         button(browser,"账号管理",false,()->AccountManagerUi.show(this));
         button(browser,"系统隔离检查",false,()->AndroidProfileSafetyCenter.show(this));
-        button(browser,"浏览器扩展与设置",false,()->{
+        button(browser,"浏览器扩展",false,()->GeckoTimezoneAddonUi.show(this));
+        button(browser,"更多设置",false,()->{
             startActivity(new Intent(this,CompatSettingsActivity.class));
         });
 
@@ -171,12 +172,7 @@ public final class OmniGateHomeActivity extends Activity {
             11,MUTED,false),7);
         accountStatus=txt("账号空间：读取中…",13,CYAN,true);
         add(main,accountStatus,9);
-        button(main,"一键切换独立账号",true,
-            ()->IsolatedGeckoBrowser.showPicker(this));
-        button(main,"多账号管理 · 搜索 / 筛选 / 备注 / 清理",false,
-            ()->AccountManagerUi.show(this));
-        button(main,"系统隔离 / 应用分身安全检查",false,
-            ()->AndroidProfileSafetyCenter.show(this));
+        // Browser and account controls are already visible above.
         button(main,"主执行账号 · 前往原版模型页",false,
             ()->openOriginal("com.deepseek2.app.ui.MainActivity"));
         button(main,"清除主执行目标 · 恢复原版登录路由",false,()->
@@ -265,6 +261,12 @@ public final class OmniGateHomeActivity extends Activity {
         refresh();
     }
     private void openOriginal(String cls){
+        if(!GatewayApp.autoStartEnabled()){
+            new AlertDialog.Builder(this).setTitle("原版网关功能已关闭")
+                .setMessage("原版模型页可能自行启动其原生 API；普通浏览请使用首页独立账号。若确需使用原版网关，请先手动启用。")
+                .setPositiveButton("返回",null).show();
+            return;
+        }
         try{
             Intent i=new Intent();i.setClassName(getPackageName(),cls);
             i.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|

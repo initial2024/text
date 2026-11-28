@@ -419,7 +419,7 @@ final class IsolatedGeckoBrowser {
         root.setBackgroundColor(0xFF0B1024);
         TextView info=new TextView(host);
         info.setText("OmniGate  /  "+provider.toUpperCase(java.util.Locale.ROOT)+
-            (guestWindow?"\n临时访客 · 关闭后清除该空间的站点存储 · 可能仍被网页指纹识别":
+            (guestWindow?"\n临时访客 · 私密浏览":
             AccountBrowserSlots.browserOnly(provider)
                 ? "\n仅浏览器登录 · 不支持 API · 不会后台预加载"
                 : "\n隔离账号空间 · 与原版 8787 主执行登录独立"));
@@ -513,7 +513,7 @@ final class IsolatedGeckoBrowser {
         root.addView(state);
         TextView instructions=new TextView(host);
         instructions.setText(guestWindow
-            ? "临时访客：独立随机空间 + Gecko 私密模式 + 跟踪保护。关闭后清除该空间；不保证网站无法识别设备。"
+            ? "关闭后清理访客站点数据；仍可能被网站识别设备。"
             : AccountBrowserSlots.browserOnly(provider)
             ? "仅在你点击此账号时连接 claude.ai；切换或关闭即结束当前 Gecko 会话。" +
               "不调用模型 API、不自动发送、不中途轮换账号。"

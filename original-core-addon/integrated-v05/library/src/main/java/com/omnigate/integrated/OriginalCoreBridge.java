@@ -731,6 +731,7 @@ public final class OriginalCoreBridge {
      * Never silently stop a conversation, kill a process or seize a socket.
      */
     public static synchronized String requestMainOwnerHandoff(Activity caller) {
+        if(!GatewayApp.autoStartEnabled())return "浏览器模式：原版网关未授权接管";
         if(handoffPending.get())return handoffState;
         if(!originalOverlayActive()){
             handoffState="拒绝接管：原悬浮服务未运行，不能确认原端口监听者";
@@ -823,6 +824,10 @@ public final class OriginalCoreBridge {
      * current model is generating.
      */
     private static void completeMainOwnerHandoff(Activity owner) {
+        if(!GatewayApp.autoStartEnabled()){
+            handoffPending.set(false);
+            handoffState="浏览器模式：取消待处理网关接管";return;
+        }
         if(!handoffPending.get() || owner==null || owner.isFinishing() ||
             owner.isDestroyed())return;
         JSONObject mainAlready=diagnoseVisibleHostSocket();
@@ -1022,6 +1027,9 @@ public final class OriginalCoreBridge {
     }
 
     private static void startNativeOnResumedOwner(Activity owner) {
+        if(!GatewayApp.autoStartEnabled()){
+            lastStartStatus="浏览器模式：拒绝延迟的原版 API 启动";return;
+        }
         if(owner.isDestroyed() || owner.isFinishing()) {
             lastStartStatus="原版页面已关闭；未重复启动";
             return;

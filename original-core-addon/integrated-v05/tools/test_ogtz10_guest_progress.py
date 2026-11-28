@@ -70,3 +70,12 @@ assert 'advancedBody.setVisibility(View.GONE)' in home
 assert home.index('IsolatedGeckoBrowser.showPicker(this)') < home.index('LinearLayout advanced=card(page)')
 print('OGBROWSER12_DEFAULT_OFF_AND_COMPACT_HOME_SOURCE=PASS')
 print('OGBROWSER12_REAL_DEVICE_PORT_AND_UI=NOT_TESTED')
+
+settings=(src/"CompatSettingsActivity.java").read_text()
+bridge=(src/"OriginalCoreBridge.java").read_text()
+assert 'gatewaySection.setVisibility(View.GONE)' in settings
+assert 'panel(gatewaySection, "本地 API 服务"' in settings
+assert 'GeckoTimezoneAddonUi.show(this)' in home
+assert 'if(!GatewayApp.autoStartEnabled())' in bridge.split('private static void startNativeOnResumedOwner',1)[1]
+assert 'if(!GatewayApp.autoStartEnabled())' in bridge.split('private static void completeMainOwnerHandoff',1)[1]
+print('OGBROWSER12_COMPACT_SETTINGS_AND_DEFERRED_START_GATE_SOURCE=PASS')

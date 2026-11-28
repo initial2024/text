@@ -58,8 +58,11 @@ public final class GatewayApp {
         // Revoke permission before stopping so concurrent start paths fail.
         RelayRuntime.stop();
         Context c=context;
-        if(c!=null)c.stopService(new android.content.Intent(c,SidecarService.class));
-        LocalProxyRuntime.stop();
+        try{
+            if(c!=null)c.stopService(new android.content.Intent(c,SidecarService.class));
+        }finally{
+            LocalProxyRuntime.stop();
+        }
     }
     // Opt-in notification foreground service: Android may reject it. This
     // preference never overrides background-start restrictions.
