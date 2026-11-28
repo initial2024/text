@@ -14,6 +14,9 @@ import java.util.function.Consumer;
 final class PasswordGeneratorUi {
     private PasswordGeneratorUi(){}
     static void show(Activity a,Consumer<String> use){
+        show(a,null,use);
+    }
+    static void show(Activity a,String target,Consumer<String> use){
         if(a==null||a.isFinishing()||a.isDestroyed())return;
         LinearLayout box=new LinearLayout(a);box.setOrientation(LinearLayout.VERTICAL);
         int pad=(int)(16*a.getResources().getDisplayMetrics().density);
@@ -49,7 +52,7 @@ final class PasswordGeneratorUi {
             c.setOnCheckedChangeListener((v,checked)->generate.run());
         regenerate.setOnClickListener(v->generate.run());
         ScrollView scroll=new ScrollView(a);scroll.addView(box);
-        AlertDialog dialog=new AlertDialog.Builder(a).setTitle("生成新密码")
+        AlertDialog dialog=new AlertDialog.Builder(a).setTitle(target==null?"生成新密码":"为 "+target+" 生成新密码")
             .setView(scroll).setNegativeButton("取消",null)
             .setPositiveButton(use!=null?"使用此密码":"复制新密码",null).create();
         if(dialog.getWindow()!=null)dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
