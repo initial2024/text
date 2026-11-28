@@ -376,7 +376,8 @@ final class IsolatedGeckoBrowser {
             target.passwordRuntime=runtime;
             // Restore Android native ActionMode after overlay's temporary
             // selection menu. Same GeckoSession, no URL reload.
-            GeckoSelectionControls.fullPage(existingSession,host);
+            GeckoSelectionControls.fullPage(existingSession,host,(View)newView,
+                ()->ownsLiveSession(existingSession));
             activeBrowser=target;
             target.followCurrentLocation(existingSession,
                 Class.forName("org.mozilla.geckoview.GeckoSession"),slot);
@@ -385,7 +386,8 @@ final class IsolatedGeckoBrowser {
             final IsolatedGeckoBrowser owner=target;
             GeckoVaultFormHint.install(existingSession,()->owner.committedPasswordPage,
                 ()->owner.session==existingSession&&ownsLiveSession(existingSession),
-                hint->owner.state.setText(hint));
+                hint->owner.state.setText(hint),()->(View)owner.geckoView,
+                owner::generateForPage,owner::fillSavedForPage);
             target.renderTabs();
             target.refreshLocalBudget();
             target.state.setText("已无刷新返回当前账号网页；登录和编辑中的内容仍在原 GeckoSession");
@@ -1676,12 +1678,14 @@ final class IsolatedGeckoBrowser {
             geckoView=visual;
             viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
             display.addView((View)visual,0,new FrameLayout.LayoutParams(-1,-1));
-            GeckoSelectionControls.fullPage(created,host);
+            GeckoSelectionControls.fullPage(created,host,(View)visual,
+                ()->ownsLiveSession(created));
             followCurrentLocation(created,sessionClass,index);
             followClaudePageProgress(created,sessionClass);
             if(!guestWindow)GeckoVaultFormHint.install(created,()->committedPasswordPage,
                 ()->session==created&&selected==index&&ownsLiveSession(created),
-                hint->state.setText(hint));
+                hint->state.setText(hint),()->(View)geckoView,
+                this::generateForPage,this::fillSavedForPage);
             GeckoBrowserTransfers.attachFilePrompt(host,created,id,
                 ()->GeckoLiveWindowHandoff.owns(created),guestWindow?null:prompt->{
                     final long epoch=passwordPageEpoch;
