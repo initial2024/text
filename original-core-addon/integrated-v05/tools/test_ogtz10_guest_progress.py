@@ -79,3 +79,13 @@ assert 'GeckoTimezoneAddonUi.show(this)' in home
 assert 'if(!GatewayApp.autoStartEnabled())' in bridge.split('private static void startNativeOnResumedOwner',1)[1]
 assert 'if(!GatewayApp.autoStartEnabled())' in bridge.split('private static void completeMainOwnerHandoff',1)[1]
 print('OGBROWSER12_COMPACT_SETTINGS_AND_DEFERRED_START_GATE_SOURCE=PASS')
+
+splash=(src/"OmniGateSplashActivity.java").read_text()
+assert 'txt("OmniPaws",27,INK,true)' in home
+assert 'loadIcon(getContext().getPackageManager())' in home
+assert 'loadIcon(getContext().getPackageManager())' in splash
+assert 'pair(browser,"账号管理"' in home
+assert 'pair(browser,"浏览器扩展"' in home
+assert 'modeStatus.setText' in home
+print('OGPAWS13_COMPACT_BRAND_SOURCE=PASS')
+print('OGPAWS13_LAUNCHER_BINARY_RESOURCE_AND_DEVICE=NOT_TESTED_BY_SOURCE_CI')

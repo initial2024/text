@@ -418,7 +418,7 @@ final class IsolatedGeckoBrowser {
         root.setPadding(dp(host,12),dp(host,12),dp(host,12),dp(host,8));
         root.setBackgroundColor(0xFF0B1024);
         TextView info=new TextView(host);
-        info.setText("OmniGate  /  "+provider.toUpperCase(java.util.Locale.ROOT)+
+        info.setText("OmniPaws  /  "+provider.toUpperCase(java.util.Locale.ROOT)+
             (guestWindow?"\n临时访客 · 私密浏览":
             AccountBrowserSlots.browserOnly(provider)
                 ? "\n仅浏览器登录 · 不支持 API · 不会后台预加载"

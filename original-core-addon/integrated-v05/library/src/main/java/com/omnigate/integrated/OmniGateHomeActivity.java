@@ -27,12 +27,12 @@ import org.json.JSONObject;
  * The third-party AI Gateway page remains reachable as "原版模型界面".
  */
 public final class OmniGateHomeActivity extends Activity {
-    private static final int BG=0xFF090C1D, CARD=0xFF171B35;
-    private static final int VIOLET=0xFF6951F6, CYAN=0xFF56DFE8;
-    private static final int MUTED=0xFFADB4D7;
+    private static final int BG=0xFFF5F1FC, CARD=0xFFFFFFFF;
+    private static final int VIOLET=0xFF7050C9, CYAN=0xFF426A80;
+    private static final int MUTED=0xFF625978, INK=0xFF302448;
     private LinearLayout page;
     private ScrollView pageScroll;
-    private TextView localStatus, publicStatus, nativeStatus, ownerStatus, accountStatus;
+    private TextView localStatus, publicStatus, nativeStatus, ownerStatus, accountStatus, modeStatus;
     private boolean checking;
     private int dp(float x){return Math.round(getResources().getDisplayMetrics().density*x);}
     private GradientDrawable background(int c,int rad){
@@ -53,22 +53,42 @@ public final class OmniGateHomeActivity extends Activity {
     }
     private LinearLayout card(LinearLayout to){
         LinearLayout c=new LinearLayout(this);c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(dp(18),dp(18),dp(18),dp(14));c.setBackground(background(CARD,22));
-        add(to,c,14);return c;
+        c.setPadding(dp(14),dp(14),dp(14),dp(10));c.setBackground(background(CARD,22));
+        add(to,c,10);return c;
     }
     private Button button(LinearLayout to,String label,boolean primary,Runnable action){
         Button b=new Button(this);b.setAllCaps(false);
         b.setText(OmniGateAppLanguage.tr(this,label));b.setTextSize(14);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        b.setTextColor(Color.WHITE);
-        b.setBackground(primary?gradient(VIOLET,0xFF4742CC,16):background(0xFF262B4E,16));
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(49));p.bottomMargin=dp(9);
+        b.setTextColor(primary?Color.WHITE:INK);
+        b.setMinHeight(dp(48));b.setPadding(dp(10),dp(8),dp(10),dp(8));
+        b.setBackground(primary?gradient(VIOLET,0xFF5943A9,18):background(0xFFF0EAFB,16));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(7);
         to.addView(b,p);b.setOnClickListener(v->action.run());return b;
     }
+    private void pair(LinearLayout to,String first,Runnable firstAction,String second,Runnable secondAction){
+        LinearLayout row=new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        add(to,row,0);
+        Button a=button(row,first,false,firstAction);
+        Button b=button(row,second,false,secondAction);
+        LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1f);
+        left.rightMargin=dp(7);left.bottomMargin=dp(7);
+        LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,-2,1f);
+        right.bottomMargin=dp(7);
+        a.setLayoutParams(left);b.setLayoutParams(right);
+    }
+
     private static final class Diamond extends View {
         private final Paint p=new Paint(3);
         Diamond(Activity a){super(a);setLayerType(View.LAYER_TYPE_SOFTWARE,null);}
         @Override protected void onDraw(Canvas c){
-            super.onDraw(c);float w=getWidth(),h=getHeight();
+            super.onDraw(c);
+            android.graphics.drawable.Drawable icon=getContext().getApplicationInfo()
+                .loadIcon(getContext().getPackageManager());
+            if(icon!=null){
+                icon.setBounds(0,0,getWidth(),getHeight());icon.draw(c);return;
+            }
+            float w=getWidth(),h=getHeight();
             float cx=w/2f,cy=h/2f,r=Math.min(w,h)*.43f;
             p.setStyle(Paint.Style.FILL);p.setColor(0xFF6951F6);
             c.drawRoundRect(cx-r,cy-r,cx+r,cy+r,r*.25f,r*.25f,p);
@@ -88,6 +108,8 @@ public final class OmniGateHomeActivity extends Activity {
         super.onCreate(b);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         FrameLayout root=new FrameLayout(this);root.setBackgroundColor(BG);
         setContentView(root);
         ScrollView sc=new ScrollView(this);pageScroll=sc;sc.setFillViewport(true);
@@ -99,24 +121,28 @@ public final class OmniGateHomeActivity extends Activity {
 
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
         Diamond logo=new Diamond(this);
-        logo.setContentDescription("OmniGate 品牌标识 · 网关和连接");
+        logo.setContentDescription("OmniPaws 星云传送屋");
         header.addView(logo,new LinearLayout.LayoutParams(dp(64),dp(64)));
         LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);
         names.setPadding(dp(14),0,0,0);
-        add(names,txt("OmniGate",29,Color.WHITE,true),1);
-        add(names,txt("AI · 一个入口，完整掌控",12,MUTED,false),0);
+        add(names,txt("OmniPaws",27,INK,true),1);
+        add(names,txt("独立账号 · 自在浏览",13,MUTED,false),0);
         header.addView(names);add(page,header,12);
 
         LinearLayout browser=card(page);
-        add(browser,txt("浏览器与账号",20,Color.WHITE,true),6);
-        button(browser,"打开网页 / 切换账号 / 临时访客",true,
+        browser.setBackground(gradient(0xFFFFFFFF,0xFFF0E7FF,24));
+        add(browser,txt("今天想去哪里？",22,INK,true),4);
+        add(browser,txt("选择你的账号空间，或开启一次临时访客。",13,MUTED,false),12);
+        button(browser,"打开网页 · 账号 / 访客",true,
             ()->IsolatedGeckoBrowser.showPicker(this));
-        button(browser,"账号管理",false,()->AccountManagerUi.show(this));
-        button(browser,"系统隔离检查",false,()->AndroidProfileSafetyCenter.show(this));
-        button(browser,"浏览器扩展",false,()->GeckoTimezoneAddonUi.show(this));
-        button(browser,"更多设置",false,()->{
-            startActivity(new Intent(this,CompatSettingsActivity.class));
-        });
+        pair(browser,"账号管理",()->AccountManagerUi.show(this),
+            "系统隔离",()->AndroidProfileSafetyCenter.show(this));
+        pair(browser,"浏览器扩展",()->GeckoTimezoneAddonUi.show(this),
+            "更多设置",()->startActivity(new Intent(this,CompatSettingsActivity.class)));
+        LinearLayout mode=card(page);
+        add(mode,txt("运行模式",15,INK,true),4);
+        modeStatus=txt("",13,MUTED,false);
+        add(mode,modeStatus,4);
 
         LinearLayout advanced=card(page);
         Button fold=button(advanced,"高级网关功能 ▸",false,()->{});
@@ -142,13 +168,13 @@ public final class OmniGateHomeActivity extends Activity {
         });
 
         LinearLayout main=card(advancedBody);
-        main.setBackground(gradient(0xFF29215C,0xFF171B35,22));
-        add(main,txt("网关控制台",20,Color.WHITE,true),5);
+        main.setBackground(gradient(0xFFF7F1FF,0xFFFFFFFF,22));
+        add(main,txt("网关控制台",20,INK,true),5);
         add(main,txt("让模型、私有 API 与公网 Relay 各自保持清晰的归属。",12,MUTED,false),14);
-        localStatus=txt("本地代理：检查中…",14,Color.WHITE,true);add(main,localStatus,7);
-        publicStatus=txt("我的 Cloudflare Relay：检查中…",13,0xFFBBD5FF,false);add(main,publicStatus,7);
-        nativeStatus=txt("原版模型 API：检查中…",13,0xFFBBD5FF,false);add(main,nativeStatus,5);
-        ownerStatus=txt("WebDriver 归属：检查中…",12,0xFFFFD18D,false);add(main,ownerStatus,14);
+        localStatus=txt("本地代理：检查中…",14,INK,true);add(main,localStatus,7);
+        publicStatus=txt("我的 Cloudflare Relay：检查中…",13,0xFF4F527E,false);add(main,publicStatus,7);
+        nativeStatus=txt("原版模型 API：检查中…",13,0xFF4F527E,false);add(main,nativeStatus,5);
+        ownerStatus=txt("WebDriver 归属：检查中…",12,0xFF785220,false);add(main,ownerStatus,14);
         button(main,"刷新运行状态",true,()->refresh());
         button(main,"应用界面语言 · 系统设置",false,()->{
             if(android.os.Build.VERSION.SDK_INT<33){
@@ -193,7 +219,7 @@ public final class OmniGateHomeActivity extends Activity {
             "未确认前不得视为已切换 API 发送账号。",12,MUTED,false),7);
 
         LinearLayout network=card(advancedBody);
-        add(network,txt("我的公网穿透",19,Color.WHITE,true),8);
+        add(network,txt("我的公网穿透",19,INK,true),8);
         add(network,txt(GatewayApp.relayBaseUrl().isEmpty()
             ? "公网 Relay 地址：尚未配置"
             : "公网 Relay 地址：已在本机配置（APK 不预置）",12,CYAN,true),9);
@@ -216,7 +242,7 @@ public final class OmniGateHomeActivity extends Activity {
         });
 
         LinearLayout original=card(advancedBody);
-        add(original,txt("原版模型界面",19,Color.WHITE,true),7);
+        add(original,txt("原版模型界面",19,INK,true),7);
         add(original,txt("保留 AI Gateway 原版全部模型及网页功能。"+
             "原版悬浮窗可拥有独立 WebDriver；不自动关闭或重定向其任务。",12,MUTED,false),13);
         button(original,"进入 ChatGPT 模型界面",true,()->openOriginal(
@@ -279,6 +305,9 @@ public final class OmniGateHomeActivity extends Activity {
         }
     }
     private void refresh(){
+        if(modeStatus!=null)modeStatus.setText(
+            "本地 8787："+(LocalProxyRuntime.isListening()?"已监听":GatewayApp.autoStartEnabled()?"已授权":"关闭")+
+            "  ·  Relay："+(RelayRuntime.isConnected()?"已连接":GatewayApp.tunnelEnabled()?"已授权":"关闭"));
         if(accountStatus!=null){
             String last=AccountBrowserStore.lastSelectedProvider(this);
             String label="未打开独立账号";

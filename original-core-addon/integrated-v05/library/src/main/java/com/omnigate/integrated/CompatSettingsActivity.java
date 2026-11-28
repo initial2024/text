@@ -382,20 +382,20 @@ public final class CompatSettingsActivity extends Activity {
         LinearLayout hero = vertical();
         GradientDrawable gradient = new GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            new int[]{0xFF342B98, 0xFF5F53E7, 0xFF2E83E7});
+            new int[]{0xFF5842A6, 0xFF7A56BE, 0xFF7050C9});
         gradient.setCornerRadius(dp(22));
         hero.setBackground(gradient);
         hero.setPadding(dp(19), dp(17), dp(19), dp(18));
         margin(page, hero, 14);
-        margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
-        margin(hero, text("API · 账号 · 额度控制台", 13, 0xFFE5E7FF, false), 7);
-        margin(hero, text("默认纯浏览器 · 本地 API 与公网 Relay 按需开启", 12, 0xFFD6E9FF, false), 0);
+        margin(hero, text("OmniPaws", 24, Color.WHITE, true), 3);
+        margin(hero, text("浏览器与账号设置", 13, 0xFFE5E7FF, false), 7);
+        margin(hero, text("网关默认关闭，可在高级设置开启", 12, 0xFFD6E9FF, false), 0);
 
         // Visible immediately when entering Settings, without scrolling
         // through API/Relay controls or expanding hidden Advanced options.
-        Button accountEntry=button(page,"账号切换 / 多账号备份（独立浏览器）",true);
+        Button accountEntry=button(page,"打开网页 · 账号 / 访客",true);
         accountEntry.setOnClickListener(v->IsolatedGeckoBrowser.showPicker(this));
-        Button accountManager=button(page,"多账号管理 · 搜索 / 筛选 / 自定义名称",false);
+        Button accountManager=button(page,"账号管理",false);
         accountManager.setOnClickListener(v->AccountManagerUi.show(this));
         margin(page,text("DeepSeek / GLM / ChatGPT / Grok / Claude｜网页登录独立存储；"+
             "不会切换原版 8787 模型执行账号",12,0xFF637086,false),8);
