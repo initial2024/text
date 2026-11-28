@@ -14,6 +14,20 @@ import java.util.Set;
  */
 final class GeckoAccountIsolationAudit {
     private GeckoAccountIsolationAudit(){}
+    // A local diagnostic label derived from the persisted context, never a
+    // website/browser fingerprint or a network identifier.
+    private static String localCode(String id){
+        if(!AccountBrowserSlots.validContextId(id))return "未初始化或无效";
+        try{
+            byte[] digest=java.security.MessageDigest.getInstance("SHA-256")
+                .digest(id.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder code=new StringBuilder("OG-");
+            for(int i=0;i<8;i++)code.append(String.format(java.util.Locale.ROOT,"%02X",digest[i]&255));
+            return code.toString();
+        }catch(java.security.NoSuchAlgorithmException impossible){
+            return "无法计算";
+        }
+    }
     static String report(Context c,String focus,int focusSlot){
         SharedPreferences p=c.getApplicationContext().getSharedPreferences(
             "omnigate_isolated_accounts_v1",Context.MODE_PRIVATE);
@@ -73,6 +87,8 @@ final class GeckoAccountIsolationAudit {
             "\n无效登记："+invalid+
             "\n重复 ID："+duplicate+
             "\n当前槽位已初始化："+(focusedInitialized?"是":"否（首次打开再生成）")+
+            "\n本地账号空间识别码："+localCode(focusId)+
+            "\n此码仅用于本机核对，不是网站 Browser ID；正常重启、换 IP 不应改变。"+
             "\n当前槽位 ID 合法："+(focusedInitialized?(focusedValid?"是":"否"):"尚无记录")+
             "\n当前槽位独占 ID："+(focusedUnique?"未发现其它持有者":"否")+
             "\n跟踪保护："+(p.getBoolean(focus+"."+focusSlot+".tracking_protection",true)
