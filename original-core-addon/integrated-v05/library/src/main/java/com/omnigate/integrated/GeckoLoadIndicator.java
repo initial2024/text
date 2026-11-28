@@ -14,6 +14,7 @@ final class GeckoLoadIndicator {
     private final ProgressBar bar;
     private Object owner;
     private boolean active;
+    private long revision;
     GeckoLoadIndicator(Context context,FrameLayout parent){
         bar=new ProgressBar(context,null,android.R.attr.progressBarStyleHorizontal);
         bar.setMax(100);
@@ -29,19 +30,25 @@ final class GeckoLoadIndicator {
     void request(Object session){
         if(session==null)return;
         start(session);
-        // Same-document navigation may have no page-start or page-stop.
-        // Never leave an indeterminate indicator permanently visible.
-        bar.postDelayed(()->{if(owner==session&&active&&bar.isIndeterminate())stop(session);},15000);
+        final long requestRevision=revision;
+        // A request alone is not evidence that Gecko started navigating.
+        // Same-document navigation / rejected requests may have no page-stop.
+        // This timeout only clears the request-only animation, not an actual
+        // Gecko page-start, even if a later request uses the same session.
+        bar.postDelayed(()->{
+            if(owner==session&&active&&revision==requestRevision&&bar.isIndeterminate())
+                stop(session);
+        },15000);
     }
     void start(Object session){
         if(session==null)return;
         owner=session;
+        revision++;
         active=true;
         bar.setProgress(0);
         bar.setIndeterminate(true);
         bar.setVisibility(View.VISIBLE);
         bar.bringToFront();
-        bar.postDelayed(()->{if(owner==session&&active&&bar.isIndeterminate())stop(session);},45000);
     }
     void progress(Object session,int percent){
         if(session==null||owner!=session||!active||percent<0||percent>100)return;
@@ -53,6 +60,7 @@ final class GeckoLoadIndicator {
         if(owner==session)clear();
     }
     void clear(){
+        revision++;
         owner=null;active=false;
         bar.setIndeterminate(false);
         bar.setVisibility(View.GONE);

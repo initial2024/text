@@ -27,6 +27,7 @@ jobs:
           set -euo pipefail
           python3 original-core-addon/integrated-v05/tools/test_ogtz07_activity_ime.py
           python3 original-core-addon/integrated-v05/tools/test_ogime08_overlay_ime.py
+          python3 original-core-addon/integrated-v05/tools/test_ogtz10_guest_progress.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
