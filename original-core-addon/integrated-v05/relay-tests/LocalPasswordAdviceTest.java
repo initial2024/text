@@ -22,11 +22,17 @@ public final class LocalPasswordAdviceTest {
         check(LocalPasswordAdvice.score("Sammy2026!Longer","sammy@example.com",false)<=35);
         check(LocalPasswordAdvice.score("VeryLongRandomFixture982@","",true)<=40);
         check(LocalPasswordAdvice.score("aB3!xyz","",false)<=25);
+        check(LocalPasswordAdvice.risks("password","",true)==7);
+        check(LocalPasswordAdvice.risks("Sammy2026!Longer","sammy@example.com",false)==9);
+        check(LocalPasswordAdvice.score("928316529184275618453","",false)<=55);
+        check(LocalPasswordAdvice.risks("H7!kW9&uT2#rL4@q","",false)==0);
+        check(LocalPasswordAdvice.risks("H7!kW9&uT2#rL4@q","",true)==2);
         boolean invalid=false;
         try{LocalPasswordAdvice.generate(15,true);}catch(IllegalArgumentException e){invalid=true;}
         check(invalid);
         System.out.println("OGVAULT12_GENERATOR_640_SYNTHETIC_CASES=PASS");
         System.out.println("OGVAULT12_WEAK_REUSED_AND_LENGTH_CHECKS=PASS");
         System.out.println("OGVAULT12_SCORE_IS_HEURISTIC=YES");
+        System.out.println("OGVAULT12_HEALTH_RISK_FLAGS=PASS");
     }
 }
