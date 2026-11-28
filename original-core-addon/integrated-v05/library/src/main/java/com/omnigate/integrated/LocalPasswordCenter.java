@@ -4,9 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.KeyguardManager;
 import android.content.Context;
-import android.hardware.biometrics.BiometricPrompt;
 import android.os.Build;
-import android.os.CancellationSignal;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.AtomicFile;
@@ -78,8 +76,7 @@ final class LocalPasswordCenter {
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setRandomizedEncryptionRequired(true)
             .setUserAuthenticationRequired(true)
-            .setUserAuthenticationParameters(30,KeyProperties.AUTH_DEVICE_CREDENTIAL|
-                KeyProperties.AUTH_BIOMETRIC_STRONG)
+            .setUserAuthenticationParameters(30,KeyProperties.AUTH_DEVICE_CREDENTIAL)
             .build());
         return g.generateKey();
     }
@@ -144,20 +141,18 @@ final class LocalPasswordCenter {
             // Generate the auth-bound key before authenticating. Existing encrypted
             // files never get silently re-keyed if the prior key is unavailable.
             key(a,id,true);
-            BiometricPrompt prompt=new BiometricPrompt.Builder(a)
-                .setTitle("解锁此账号的密码库")
-                .setSubtitle("仅本机、仅当前账号空间")
-                .setAllowedAuthenticators(0x000F|0x8000).build();
-            prompt.authenticate(new CancellationSignal(),a.getMainExecutor(),
-                new BiometricPrompt.AuthenticationCallback(){
-                    @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result){
-                        if(same(a,p,slot,id))action.run();
-                    }
-                    @Override public void onAuthenticationError(int code,CharSequence error){
-                        if(ready(a))msg(a,"密码库未解锁");
-                    }
-                });
+            if(!(a instanceof CompatSettingsActivity))throw new IllegalStateException("private_host_required");
+            ((CompatSettingsActivity)a).requestVaultAuthentication(()->{
+                if(same(a,p,slot,id))action.run();
+            });
         }catch(Exception rejected){msg(a,"安全密钥不可用；未读取或覆盖密码库");}
+    }
+    static void launch(Activity a,String provider,int slot){
+        if(!ready(a))return;
+        android.content.Intent i=new android.content.Intent(a,CompatSettingsActivity.class);
+        i.putExtra(CompatSettingsActivity.EXTRA_PASSWORD_MODE,true);
+        if(provider!=null){i.putExtra("vault_provider",provider);i.putExtra("vault_slot",slot);}
+        a.startActivity(i);
     }
     static void pick(Activity a){
         if(!ready(a))return;
@@ -183,6 +178,7 @@ final class LocalPasswordCenter {
         }catch(Exception e){if(ready(a))msg(a,"请先初始化此账号空间");}
     }
     private static void secure(AlertDialog dialog){
+        if(dialog.getWindow()!=null)dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         dialog.setOnShowListener(x->{
             if(dialog.getWindow()!=null)dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         });
@@ -192,14 +188,15 @@ final class LocalPasswordCenter {
         if(!same(a,p,slot,id))return;
         try{
             JSONArray rows=load(a,id);
-            String[] labels=new String[rows.length()];
+            String[] labels=new String[rows.length()],recordIds=new String[rows.length()];
             for(int i=0;i<labels.length;i++){
                 JSONObject row=rows.getJSONObject(i);
                 labels[i]=row.getString("origin")+" · "+row.getString("user");
+                recordIds[i]=row.getString("id");
             }
             AlertDialog d=new AlertDialog.Builder(a)
                 .setTitle("独立密码库 · "+p+" / "+(slot+1))
-                .setItems(labels,(x,i)->auth(a,p,slot,id,()->reveal(a,p,slot,id,i)))
+                .setItems(labels,(x,i)->auth(a,p,slot,id,()->reveal(a,p,slot,id,recordIds[i])))
                 .setPositiveButton("手动添加",(x,w)->editor(a,p,slot,id))
                 .setNegativeButton("关闭",null).create();
             secure(d);
@@ -249,10 +246,12 @@ final class LocalPasswordCenter {
             });
         });
     }
-    private static void reveal(Activity a,String p,int slot,String id,int index){
+    private static void reveal(Activity a,String p,int slot,String id,String targetRecord){
         if(!same(a,p,slot,id))return;
         try{
-            JSONObject row=load(a,id).getJSONObject(index);
+            JSONArray all=load(a,id);JSONObject row=null;
+            for(int j=0;j<all.length();j++)if(targetRecord.equals(all.getJSONObject(j).getString("id"))){row=all.getJSONObject(j);break;}
+            if(row==null){msg(a,"记录已不存在");return;}
             String recordId=row.getString("id");
             TextView value=new TextView(a);value.setPadding(24,16,24,16);
             value.setText(row.getString("origin")+"\n"+row.getString("user")+"\n\n"+row.getString("password"));
@@ -272,6 +271,9 @@ final class LocalPasswordCenter {
                     })).show()).create();
             d.setOnDismissListener(x->value.setText(""));
             secure(d);
+            value.getViewTreeObserver().addOnWindowFocusChangeListener(focused->{
+                if(!focused){value.setText("");if(d.isShowing())d.dismiss();}
+            });
             value.postDelayed(()->{value.setText("");if(d.isShowing())d.dismiss();},15000);
         }catch(Exception e){msg(a,"密码读取失败");}
     }
