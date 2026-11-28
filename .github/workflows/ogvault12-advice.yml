@@ -17,6 +17,10 @@ on:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoDownloadResponsePolicy.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoNewPasswordFill.java'
       - 'original-core-addon/integrated-v05/tools/test_ogdownload14_native_fill.py'
+      - 'original-core-addon/integrated-v05/tools/test_ogvault15_native_consent.py'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoEmptyLoginStorage.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoVaultFormHint.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserTransfers.java'
       - 'original-core-addon/integrated-v05/relay-tests/GeckoDownloadResponsePolicyTest.java'
       - 'original-core-addon/integrated-v05/relay-tests/LocalPasswordAdviceTest.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoAccountIsolationAudit.java'
@@ -49,6 +53,7 @@ jobs:
           python3 original-core-addon/integrated-v05/tools/test_ogspace10_overlay.py
           python3 original-core-addon/integrated-v05/tools/test_ogui11_vault.py
           python3 original-core-addon/integrated-v05/tools/test_ogdownload14_native_fill.py
+          python3 original-core-addon/integrated-v05/tools/test_ogvault15_native_consent.py
           python3 original-core-addon/integrated-v05/tools/test_ogtz10_guest_progress.py
       - uses: actions/setup-java@v4
         with:
