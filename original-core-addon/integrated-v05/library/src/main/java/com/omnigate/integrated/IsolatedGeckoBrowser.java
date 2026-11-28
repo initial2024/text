@@ -811,8 +811,10 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,9,7,"工作资料 DNS 检查（手动）");
         menu.getMenu().add(0,10,8,"Firefox 内置 VPN · 只读检查");
         menu.getMenu().add(0,11,9,"网站实际时区检测（会离开当前网页）");
+        menu.getMenu().add(0,12,10,"生成新密码（注册时使用）");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
+                case 12:PasswordGeneratorUi.show(host,null);return true;
                 case 1:showPicker(host);return true;
                 case 2:
                     if(selected>=0)AccountQuickSettings.show(host,provider,selected);
@@ -907,8 +909,10 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,7,6,"翻译网页 / 恢复原文");
         if(!guestWindow)menu.getMenu().add(0,8,7,"当前账号空间 · 下载管理");
         if(guestWindow)menu.getMenu().add(0,9,8,"临时访客 · 扩展权限");
+        menu.getMenu().add(0,12,9,"生成新密码（注册时使用）");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
+                case 12:PasswordGeneratorUi.show(host,null);return true;
                 case 1:showAddressDialog();return true;
                 case 2:callSession("goBack");return true;
                 case 3:callSession("reload");return true;
