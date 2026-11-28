@@ -226,11 +226,10 @@ final class LocalPasswordCenter {
                 JSONObject row=rows.getJSONObject(i);
                 String pw=row.getString("password"),user=row.getString("user");
                 boolean repeat=reused(rows,pw,row.getString("id"));
-                boolean shortPassword=pw.codePointCount(0,pw.length())<15;
-                String name=user.trim().toLowerCase(java.util.Locale.ROOT);
-                int at=name.indexOf('@');if(at>=0)name=name.substring(0,at);
-                boolean personalMatch=name.length()>=4&&pw.toLowerCase(java.util.Locale.ROOT).contains(name);
-                boolean weakPassword=LocalPasswordAdvice.score(pw,user,false)<60;
+                int risks=LocalPasswordAdvice.risks(pw,user,repeat);
+                boolean shortPassword=(risks&4)!=0;
+                boolean personalMatch=(risks&8)!=0;
+                boolean weakPassword=(risks&1)!=0;
                 if(weakPassword)weak++;
                 if(repeat)repeated++;
                 if(shortPassword)shortCount++;
