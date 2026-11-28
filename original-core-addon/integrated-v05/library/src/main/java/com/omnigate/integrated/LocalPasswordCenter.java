@@ -210,10 +210,59 @@ final class LocalPasswordCenter {
             AlertDialog d=new AlertDialog.Builder(a)
                 .setTitle("独立密码库 · "+p+" / "+(slot+1))
                 .setItems(labels,(x,i)->auth(a,p,slot,id,()->reveal(a,p,slot,id,recordIds[i])))
+                .setNeutralButton("安全体检",(x,w)->auth(a,p,slot,id,()->audit(a,p,slot,id)))
                 .setPositiveButton("手动添加",(x,w)->editor(a,p,slot,id))
                 .setNegativeButton("关闭",null).create();
             secure(d);
         }catch(Exception e){msg(a,"密码库读取失败；未重置密钥或覆盖文件");}
+    }
+    private static void audit(Activity a,String p,int slot,String id){
+        if(!same(a,p,slot,id))return;
+        try{
+            JSONArray rows=load(a,id);
+            int weak=0,repeated=0,shortCount=0,personal=0,flagged=0;
+            StringBuilder findings=new StringBuilder();
+            for(int i=0;i<rows.length();i++){
+                JSONObject row=rows.getJSONObject(i);
+                String pw=row.getString("password"),user=row.getString("user");
+                boolean repeat=reused(rows,pw,row.getString("id"));
+                boolean shortPassword=pw.codePointCount(0,pw.length())<15;
+                String name=user.trim().toLowerCase(java.util.Locale.ROOT);
+                int at=name.indexOf('@');if(at>=0)name=name.substring(0,at);
+                boolean personalMatch=name.length()>=4&&pw.toLowerCase(java.util.Locale.ROOT).contains(name);
+                boolean weakPassword=LocalPasswordAdvice.score(pw,user,false)<60;
+                if(weakPassword)weak++;
+                if(repeat)repeated++;
+                if(shortPassword)shortCount++;
+                if(personalMatch)personal++;
+                if(weakPassword||repeat||shortPassword||personalMatch){
+                    flagged++;
+                    findings.append("\n").append(row.getString("origin")).append(" · ").append(user)
+                        .append("\n")
+                        .append(weakPassword?"弱或一般强度；":"")
+                        .append(repeat?"本空间重复使用；":"")
+                        .append(shortPassword?"少于15字符；":"")
+                        .append(personalMatch?"包含用户名；":"").append("\n");
+                }
+            }
+            String summary="已检查 "+rows.length()+" 条密码；需关注 "+flagged+" 条。"+
+                "\n弱或一般强度："+weak+"\n重复使用："+repeated+
+                "\n少于15字符："+shortCount+"\n包含用户名："+personal+
+                "\n（分类可能重叠，不应相加）"+
+                "\n\n建议优先替换重复和明显弱密码，并开启网站支持的多因素认证。"+
+                "\n仅检查此空间；未检测泄露数据库，不代表未泄露。"+
+                (rows.length()==0?"\n\n密码库暂无记录。":flagged==0?"\n\n未发现这些规则覆盖的风险。": "\n\n需关注记录："+findings);
+            TextView report=new TextView(a);report.setText(summary);report.setPadding(24,16,24,16);
+            report.setTextIsSelectable(false);
+            android.widget.ScrollView scroll=new android.widget.ScrollView(a);scroll.addView(report);
+            AlertDialog d=new AlertDialog.Builder(a).setTitle("当前空间 · 密码安全体检")
+                .setView(scroll).setNegativeButton("关闭",null).create();
+            d.setOnDismissListener(x->report.setText(""));
+            secure(d);
+            report.getViewTreeObserver().addOnWindowFocusChangeListener(focused->{
+                if(!focused){report.setText("");if(d.isShowing())d.dismiss();}
+            });
+        }catch(Exception failure){msg(a,"体检失败；未改变密码库");}
     }
     private static void editor(Activity a,String p,int slot,String id){
         if(!same(a,p,slot,id))return;
