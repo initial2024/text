@@ -43,6 +43,7 @@ final class AccountStorageCleaner {
         // independently verifiable disk-erasure receipt. This is a submitted
         // per-context deletion, NOT certified secure erasure. Rotate the ID
         // so the deleted context cannot be re-opened through this slot.
+        LocalPasswordCenter.erase(c,oldId);
         AccountBrowserStore.rotateContext(c,provider,slot,oldId);
     }
 }
