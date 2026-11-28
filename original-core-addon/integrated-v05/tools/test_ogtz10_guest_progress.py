@@ -36,3 +36,18 @@ print('OGTZ10_PRIVATE_PERMISSION_EXPLICIT_CONSENT_SOURCE=PASS')
 print('OGTZ10_GUEST_PRIVATE_CONTEXT_ISOLATION_SOURCE=PASS')
 print('OGLOAD10_NATIVE_PROGRESS_AND_SESSION_BOUNDARY_SOURCE=PASS')
 print('OGTZ10_VIVO_EXTENSION_PRIVATE_PERMISSION_E2E=NOT_TESTED')
+
+assert 'Button extensionEntry=button("扩展权限")' in page
+assert page.count('GeckoTimezoneAddonUi.showGuestPermissions(host)') == 2
+assert 'if(guestWindow)menu.getMenu().add(0,9,8' in page
+guest_entry=addon.split("static void showGuestPermissions",1)[1].split("private static void listAndManage",1)[0]
+assert 'listAndManage(a)' in guest_entry
+assert 'AccountBrowserStore' not in guest_entry
+assert 'setAllowedInPrivateBrowsing' not in guest_entry
+assert 'panel.setVisibility(View.VISIBLE)' in bar
+assert 'panel.setVisibility(View.GONE)' in bar
+assert 'label.setText("网页加载 "+percent+"%")' in bar
+assert 'dp(context,7)' in bar
+assert 'panel.setClickable(false)' in bar and 'panel.setFocusable(false)' in bar
+print('OGUI11_GUEST_ENTRY_AND_VISIBLE_PROGRESS_SOURCE=PASS')
+print('OGUI11_REAL_DEVICE_UI=NOT_TESTED')

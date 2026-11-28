@@ -269,6 +269,13 @@ final class GeckoTimezoneAddonUi {
         });
     }
 
+    // A guest has no saved account slot. Reuse the installed extension
+    // manager without creating, selecting or persisting an account.
+    static void showGuestPermissions(Activity a){
+        if(a==null||a.isFinishing()||a.isDestroyed())return;
+        listAndManage(a);
+    }
+
     private static void listAndManage(Activity a){
         if(!busy.compareAndSet(false,true)){message(a,"已有扩展操作进行中");return;}
         HandlerThread thread=new HandlerThread("OGTZ03-gecko-list");

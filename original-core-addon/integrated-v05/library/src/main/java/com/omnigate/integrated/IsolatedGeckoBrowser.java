@@ -440,6 +440,12 @@ final class IsolatedGeckoBrowser {
             accountEntry.setOnClickListener(v->showNativeAccountMenu(accountEntry));
             nativeHeader.addView(accountEntry,
                 new LinearLayout.LayoutParams(dp(host,102),dp(host,44)));
+        }else{
+            Button extensionEntry=button("扩展权限");
+            extensionEntry.setContentDescription("临时访客扩展权限管理，与持久账号空间无关");
+            extensionEntry.setOnClickListener(v->GeckoTimezoneAddonUi.showGuestPermissions(host));
+            nativeHeader.addView(extensionEntry,
+                new LinearLayout.LayoutParams(dp(host,92),dp(host,44)));
         }
         root.addView(nativeHeader);
         if(!guestWindow){
@@ -900,6 +906,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,5,5,"退出全屏");
         menu.getMenu().add(0,7,6,"翻译网页 / 恢复原文");
         if(!guestWindow)menu.getMenu().add(0,8,7,"当前账号空间 · 下载管理");
+        if(guestWindow)menu.getMenu().add(0,9,8,"临时访客 · 扩展权限");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showAddressDialog();return true;
@@ -909,6 +916,9 @@ final class IsolatedGeckoBrowser {
                 case 5:setFullscreen(false);return true;
                 case 7:GeckoPageTranslate.showMenu(host,fullscreenExit,session,geckoView);return true;
                 case 8:showDownloads();return true;
+                case 9:
+                    if(guestWindow)GeckoTimezoneAddonUi.showGuestPermissions(host);
+                    return true;
                 case 6:
                     if(!guestWindow&&selected>=0)
                         handoffToFloatingWindow();
