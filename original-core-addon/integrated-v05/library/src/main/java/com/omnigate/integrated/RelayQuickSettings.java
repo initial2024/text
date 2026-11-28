@@ -50,7 +50,7 @@ public final class RelayQuickSettings {
                 GatewayApp.relayKey().isEmpty()?"请输入配对 Key":"已保存；留空保持不变",true);
             form.addView(key);
             CheckBox enabled=new CheckBox(a);
-            enabled.setText("明确开启公网 Relay 连接");
+            enabled.setText("明确开启公网 Relay（同时启用本地 8787）");
             enabled.setChecked(GatewayApp.tunnelEnabled());
             enabled.setTextColor(0xFF263756);
             form.addView(enabled);
@@ -91,6 +91,7 @@ public final class RelayQuickSettings {
                         String previous=GatewayApp.relayBaseUrl();
                         GatewayApp.setRelayBaseUrl(origin);
                         if(!typed.isEmpty())GatewayApp.setRelayKey(typed);
+                        if(enabled.isChecked())GatewayApp.setAutoStartEnabled(true);
                         GatewayApp.setTunnelEnabled(enabled.isChecked());
                         if(enabled.isChecked() && (!previous.equals(GatewayApp.relayBaseUrl())
                                 || !RelayRuntime.isConnected()))

@@ -18,6 +18,7 @@ public final class GatewayApp {
     public static void initialize(Context ctx) {
         if (ctx == null) throw new IllegalArgumentException("context null");
         context = ctx.getApplicationContext();
+        migrateBrowserDefault();
     }
     public static Context applicationContext() {
         return context;
@@ -31,25 +32,45 @@ public final class GatewayApp {
     public static void setLocalApiStatus(String v){localApiStatus=v==null?"":v;}
     public static String tunnelStatus(){return tunnelStatus;}
     public static void setTunnelStatus(String v){tunnelStatus=v==null?"":v;}
-    // Once the user enabled OmniGate locally, re-establish 8787 whenever
-    // this Android application process is created. No Android BOOT receiver
-    // and no attempt to restart the frozen original WebDriver/ApiServer.
+    // One-time migration deliberately revokes legacy automatic startup
+    // preferences, not saved relay endpoints, keys, or browser data.
+    private static synchronized void migrateBrowserDefault(){
+        SharedPreferences p=prefs();
+        if(!p.getBoolean("browser_default_v1",false)){
+            p.edit().putBoolean("auto_start_local_enabled",false)
+                .putBoolean("background_keepalive_enabled",false)
+                .putBoolean("relay_enabled",false)
+                .putBoolean("browser_default_v1",true).commit();
+        }
+    }
     public static boolean autoStartEnabled(){
-        return prefs().getBoolean("auto_start_local_enabled",true);
+        return prefs().getBoolean("browser_default_v1",false)
+            && prefs().getBoolean("auto_start_local_enabled",false);
     }
     public static void setAutoStartEnabled(boolean value){
-        prefs().edit().putBoolean("auto_start_local_enabled",value).apply();
+        if(value){
+            prefs().edit().putBoolean("auto_start_local_enabled",true).commit();
+            return;
+        }
+        prefs().edit().putBoolean("auto_start_local_enabled",false)
+            .putBoolean("background_keepalive_enabled",false)
+            .putBoolean("relay_enabled",false).commit();
+        // Revoke permission before stopping so concurrent start paths fail.
+        RelayRuntime.stop();
+        Context c=context;
+        if(c!=null)c.stopService(new android.content.Intent(c,SidecarService.class));
+        LocalProxyRuntime.stop();
     }
     // Opt-in notification foreground service: Android may reject it. This
     // preference never overrides background-start restrictions.
     public static boolean backgroundKeepAliveEnabled(){
-        return prefs().getBoolean("background_keepalive_enabled",false);
+        return autoStartEnabled() && prefs().getBoolean("background_keepalive_enabled",false);
     }
     public static void setBackgroundKeepAliveEnabled(boolean value){
-        prefs().edit().putBoolean("background_keepalive_enabled",value).apply();
+        prefs().edit().putBoolean("background_keepalive_enabled",value && autoStartEnabled()).apply();
     }
-    public static boolean tunnelEnabled(){return prefs().getBoolean("relay_enabled",false);}
-    public static void setTunnelEnabled(boolean enabled){prefs().edit().putBoolean("relay_enabled",enabled).apply();}
+    public static boolean tunnelEnabled(){return autoStartEnabled() && prefs().getBoolean("relay_enabled",false);}
+    public static void setTunnelEnabled(boolean enabled){prefs().edit().putBoolean("relay_enabled",enabled && autoStartEnabled()).apply();}
     public static String relayKey(){return prefs().getString("relay_key","");}
     public static void setRelayKey(String v) {
         String s=v==null?"":v.trim();

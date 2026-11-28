@@ -1203,6 +1203,8 @@ public final class OriginalCoreBridge {
     }
 
     public static String requestExplicitNativeStart(Activity settings) {
+        if(!GatewayApp.autoStartEnabled())
+            return "浏览器模式：请先手动启用本地 API；未启动原版网关";
         // The original Activity owns ApiServer. NEVER create a second MainActivity
         // when the previous host still exists: its onDestroy closes the server.
         if (!repairNativePortOnExplicitClick()) return lastStartStatus;

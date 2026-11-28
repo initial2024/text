@@ -14,6 +14,11 @@ on:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoLoadIndicator.java'
       - 'original-core-addon/integrated-v05/tools/test_ogtz10_guest_progress.py'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GatewayApp.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/LocalProxyRuntime.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/RelayRuntime.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarService.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
       - '.github/workflows/ogslots09-capacity.yml'
   workflow_dispatch:
 permissions: {contents: read}

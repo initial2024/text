@@ -22,7 +22,8 @@ public final class RelayRuntime {
     }
 
     public static synchronized String ensureStarted(){
-        if(!GatewayApp.tunnelEnabled()){
+        if(!GatewayApp.autoStartEnabled() || !GatewayApp.tunnelEnabled()){
+            stop();
             GatewayApp.setTunnelStatus("公网 Relay 未启用");
             return GatewayApp.tunnelStatus();
         }

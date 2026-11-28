@@ -94,7 +94,7 @@ public final class OmniGateHomeActivity extends Activity {
         sc.setVerticalScrollBarEnabled(false);
         root.addView(sc,new FrameLayout.LayoutParams(-1,-1));
         page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(20),dp(35),dp(20),dp(28));
+        page.setPadding(dp(14),dp(18),dp(14),dp(18));
         sc.addView(page);
 
         LinearLayout header=new LinearLayout(this);header.setGravity(Gravity.CENTER_VERTICAL);
@@ -105,9 +105,42 @@ public final class OmniGateHomeActivity extends Activity {
         names.setPadding(dp(14),0,0,0);
         add(names,txt("OmniGate",29,Color.WHITE,true),1);
         add(names,txt("AI · 一个入口，完整掌控",12,MUTED,false),0);
-        header.addView(names);add(page,header,24);
+        header.addView(names);add(page,header,12);
 
-        LinearLayout main=card(page);
+        LinearLayout browser=card(page);
+        add(browser,txt("浏览器与账号",20,Color.WHITE,true),6);
+        button(browser,"打开网页 / 切换账号 / 临时访客",true,
+            ()->IsolatedGeckoBrowser.showPicker(this));
+        button(browser,"账号管理",false,()->AccountManagerUi.show(this));
+        button(browser,"系统隔离检查",false,()->AndroidProfileSafetyCenter.show(this));
+        button(browser,"浏览器扩展与设置",false,()->{
+            startActivity(new Intent(this,CompatSettingsActivity.class));
+        });
+
+        LinearLayout advanced=card(page);
+        Button fold=button(advanced,"高级网关功能 ▸",false,()->{});
+        LinearLayout advancedBody=new LinearLayout(this);
+        advancedBody.setOrientation(LinearLayout.VERTICAL);
+        advancedBody.setVisibility(View.GONE);
+        advanced.addView(advancedBody);
+        fold.setOnClickListener(v->{
+            boolean expand=advancedBody.getVisibility()!=View.VISIBLE;
+            advancedBody.setVisibility(expand?View.VISIBLE:View.GONE);
+            fold.setText(expand?"高级网关功能 ▾":"高级网关功能 ▸");
+        });
+        Button enable=button(advancedBody,"启用 / 停止 API 与网关",false,()->{
+            if(GatewayApp.autoStartEnabled()){
+                GatewayApp.setAutoStartEnabled(false);refresh();
+            }else new AlertDialog.Builder(this).setTitle("启用本地 API？")
+                .setMessage("允许本地 8787 监听和后续自动恢复；公网 Relay 仍须另外开启。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("启用",(d,w)->{
+                    GatewayApp.setAutoStartEnabled(true);
+                    AutoStartRuntime.requestRefresh();refresh();
+                }).show();
+        });
+
+        LinearLayout main=card(advancedBody);
         main.setBackground(gradient(0xFF29215C,0xFF171B35,22));
         add(main,txt("网关控制台",20,Color.WHITE,true),5);
         add(main,txt("让模型、私有 API 与公网 Relay 各自保持清晰的归属。",12,MUTED,false),14);
@@ -163,7 +196,7 @@ public final class OmniGateHomeActivity extends Activity {
         add(main,txt("主执行会话与隔离浏览器不同。切换后需确认原版模型页的登录身份，"+
             "未确认前不得视为已切换 API 发送账号。",12,MUTED,false),7);
 
-        LinearLayout network=card(page);
+        LinearLayout network=card(advancedBody);
         add(network,txt("我的公网穿透",19,Color.WHITE,true),8);
         add(network,txt(GatewayApp.relayBaseUrl().isEmpty()
             ? "公网 Relay 地址：尚未配置"
@@ -186,7 +219,7 @@ public final class OmniGateHomeActivity extends Activity {
             refresh();
         });
 
-        LinearLayout original=card(page);
+        LinearLayout original=card(advancedBody);
         add(original,txt("原版模型界面",19,Color.WHITE,true),7);
         add(original,txt("保留 AI Gateway 原版全部模型及网页功能。"+
             "原版悬浮窗可拥有独立 WebDriver；不自动关闭或重定向其任务。",12,MUTED,false),13);
@@ -196,7 +229,7 @@ public final class OmniGateHomeActivity extends Activity {
             "com.deepseek2.app.ui.ProviderActivity"));
         button(original,"处理 409：检查原版悬浮服务并安全交接",false,()->confirmOwnerHandoff());
 
-        add(page,txt("版本说明 · 原版和 OmniGate 兼容层相互独立；"+
+        add(advancedBody,txt("版本说明 · 原版和 OmniGate 兼容层相互独立；"+
             "409 表示原版会话归属仍未验证，绝不自动截停模型对话。",11,MUTED,false),0);
         if(b!=null){
             int y=b.getInt("omnigate_scroll_y",0);
@@ -255,9 +288,18 @@ public final class OmniGateHomeActivity extends Activity {
                 "\n正在核验执行绑定…");
         }
         if(checking)return;checking=true;
-        localStatus.setText("本地 8787："+(LocalProxyRuntime.isListening()?"已启动":"正在恢复"));
+        localStatus.setText("本地 8787："+(LocalProxyRuntime.isListening()?"已启动":
+            GatewayApp.autoStartEnabled()?"已授权，未监听":"已关闭 · 浏览器模式"));
         publicStatus.setText("Cloudflare："+(RelayRuntime.isConnected()?
             "WebSocket 已连接":GatewayApp.tunnelEnabled()?"已授权，连接中":"未授权开启"));
+        if(!GatewayApp.autoStartEnabled()){
+            nativeStatus.setText("原版 API：未请求启动");
+            ownerStatus.setText("高级网关功能默认关闭");
+            if(accountStatus!=null)accountStatus.setText(
+                accountStatus.getText().toString().replace("正在核验执行绑定…","浏览器模式"));
+            checking=false;
+            return;
+        }
         new Thread(()->{
             JSONObject state=OriginalCoreBridge.diagnoseVisibleHostSocket();
             String route=OriginalCoreBridge.observedRouteState(state);

@@ -51,3 +51,22 @@ assert 'dp(context,7)' in bar
 assert 'panel.setClickable(false)' in bar and 'panel.setFocusable(false)' in bar
 print('OGUI11_GUEST_ENTRY_AND_VISIBLE_PROGRESS_SOURCE=PASS')
 print('OGUI11_REAL_DEVICE_UI=NOT_TESTED')
+
+# Browser-only startup is fail-closed, including upgrades with old true flags.
+gateway=(src/"GatewayApp.java").read_text()
+local=(src/"LocalProxyRuntime.java").read_text()
+relay=(src/"RelayRuntime.java").read_text()
+service=(src/"SidecarService.java").read_text()
+home=(src/"OmniGateHomeActivity.java").read_text()
+assert 'getBoolean("auto_start_local_enabled",false)' in gateway
+assert 'putBoolean("browser_default_v1",true)' in gateway
+migration=gateway.split("private static synchronized void migrateBrowserDefault()",1)[1].split("public static boolean autoStartEnabled",1)[0]
+for key in ("auto_start_local_enabled","relay_enabled","background_keepalive_enabled"):
+    assert 'putBoolean("'+key+'",false)' in migration
+assert 'if(!GatewayApp.autoStartEnabled())' in local
+assert 'if(!GatewayApp.autoStartEnabled() || !GatewayApp.tunnelEnabled())' in relay
+assert 'return START_NOT_STICKY;' in service and 'return START_STICKY;' not in service
+assert 'advancedBody.setVisibility(View.GONE)' in home
+assert home.index('IsolatedGeckoBrowser.showPicker(this)') < home.index('LinearLayout advanced=card(page)')
+print('OGBROWSER12_DEFAULT_OFF_AND_COMPACT_HOME_SOURCE=PASS')
+print('OGBROWSER12_REAL_DEVICE_PORT_AND_UI=NOT_TESTED')

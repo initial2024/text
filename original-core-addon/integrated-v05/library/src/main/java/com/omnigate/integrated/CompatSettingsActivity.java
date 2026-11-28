@@ -389,7 +389,7 @@ public final class CompatSettingsActivity extends Activity {
         margin(page, hero, 14);
         margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
         margin(hero, text("API · 账号 · 额度控制台", 13, 0xFFE5E7FF, false), 7);
-        margin(hero, text("自动恢复本地 8787 · Relay 按已有授权重连 · 原版模型不自动重启", 12, 0xFFD6E9FF, false), 0);
+        margin(hero, text("默认纯浏览器 · 本地 API 与公网 Relay 按需开启", 12, 0xFFD6E9FF, false), 0);
 
         // Visible immediately when entering Settings, without scrolling
         // through API/Relay controls or expanding hidden Advanced options.
@@ -434,7 +434,7 @@ public final class CompatSettingsActivity extends Activity {
         autoStart.setOnCheckedChangeListener((button,checked)->{
             GatewayApp.setAutoStartEnabled(checked);
             if(checked)AutoStartRuntime.requestRefresh();
-            else GatewayApp.setBackgroundKeepAliveEnabled(false);
+            else {keepAliveDisabled();updateState();refreshRelayStatus();}
         });
         android.widget.CheckBox keepAlive = new android.widget.CheckBox(this);
         keepAlive.setText("通知保活（可选）：允许 Android 前台服务维持后台连接");
@@ -813,6 +813,7 @@ public final class CompatSettingsActivity extends Activity {
                     "后台可能被 Android 回收，不保证一直在线。")
                 .setNegativeButton("取消",null)
                 .setPositiveButton("确认连接",(dialog,which)->{
+                    GatewayApp.setAutoStartEnabled(true);
                     GatewayApp.setTunnelEnabled(true);
                     try {
                         RelayRuntime.ensureStarted();
@@ -903,6 +904,11 @@ public final class CompatSettingsActivity extends Activity {
             : "原版网页聊天与 API 服务独立。请点击下方按钮恢复原版 MainActivity；"
                 + "不要关闭该模型页，因为原版 onDestroy 会调用 stopServer。状态："
                 + OriginalCoreBridge.lastStartStatus());
+    }
+
+    private void keepAliveDisabled(){
+        // GatewayApp revocation has already stopped local and remote runtime.
+        GatewayApp.setBackgroundKeepAliveEnabled(false);
     }
 
     private void startLocalServer() {

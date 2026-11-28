@@ -490,6 +490,7 @@ public final class ApiQuickPanel {
             Button start=button("启动 8787",true),test=button("刷新状态",false);
             addHalf(row,start);addHalf(row,test);
             start.setOnClickListener(v->{
+                GatewayApp.setAutoStartEnabled(true);
                 LocalProxyRuntime.start();
                 render();
             });
