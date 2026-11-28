@@ -27,6 +27,25 @@ public final class LocalPasswordAdviceTest {
         check(LocalPasswordAdvice.score("928316529184275618453","",false)<=55);
         check(LocalPasswordAdvice.risks("H7!kW9&uT2#rL4@q","",false)==0);
         check(LocalPasswordAdvice.risks("H7!kW9&uT2#rL4@q","",true)==2);
+        int custom=0;
+        for(int mask=1;mask<16;mask++)for(boolean exclude:new boolean[]{false,true})
+            for(int length:new int[]{12,24,64})for(int i=0;i<8;i++){
+                String value=LocalPasswordAdvice.generateCustom(length,(mask&1)!=0,(mask&2)!=0,
+                    (mask&4)!=0,(mask&8)!=0,exclude);
+                check(value.length()==length);
+                check(value.chars().anyMatch(Character::isLowerCase)==((mask&1)!=0));
+                check(value.chars().anyMatch(Character::isUpperCase)==((mask&2)!=0));
+                check(value.chars().anyMatch(Character::isDigit)==((mask&4)!=0));
+                check(value.chars().anyMatch(c->!Character.isLetterOrDigit(c))==((mask&8)!=0));
+                if(exclude)check(value.chars().noneMatch(c->"lIO01".indexOf(c)>=0));
+                custom++;
+            }
+        check(custom==720);
+        boolean empty=false;
+        try{LocalPasswordAdvice.generateCustom(24,false,false,false,false,true);}
+        catch(IllegalArgumentException expected){empty=true;}
+        check(empty);
+        System.out.println("OGVAULT13_CUSTOM_720_CASES=PASS");
         boolean invalid=false;
         try{LocalPasswordAdvice.generate(15,true);}catch(IllegalArgumentException e){invalid=true;}
         check(invalid);
