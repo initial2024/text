@@ -188,6 +188,7 @@ public final class ClaudeFloatingOverlay {
             hideTranslationPanel();
             Class<?> v=Class.forName("org.mozilla.geckoview.GeckoView");
             nextView=v.getConstructor(Context.class).newInstance(app);
+            GeckoVaultFormHint.disableSystemAutofill(nextView);
             if(!(nextView instanceof View))
                 throw new IllegalStateException("overlay_gecko_view_invalid");
             View visual=(View)nextView;
@@ -1144,6 +1145,7 @@ public final class ClaudeFloatingOverlay {
             });
         Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
         Object visual=viewClass.getConstructor(Context.class).newInstance(app);
+        GeckoVaultFormHint.disableSystemAutofill(visual);
         if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
         geckoView=visual;
         viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
