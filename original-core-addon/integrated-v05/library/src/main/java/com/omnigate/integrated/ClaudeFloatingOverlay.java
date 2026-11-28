@@ -1102,6 +1102,8 @@ public final class ClaudeFloatingOverlay {
         java.lang.reflect.Method get=runtimeClass.getDeclaredMethod("getInstance");
         get.setAccessible(true);
         Object runtime=get.invoke(null);
+        if(!GeckoEmptyLoginStorage.install(runtime))
+            throw new IllegalStateException("shared_password_storage_not_isolated");
         if(runtime==null)throw new IllegalStateException("gecko_runtime_not_ready");
         // Use the selected Android app language only as Gecko browser locale.
         // Never start a second runtime or open a background account.
