@@ -55,6 +55,7 @@ final class IsolatedGeckoBrowser {
     private final EditText addressInput;
     private String currentUrl;
     private String committedPasswordPage;
+    private Object passwordRuntime;
     private long passwordPageEpoch;
     private String lastPageFailure;
     private boolean contentProcessTerminated;
@@ -356,6 +357,8 @@ final class IsolatedGeckoBrowser {
         try{
             String id=AccountBrowserStore.contextId(host,provider,slot);
             GeckoLiveWindowHandoff.verify(existingSession,id);
+            Object runtime=existingRuntime();
+            if(!GeckoEmptyLoginStorage.verified(runtime))return false;
             target=new IsolatedGeckoBrowser(host,provider,slot);
             target.showFrameOnly();
             Class<?> geckoViewType=Class.forName("org.mozilla.geckoview.GeckoView");
@@ -370,6 +373,7 @@ final class IsolatedGeckoBrowser {
             target.session=existingSession;
             target.geckoView=newView;
             target.selected=slot;
+            target.passwordRuntime=runtime;
             // Restore Android native ActionMode after overlay's temporary
             // selection menu. Same GeckoSession, no URL reload.
             GeckoSelectionControls.fullPage(existingSession,host);
@@ -908,11 +912,13 @@ final class IsolatedGeckoBrowser {
         final Object owner=session;
         final int slot=selected;
         final long epoch=passwordPageEpoch;
-        if(guestWindow||owner==null||slot<0||committedPasswordPage==null)return;
+        if(guestWindow||owner==null||slot<0||committedPasswordPage==null||
+            !GeckoEmptyLoginStorage.verified(passwordRuntime))return;
         final String id=AccountBrowserStore.contextId(host,provider,slot);
         LocalPasswordCenter.requestNativeFill(host,provider,slot,id,owner,()->committedPasswordPage,()->{
             try{return !guestWindow&&selected==slot&&session==owner&&
                 passwordPageEpoch==epoch&&ownsLiveSession(owner)&&
+                GeckoEmptyLoginStorage.verified(passwordRuntime)&&
                 id.equals(AccountBrowserStore.contextId(host,provider,slot));}
             catch(RuntimeException rejected){return false;}
         },()->dialog.isShowing()&&dialog.getWindow()!=null&&
@@ -929,6 +935,7 @@ final class IsolatedGeckoBrowser {
         GeckoNewPasswordFill.show(host,owner,()->committedPasswordPage,()->{
             try{return !guestWindow&&selected==slot&&session==owner&&
                 passwordPageEpoch==epoch&&ownsLiveSession(owner)&&
+                GeckoEmptyLoginStorage.verified(passwordRuntime)&&
                 id.equals(AccountBrowserStore.contextId(host,provider,slot));}
             catch(RuntimeException e){return false;}
         });
@@ -1615,6 +1622,9 @@ final class IsolatedGeckoBrowser {
             if(!AccountBrowserSlots.validContextId(id))
                 throw new IllegalStateException("gecko_context_id_invalid");
             Object runtime=existingRuntime();
+            if(!GeckoEmptyLoginStorage.install(runtime))
+                throw new IllegalStateException("shared_password_storage_not_isolated");
+            passwordRuntime=runtime;
             // App Info language affects Gecko requests, not the Chinese shell.
             // Existing session/context is untouched; no reload or navigation.
             OmniGateBrowserLanguage.applyToExisting(host,runtime);
@@ -1676,11 +1686,13 @@ final class IsolatedGeckoBrowser {
                 ()->GeckoLiveWindowHandoff.owns(created),guestWindow?null:prompt->{
                     final long epoch=passwordPageEpoch;
                     if(session!=created||selected!=index||committedPasswordPage==null||
+                        !GeckoEmptyLoginStorage.verified(passwordRuntime)||
                         !dialog.isShowing()||dialog.getWindow()==null||
                         !dialog.getWindow().getDecorView().hasWindowFocus())return;
                     LocalPasswordCenter.offerNativeSave(host,provider,index,id,committedPasswordPage,prompt,()->{
                         try{return session==created&&selected==index&&ownsLiveSession(created)&&
-                            passwordPageEpoch==epoch&&id.equals(AccountBrowserStore.contextId(host,provider,index));}
+                            passwordPageEpoch==epoch&&GeckoEmptyLoginStorage.verified(passwordRuntime)&&
+                            id.equals(AccountBrowserStore.contextId(host,provider,index));}
                         catch(RuntimeException rejected){return false;}
                     });
                 });
@@ -1731,7 +1743,7 @@ final class IsolatedGeckoBrowser {
         GeckoBrowserDownloads.cancelSession(prior);
         String guestId=guestContextId;
         session=null;geckoView=null;selected=-1;currentUrl=null;guestContextId=null;
-        committedPasswordPage=null;passwordPageEpoch++;
+        committedPasswordPage=null;passwordPageEpoch++;passwordRuntime=null;
         lastPageFailure=null;contentProcessTerminated=false;
         if(view!=null){
             try{view.getClass().getMethod("releaseSession").invoke(view);}
