@@ -1646,7 +1646,17 @@ final class IsolatedGeckoBrowser {
             followCurrentLocation(created,sessionClass,index);
             followClaudePageProgress(created,sessionClass);
             GeckoBrowserTransfers.attachFilePrompt(host,created,id,
-                ()->GeckoLiveWindowHandoff.owns(created));
+                ()->GeckoLiveWindowHandoff.owns(created),guestWindow?null:prompt->{
+                    final long epoch=passwordPageEpoch;
+                    if(session!=created||selected!=index||committedPasswordPage==null||
+                        !dialog.isShowing()||dialog.getWindow()==null||
+                        !dialog.getWindow().getDecorView().hasWindowFocus())return;
+                    LocalPasswordCenter.offerNativeSave(host,provider,index,id,committedPasswordPage,prompt,()->{
+                        try{return session==created&&selected==index&&ownsLiveSession(created)&&
+                            passwordPageEpoch==epoch&&id.equals(AccountBrowserStore.contextId(host,provider,index));}
+                        catch(RuntimeException rejected){return false;}
+                    });
+                });
             GeckoScopedPermissionGate.install(host,created,id,
                 ()->GeckoLiveWindowHandoff.owns(created));
             GeckoBrowserDownloads.attach(host,created,id,
