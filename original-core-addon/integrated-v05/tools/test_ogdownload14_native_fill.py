@@ -19,6 +19,6 @@ for forbidden in ('getValue','evaluateJavascript','ClipboardManager','onLoginFet
 assert "passwordPageEpoch==epoch" in b and "id.equals(AccountBrowserStore.contextId(host,provider,slot))" in b
 assert '"onLoginSave".equals(callback)' in t and '"onLoginSelect".equals(callback)' in t
 print("OGDOWNLOAD14_OWNER_AND_APPROVAL_SOURCE=PASS")
-print("OGVAULT14_GENERATED_ONLY_NATIVE_FORM_GATE_SOURCE=PASS")
-print("OGVAULT14_EXISTING_PASSWORD_SAVE_AND_FILL=NOT_IMPLEMENTED")
+print("OGVAULT14_NATIVE_FORM_GATE_SOURCE=PASS")
+print("OGVAULT14_SAVED_PASSWORD_FILL_DEVICE_E2E=NOT_TESTED")
 print("OGVAULT14_ANDROID_REAL_FORM_AND_BLOB=NOT_TESTED")
