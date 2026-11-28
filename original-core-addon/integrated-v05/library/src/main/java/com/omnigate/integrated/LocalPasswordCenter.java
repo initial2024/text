@@ -293,14 +293,9 @@ final class LocalPasswordCenter {
         generate.setText("推荐随机强密码");
         generate.setFilterTouchesWhenObscured(true);
         root.addView(generate);
-        generate.setOnClickListener(v->new AlertDialog.Builder(a)
-            .setTitle("生成独立随机密码")
-            .setItems(new String[]{"20位 · 字母数字及符号","24位 · 字母数字及符号","32位 · 仅字母数字"},
-                (choice,index)->{
-                    if(!same(a,p,slot,id))return;
-                    try{pass.setText(LocalPasswordAdvice.generate(index==0?20:index==1?24:32,index!=2));}
-                    catch(RuntimeException failure){msg(a,"密码生成失败");}
-                }).setNegativeButton("取消",null).show());
+        generate.setOnClickListener(v->PasswordGeneratorUi.show(a,password->{
+            if(same(a,p,slot,id))pass.setText(password);
+        }));
         AlertDialog d=new AlertDialog.Builder(a).setTitle("手动添加此空间的密码")
             .setView(root).setNegativeButton("取消",null)
             .setPositiveButton("验证并保存",null).create();
