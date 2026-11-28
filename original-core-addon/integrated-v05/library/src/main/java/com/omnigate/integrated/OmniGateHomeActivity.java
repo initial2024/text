@@ -139,6 +139,7 @@ public final class OmniGateHomeActivity extends Activity {
             "系统隔离",()->AndroidProfileSafetyCenter.show(this));
         pair(browser,"浏览器扩展",()->GeckoTimezoneAddonUi.show(this),
             "更多设置",()->startActivity(new Intent(this,CompatSettingsActivity.class)));
+        button(browser,"独立密码管理中心",false,()->LocalPasswordCenter.launch(this,null,-1));
         LinearLayout mode=card(page);
         add(mode,txt("运行模式",15,INK,true),4);
         modeStatus=txt("",13,MUTED,false);
