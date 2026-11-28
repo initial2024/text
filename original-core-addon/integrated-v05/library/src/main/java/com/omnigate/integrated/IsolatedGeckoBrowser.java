@@ -360,6 +360,7 @@ final class IsolatedGeckoBrowser {
             target.showFrameOnly();
             Class<?> geckoViewType=Class.forName("org.mozilla.geckoview.GeckoView");
             Object newView=geckoViewType.getConstructor(Context.class).newInstance(host);
+            GeckoVaultFormHint.disableSystemAutofill(newView);
             if(!(newView instanceof View))throw new IllegalStateException("new_gecko_view_invalid");
             target.display.addView((View)newView,0,
                 new FrameLayout.LayoutParams(-1,-1));
@@ -377,6 +378,10 @@ final class IsolatedGeckoBrowser {
                 Class.forName("org.mozilla.geckoview.GeckoSession"),slot);
             target.followClaudePageProgress(existingSession,
                 Class.forName("org.mozilla.geckoview.GeckoSession"));
+            final IsolatedGeckoBrowser owner=target;
+            GeckoVaultFormHint.install(existingSession,()->owner.committedPasswordPage,
+                ()->owner.session==existingSession&&ownsLiveSession(existingSession),
+                hint->owner.state.setText(hint));
             target.renderTabs();
             target.refreshLocalBudget();
             target.state.setText("已无刷新返回当前账号网页；登录和编辑中的内容仍在原 GeckoSession");
@@ -814,9 +819,11 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,10,8,"Firefox 内置 VPN · 只读检查");
         menu.getMenu().add(0,11,9,"网站实际时区检测（会离开当前网页）");
         menu.getMenu().add(0,12,10,"生成新密码（注册时使用）");
+        menu.getMenu().add(0,13,11,"填入此空间保存的密码");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 12:generateForPage();return true;
+                case 13:fillSavedForPage();return true;
                 case 1:showPicker(host);return true;
                 case 2:
                     if(selected>=0)AccountQuickSettings.show(host,provider,selected);
@@ -897,6 +904,20 @@ final class IsolatedGeckoBrowser {
         host.startActivity(intent);
     }
 
+    private void fillSavedForPage(){
+        final Object owner=session;
+        final int slot=selected;
+        final long epoch=passwordPageEpoch;
+        if(guestWindow||owner==null||slot<0||committedPasswordPage==null)return;
+        final String id=AccountBrowserStore.contextId(host,provider,slot);
+        LocalPasswordCenter.requestNativeFill(host,provider,slot,id,owner,()->committedPasswordPage,()->{
+            try{return !guestWindow&&selected==slot&&session==owner&&
+                passwordPageEpoch==epoch&&ownsLiveSession(owner)&&
+                id.equals(AccountBrowserStore.contextId(host,provider,slot));}
+            catch(RuntimeException rejected){return false;}
+        },()->dialog.isShowing()&&dialog.getWindow()!=null&&
+            dialog.getWindow().getDecorView().hasWindowFocus());
+    }
     private void generateForPage(){
         final Object owner=session;
         final int slot=selected;
@@ -928,9 +949,11 @@ final class IsolatedGeckoBrowser {
         if(!guestWindow)menu.getMenu().add(0,8,7,"当前账号空间 · 下载管理");
         if(guestWindow)menu.getMenu().add(0,9,8,"临时访客 · 扩展权限");
         menu.getMenu().add(0,12,9,"生成新密码（注册时使用）");
+        if(!guestWindow)menu.getMenu().add(0,13,10,"填入此空间保存的密码");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 12:generateForPage();return true;
+                case 13:fillSavedForPage();return true;
                 case 1:showAddressDialog();return true;
                 case 2:callSession("goBack");return true;
                 case 3:callSession("reload");return true;
@@ -1638,6 +1661,7 @@ final class IsolatedGeckoBrowser {
             sessionClass.getMethod("open",runtimeClass).invoke(created,runtime);
             Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
             Object visual=viewClass.getConstructor(Context.class).newInstance(host);
+            GeckoVaultFormHint.disableSystemAutofill(visual);
             if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
             geckoView=visual;
             viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
@@ -1645,6 +1669,9 @@ final class IsolatedGeckoBrowser {
             GeckoSelectionControls.fullPage(created,host);
             followCurrentLocation(created,sessionClass,index);
             followClaudePageProgress(created,sessionClass);
+            if(!guestWindow)GeckoVaultFormHint.install(created,()->committedPasswordPage,
+                ()->session==created&&selected==index&&ownsLiveSession(created),
+                hint->state.setText(hint));
             GeckoBrowserTransfers.attachFilePrompt(host,created,id,
                 ()->GeckoLiveWindowHandoff.owns(created),guestWindow?null:prompt->{
                     final long epoch=passwordPageEpoch;
