@@ -113,6 +113,15 @@ final class AccountBrowserStore {
             }
         }
     }
+    // Read-only lookup for a live owner's access gate; never creates a context.
+    static synchronized String existingContextId(Context c,String provider,int index){
+        if(index<0||index>=count(c,provider))throw new IllegalArgumentException("slot_index");
+        SharedPreferences p=prefs(c);
+        String value=p.getString(provider+"."+index,null);
+        if(!AccountBrowserSlots.validContextId(value))throw new IllegalStateException("context_missing");
+        assertUniqueOwner(p,provider,index,value);
+        return value;
+    }
     static synchronized String contextId(Context c,String provider,int index){
         if(index<0||index>=count(c,provider))
             throw new IllegalArgumentException("slot_index");
