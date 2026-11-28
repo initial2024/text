@@ -477,7 +477,7 @@ final class AccountManagerUi {
                 typed.setHint("输入 "+phrase+" 确认");
                 new AlertDialog.Builder(host)
                     .setTitle("危险：永久清理 "+phrase+" 登录与下载？")
-                    .setMessage("会清除指定 Gecko 账号的 Cookie、站点数据及私有下载。"+
+                    .setMessage("会清除指定 Gecko 账号的 Cookie、站点数据、私有下载及此空间的独立密码库。"+
                         "普通切换、关闭、更新 APK 不需要此操作。"+
                         "原有账号不能在新工作资料自动迁移；其他空间不受影响。")
                     .setView(typed)
