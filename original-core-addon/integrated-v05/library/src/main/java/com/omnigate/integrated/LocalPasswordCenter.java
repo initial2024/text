@@ -68,7 +68,7 @@ final class LocalPasswordCenter {
     private static SecretKey key(Context c,String id,boolean create)throws Exception{
         KeyStore k=keys();
         if(k.containsAlias(alias(id)))return (SecretKey)k.getKey(alias(id),null);
-        if(!create||file(c,id).getBaseFile().exists())throw new IllegalStateException("key_missing");
+        if(!create||file(c,id).getBaseFile().exists()||new File(file(c,id).getBaseFile().getPath()+".bak").exists())throw new IllegalStateException("key_missing");
         KeyGenerator g=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore");
         g.init(new KeyGenParameterSpec.Builder(alias(id),
             KeyProperties.PURPOSE_ENCRYPT|KeyProperties.PURPOSE_DECRYPT)
@@ -127,6 +127,7 @@ final class LocalPasswordCenter {
            u.getRawQuery()!=null||u.getRawFragment()!=null||
            (u.getRawPath()!=null&&!u.getRawPath().isEmpty()&&!"/".equals(u.getRawPath())))
             throw new IllegalArgumentException("https_origin_required");
+        if(u.getHost().endsWith("."))throw new IllegalArgumentException("origin_host");
         int port=u.getPort();
         if(port==0||port>65535)throw new IllegalArgumentException("port");
         return new URI("https",null,u.getHost().toLowerCase(java.util.Locale.ROOT),
@@ -210,7 +211,7 @@ final class LocalPasswordCenter {
         site.setHint("https://example.com");site.setSingleLine(true);
         user.setHint("用户名 / 邮箱");user.setSingleLine(true);
         pass.setHint("密码");pass.setSingleLine(true);
-        pass.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        pass.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD|InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         for(EditText field:new EditText[]{site,user,pass}){
             field.setImportantForAutofill(android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
             field.setSaveEnabled(false);root.addView(field);
