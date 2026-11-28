@@ -16,16 +16,23 @@ final class LocalPasswordAdvice {
     private LocalPasswordAdvice(){}
     static String generate(int length,boolean symbols){
         if(length<16||length>64)throw new IllegalArgumentException("length");
-        String alphabet=LOWER+UPPER+DIGITS+(symbols?SYMBOLS:"");
-        // Uniform rejection sampling over the selected alphabet, conditioned
-        // on containing each requested character category.
+        return generateCustom(length,true,true,true,symbols,true);
+    }
+    static String generateCustom(int length,boolean lower,boolean upper,boolean digits,
+            boolean symbols,boolean excludeAmbiguous){
+        if(length<12||length>64||!(lower||upper||digits||symbols))
+            throw new IllegalArgumentException("generator_options");
+        String l=excludeAmbiguous?LOWER:"abcdefghijklmnopqrstuvwxyz";
+        String u=excludeAmbiguous?UPPER:"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        String d=excludeAmbiguous?DIGITS:"0123456789";
+        String alphabet=(lower?l:"")+(upper?u:"")+(digits?d:"")+(symbols?SYMBOLS:"");
         for(int attempt=0;attempt<4096;attempt++){
             char[] chars=new char[length];
             for(int i=0;i<length;i++)chars[i]=alphabet.charAt(RANDOM.nextInt(alphabet.length()));
             String candidate=new String(chars);
             java.util.Arrays.fill(chars,'\0');
-            if(has(candidate,LOWER)&&has(candidate,UPPER)&&has(candidate,DIGITS)&&
-                    (!symbols||has(candidate,SYMBOLS)))return candidate;
+            if((!lower||has(candidate,l))&&(!upper||has(candidate,u))&&
+                (!digits||has(candidate,d))&&(!symbols||has(candidate,SYMBOLS)))return candidate;
         }
         throw new IllegalStateException("generator_unavailable");
     }
