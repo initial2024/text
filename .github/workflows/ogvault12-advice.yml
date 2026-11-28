@@ -13,6 +13,9 @@ on:
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/LocalPasswordCenter.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/LocalPasswordAdvice.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/PasswordGeneratorUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoDownloadResponsePolicy.java'
+      - 'original-core-addon/integrated-v05/relay-tests/GeckoDownloadResponsePolicyTest.java'
       - 'original-core-addon/integrated-v05/relay-tests/LocalPasswordAdviceTest.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoAccountIsolationAudit.java'
       - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/Account*.java'
@@ -63,6 +66,8 @@ jobs:
           java -cp /tmp/ogslots09-tests com.omnigate.integrated.AccountQuickSwitchRowsTest
           javac -d /tmp/ogslots09-tests "$SRC/LocalPasswordAdvice.java" relay-tests/LocalPasswordAdviceTest.java
           java -cp /tmp/ogslots09-tests com.omnigate.integrated.LocalPasswordAdviceTest
+          javac -d /tmp/ogslots09-tests "$SRC/GeckoDownloadResponsePolicy.java" relay-tests/GeckoDownloadResponsePolicyTest.java
+          java -cp /tmp/ogslots09-tests com.omnigate.integrated.GeckoDownloadResponsePolicyTest
           python3 - <<'PY'
           from pathlib import Path
           p=Path('library/src/main/java/com/omnigate/integrated')
