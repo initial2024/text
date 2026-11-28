@@ -40,9 +40,8 @@ final class GeckoEmptyLoginStorage {
             owned.put(runtime,empty);return true;
         }catch(Exception unsupported){return false;}
     }
-    static boolean verified(Object session){
+    static boolean verified(Object runtime){
         try{
-            Object runtime=session.getClass().getMethod("getRuntime").invoke(session);
             Object delegate=owned.get(runtime);
             return delegate!=null&&runtime.getClass().getMethod("getAutocompleteStorageDelegate")
                 .invoke(runtime)==delegate;
