@@ -29,7 +29,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 /**
- * User-entered credentials only. No DOM access, network, runtime autofill,
+ * User-authorized credentials only. No DOM access, network, shared runtime autofill,
  * global password store, clipboard, export, logs or background collection.
  * Android 11+ and secure device lock required; fail closed otherwise.
  */
@@ -149,6 +149,109 @@ final class LocalPasswordCenter {
             });
         }catch(Exception rejected){msg(a,"安全密钥不可用；未读取或覆盖密码库");}
     }
+    // One explicitly approved save offer, in memory only. No credentials
+    // in Intent, disk, logs or the shared GeckoRuntime storage delegate.
+    private static final android.os.Handler SAVE_HANDLER=new android.os.Handler(android.os.Looper.getMainLooper());
+    private static PendingSave pendingSave;
+    private static final class PendingSave{
+        final String token=UUID.randomUUID().toString();
+        final String provider,id,origin,user;
+        final int slot;
+        final long until=android.os.SystemClock.elapsedRealtime()+60000;
+        final java.util.function.BooleanSupplier owner;
+        Object entry;
+        PendingSave(String p,int s,String i,String o,String u,Object e,java.util.function.BooleanSupplier gate){
+            provider=p;slot=s;id=i;origin=o;user=u;entry=e;owner=gate;
+        }
+        boolean live(){
+            try{return entry!=null&&android.os.SystemClock.elapsedRealtime()<until&&owner.getAsBoolean();}
+            catch(RuntimeException e){return false;}
+        }
+        void clear(){entry=null;}
+    }
+    static void offerNativeSave(Activity host,String p,int slot,String id,String page,
+            Object prompt,java.util.function.BooleanSupplier gate){
+        if(!ready(host)||!same(host,p,slot,id)||!gate.getAsBoolean())return;
+        if(Build.VERSION.SDK_INT<30)return;
+        try{
+            String verified=GeckoNewPasswordFill.pageOrigin(page);
+            Object options=prompt.getClass().getField("options").get(prompt);
+            if(java.lang.reflect.Array.getLength(options)!=1)return;
+            Object option=java.lang.reflect.Array.get(options,0);
+            if(!Class.forName("org.mozilla.geckoview.Autocomplete$LoginSaveOption").isInstance(option))return;
+            Object entry=option.getClass().getField("value").get(option);
+            if(!Class.forName("org.mozilla.geckoview.Autocomplete$LoginEntry").isInstance(entry))return;
+            Class<?> type=entry.getClass();
+            String site=origin((String)type.getField("origin").get(entry));
+            String action=(String)type.getField("formActionOrigin").get(entry);
+            if(!verified.equals(site)||action==null||!site.equals(origin(action))||
+                type.getField("httpRealm").get(entry)!=null)return;
+            String user=(String)type.getField("username").get(entry);
+            if(user==null||user.length()>512||user.chars().anyMatch(Character::isISOControl))return;
+            // Native browser event is evidence of form submission, not proof
+            // of successful server-side authentication.
+            PendingSave offer=new PendingSave(p,slot,id,site,user,entry,gate);
+            AlertDialog d=new AlertDialog.Builder(host).setTitle("保存刚提交的登录密码？")
+                .setMessage(site+"\n"+user+"\n仅保存到 "+p+" / 账号 "+(slot+1)+
+                    "。登录是否成功由你确认；不会写入共享密码库。")
+                .setNegativeButton("不保存",null).setPositiveButton("验证并保存",null).create();
+            d.setOnDismissListener(x->{if(pendingSave!=offer)offer.clear();});
+            secure(d);
+            d.getButton(AlertDialog.BUTTON_POSITIVE).setFilterTouchesWhenObscured(true);
+            d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+                if(!offer.live()||!same(host,p,slot,id)){offer.clear();d.dismiss();return;}
+                if(pendingSave!=null)pendingSave.clear();
+                pendingSave=offer;
+                Intent i=new Intent(host,CompatSettingsActivity.class);
+                i.putExtra(CompatSettingsActivity.EXTRA_PASSWORD_MODE,true);
+                i.putExtra("vault_save_token",offer.token);
+                try{host.startActivity(i);}catch(RuntimeException failure){
+                    pendingSave=null;offer.clear();msg(host,"无法打开独立密码库");
+                }
+                d.dismiss();
+            });
+            SAVE_HANDLER.postDelayed(()->{
+                offer.clear();if(pendingSave==offer)pendingSave=null;
+                if(d.isShowing())d.dismiss();
+            },60000);
+        }catch(Exception invalid){/* Unknown or cross-origin form: no save. */}
+    }
+    static boolean consumeNativeSave(Activity a,String token){
+        if(token==null)return false;
+        PendingSave offer=pendingSave;
+        if(offer==null||!offer.token.equals(token)){msg(a,"保存请求已失效");return true;}
+        pendingSave=null;
+        if(!offer.live()||!same(a,offer.provider,offer.slot,offer.id)){
+            offer.clear();msg(a,"网页或账号空间已变化，已取消保存");return true;
+        }
+        auth(a,offer.provider,offer.slot,offer.id,()->{
+            try{
+                if(!offer.live()||!same(a,offer.provider,offer.slot,offer.id))
+                    throw new IllegalStateException("owner_changed");
+                // Only read the password after explicit approval AND device authentication.
+                String pw=(String)offer.entry.getClass().getField("password").get(offer.entry);
+                if(pw==null||pw.isEmpty()||pw.length()>4096)throw new IllegalArgumentException("invalid_password");
+                JSONArray rows=load(a,offer.id);
+                for(int j=0;j<rows.length();j++){
+                    JSONObject row=rows.getJSONObject(j);
+                    if(offer.origin.equals(row.getString("origin"))&&offer.user.equals(row.getString("user"))){
+                        if(pw.equals(row.getString("password")))msg(a,"该密码已保存");
+                        else msg(a,"已有同名登录，请先在独立密码库删除旧记录再保存");
+                        return;
+                    }
+                }
+                boolean repeat=reused(rows,pw,null);
+                if(rows.length()>=MAX_ENTRIES)throw new IllegalStateException("capacity");
+                rows.put(new JSONObject().put("id",UUID.randomUUID().toString())
+                    .put("origin",offer.origin).put("user",offer.user).put("password",pw));
+                save(a,offer.id,rows);
+                msg(a,repeat?"已保存；本空间有重复密码":"已加密保存到当前账号空间");
+            }catch(Exception failure){msg(a,"未保存：请求过期、账号变化或密码库不可用");}
+            finally{offer.clear();a.finish();}
+        });
+        return true;
+    }
+
     static void launch(Activity a,String provider,int slot){
         if(!ready(a))return;
         android.content.Intent i=new android.content.Intent(a,CompatSettingsActivity.class);
