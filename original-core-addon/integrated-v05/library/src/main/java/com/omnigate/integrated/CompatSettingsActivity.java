@@ -70,11 +70,21 @@ public final class CompatSettingsActivity extends Activity {
         LinearLayout root=vertical();root.setPadding(dp(18),dp(20),dp(18),dp(20));
         root.setBackgroundColor(0xFFF4F6FC);
         margin(root,text("独立密码管理中心",24,0xFF342B58,true),12);
-        margin(root,text("按已初始化账号空间隔离；需要设备锁屏验证。不会自动读取登录表单、使用系统密码库或上传密码。",14,0xFF586080,false),12);
+        margin(root,text("按已初始化账号空间隔离；需要设备锁屏验证。原生保存与填充须明确授权；不使用系统密码库或上传密码。",14,0xFF586080,false),12);
         Button choose=button(root,"选择账号空间",true);
         choose.setOnClickListener(v->LocalPasswordCenter.pick(this));
         Button close=button(root,"返回",false);close.setOnClickListener(v->finish());
         setContentView(root);
+        String fillToken=getIntent().getStringExtra("vault_fill_token");
+        if(fillToken!=null){
+            root.post(()->LocalPasswordCenter.consumeNativeFill(this,fillToken));
+            return true;
+        }
+        String saveToken=getIntent().getStringExtra("vault_save_token");
+        if(saveToken!=null){
+            root.post(()->LocalPasswordCenter.consumeNativeSave(this,saveToken));
+            return true;
+        }
         String provider=getIntent().getStringExtra("vault_provider");
         int slot=getIntent().getIntExtra("vault_slot",-1);
         if(provider!=null&&slot>=0)root.post(()->LocalPasswordCenter.show(this,provider,slot));

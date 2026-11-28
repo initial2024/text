@@ -89,7 +89,8 @@ final class GeckoBrowserDownloads {
             case "SAVED":label="曾成功保存原始响应流（历史记录，文件可能已删除）";break;
             case "CANCELLED":label="已取消";break;
             case "INTERRUPTED":label="被新的下载请求中断";break;
-            case "FAILED_HTTP":label="HTTP 响应失败（没有写入文件）";break;
+            case "FAILED_HTTP":label="HTTP 响应状态不允许保存（没有写入文件）";break;
+            case "FAILED_SCHEME":label="下载来源类型不受支持（没有写入文件）";break;
             case "FAILED_AUTH":label="HTTP 401/403：登录或下载授权可能失效";break;
             case "FAILED_PROMPT":label="系统未能打开原生下载确认界面";break;
             case "FAILED_WORKER":label="本地下载保存线程未能启动";break;
@@ -251,18 +252,12 @@ final class GeckoBrowserDownloads {
                        ||isRetired(contextId)){
                         closeQuietly(body);return null;
                     }
-                    // Do not mistake HTTP errors or missing Gecko streams for a file.
-                    if(status<200||status>=300){
-                        startStage(c,contextId,UUID.randomUUID().toString(),
-                            status==429?"FAILED_429":
-                            status==401||status==403?"FAILED_AUTH":"FAILED_HTTP");
+                    String source=String.valueOf(response.getClass().getField("uri").get(response));
+                    String rejected=GeckoDownloadResponsePolicy.reject(status,source,body!=null);
+                    if(rejected!=null){
+                        startStage(c,contextId,UUID.randomUUID().toString(),rejected);
                         closeQuietly(body);return null;
                     }
-                    if(body==null){
-                        startStage(c,contextId,UUID.randomUUID().toString(),"FAILED_EMPTY");
-                        return null;
-                    }
-                    String source=String.valueOf(response.getClass().getField("uri").get(response));
                     Transfer t=new Transfer(c,session,body,contextId,source,headerFileName(response),owner);
                     Transfer older;
                     synchronized(LOCK){

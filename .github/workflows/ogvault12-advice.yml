@@ -1,0 +1,137 @@
+name: OGVAULT12 offline password advice and isolated vault
+on:
+  push:
+    branches: [fix/ogvault12-session-passwords]
+    paths:
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoTimezoneAddonUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/CompatSettingsActivity.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoAddonChoicePrompts.java'
+      - 'original-core-addon/integrated-v05/tools/test_ogtz07_activity_ime.py'
+      - 'original-core-addon/integrated-v05/tools/test_ogime08_overlay_ime.py'
+      - 'original-core-addon/integrated-v05/tools/test_ogspace10_overlay.py'
+      - 'original-core-addon/integrated-v05/tools/test_ogui11_vault.py'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/LocalPasswordCenter.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/LocalPasswordAdvice.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/PasswordGeneratorUi.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserDownloads.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoDownloadResponsePolicy.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoNewPasswordFill.java'
+      - 'original-core-addon/integrated-v05/tools/test_ogdownload14_native_fill.py'
+      - 'original-core-addon/integrated-v05/tools/test_ogvault15_native_consent.py'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoEmptyLoginStorage.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoVaultFormHint.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoBrowserTransfers.java'
+      - 'original-core-addon/integrated-v05/relay-tests/GeckoDownloadResponsePolicyTest.java'
+      - 'original-core-addon/integrated-v05/relay-tests/LocalPasswordAdviceTest.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoAccountIsolationAudit.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/Account*.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/IsolatedGeckoBrowser.java'
+      - 'original-core-addon/integrated-v05/relay-tests/Account*.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/ClaudeFloatingOverlay.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GeckoLoadIndicator.java'
+      - 'original-core-addon/integrated-v05/tools/test_ogtz10_guest_progress.py'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/GatewayApp.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/LocalProxyRuntime.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/RelayRuntime.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/SidecarService.java'
+      - 'original-core-addon/integrated-v05/library/src/main/java/com/omnigate/integrated/OmniGateHomeActivity.java'
+      - '.github/workflows/ogvault12-advice.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  compile-and-dex:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source safety and IME contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 original-core-addon/integrated-v05/tools/test_ogtz07_activity_ime.py
+          python3 original-core-addon/integrated-v05/tools/test_ogime08_overlay_ime.py
+          python3 original-core-addon/integrated-v05/tools/test_ogspace10_overlay.py
+          python3 original-core-addon/integrated-v05/tools/test_ogui11_vault.py
+          python3 original-core-addon/integrated-v05/tools/test_ogdownload14_native_fill.py
+          python3 original-core-addon/integrated-v05/tools/test_ogvault15_native_consent.py
+          python3 original-core-addon/integrated-v05/tools/test_ogtz10_guest_progress.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Run account slot and picker regression tests
+        working-directory: original-core-addon/integrated-v05
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ogslots09-tests
+          SRC=library/src/main/java/com/omnigate/integrated
+          javac -d /tmp/ogslots09-tests "$SRC/AccountBrowserSlots.java" "$SRC/AccountQuickSwitchRows.java" relay-tests/AccountBrowserSlotsTest.java relay-tests/AccountQuickSwitchRowsTest.java
+          java -cp /tmp/ogslots09-tests com.omnigate.integrated.AccountBrowserSlotsTest
+          java -cp /tmp/ogslots09-tests com.omnigate.integrated.AccountQuickSwitchRowsTest
+          javac -d /tmp/ogslots09-tests "$SRC/LocalPasswordAdvice.java" relay-tests/LocalPasswordAdviceTest.java
+          java -cp /tmp/ogslots09-tests com.omnigate.integrated.LocalPasswordAdviceTest
+          javac -d /tmp/ogslots09-tests "$SRC/GeckoDownloadResponsePolicy.java" relay-tests/GeckoDownloadResponsePolicyTest.java
+          java -cp /tmp/ogslots09-tests com.omnigate.integrated.GeckoDownloadResponsePolicyTest
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('library/src/main/java/com/omnigate/integrated')
+          slots=(p/'AccountBrowserSlots.java').read_text()
+          store=(p/'AccountBrowserStore.java').read_text()
+          ui=(p/'IsolatedGeckoBrowser.java').read_text()
+          overlay=(p/'ClaudeFloatingOverlay.java').read_text()
+          assert 'MAX_SLOTS=12' in slots
+          assert 'if(n>=AccountBrowserSlots.MAX_SLOTS)' in store
+          assert 'assertUniqueOwner(p,provider,n,id)' in store
+          assert '.putInt(provider+".count",n+1)' in store and '.putString(key,id).commit()' in store
+          assert 'slot_capacity_reached' in ui
+          assert 'HorizontalScrollView' in ui
+          assert 'slot+1,slot' in overlay
+          assert '100,100' in overlay
+          print('OGSLOTS09_ATOMIC_ISOLATED_CONTEXT_AND_LIMIT_SOURCE=PASS')
+          print('OGSLOTS09_ANDROID_DEVICE_E2E=NOT_TESTED')
+          PY
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort | tail -n 1)"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'platforms;android-35' 'build-tools;35.0.0'
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+      - name: Compile integration library
+        working-directory: original-core-addon/integrated-v05
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :library:assembleRelease
+          test -s library/build/outputs/aar/library-release.aar
+      - name: Build compatibility DEX
+        working-directory: original-core-addon/integrated-v05
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p standalone-dex/inputs standalone-dex/output
+          unzip -p library/build/outputs/aar/library-release.aar classes.jar > standalone-dex/inputs/compat.jar
+          OKHTTP="$(find "$HOME/.gradle/caches/modules-2/files-2.1/com.squareup.okhttp3/okhttp" -type f -name 'okhttp-4.12.0.jar' | head -1)"
+          OKIO="$(find "$HOME/.gradle/caches/modules-2/files-2.1/com.squareup.okio/okio-jvm" -type f -name 'okio-jvm-*.jar' | head -1)"
+          test -s "$OKHTTP"; test -s "$OKIO"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/build-tools/35.0.0/d8" --release --min-api 26             --lib "$SDK_ROOT/platforms/android-35/android.jar"             --output standalone-dex/output             standalone-dex/inputs/compat.jar "$OKHTTP" "$OKIO"
+          test -s standalone-dex/output/classes.dex
+          sha256sum standalone-dex/output/classes.dex | tee standalone-dex/classes.dex.sha256
+          echo 'OGSLOTS09_LIBRARY_AND_DEX_COMPILE=PASS'
+          echo 'OGIME08_VIVO_ANDROID16_IME_E2E=PENDING'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniPaws-OGVAULT12-compat-dex
+          path: |
+            original-core-addon/integrated-v05/standalone-dex/output/classes.dex
+            original-core-addon/integrated-v05/standalone-dex/classes.dex.sha256
+          retention-days: 7
+          if-no-files-found: error

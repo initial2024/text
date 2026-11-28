@@ -188,6 +188,7 @@ public final class ClaudeFloatingOverlay {
             hideTranslationPanel();
             Class<?> v=Class.forName("org.mozilla.geckoview.GeckoView");
             nextView=v.getConstructor(Context.class).newInstance(app);
+            GeckoVaultFormHint.disableSystemAutofill(nextView);
             if(!(nextView instanceof View))
                 throw new IllegalStateException("overlay_gecko_view_invalid");
             View visual=(View)nextView;
@@ -1101,6 +1102,8 @@ public final class ClaudeFloatingOverlay {
         java.lang.reflect.Method get=runtimeClass.getDeclaredMethod("getInstance");
         get.setAccessible(true);
         Object runtime=get.invoke(null);
+        if(!GeckoEmptyLoginStorage.install(runtime))
+            throw new IllegalStateException("shared_password_storage_not_isolated");
         if(runtime==null)throw new IllegalStateException("gecko_runtime_not_ready");
         // Use the selected Android app language only as Gecko browser locale.
         // Never start a second runtime or open a background account.
@@ -1144,6 +1147,7 @@ public final class ClaudeFloatingOverlay {
             });
         Class<?> viewClass=Class.forName("org.mozilla.geckoview.GeckoView");
         Object visual=viewClass.getConstructor(Context.class).newInstance(app);
+        GeckoVaultFormHint.disableSystemAutofill(visual);
         if(!(visual instanceof View))throw new IllegalStateException("gecko_view_invalid");
         geckoView=visual;
         viewClass.getMethod("setSession",sessionClass).invoke(visual,created);
