@@ -11,6 +11,12 @@ public final class LocalProxyRuntime {
     private LocalProxyRuntime() {}
 
     public static synchronized boolean start() {
+        if(!GatewayApp.autoStartEnabled()){
+            stop();
+            lastStatus="浏览器模式：8787 未授权启动";
+            GatewayApp.setLocalApiStatus(lastStatus);
+            return false;
+        }
         if (proxy != null && proxy.isListening()) {
             lastStatus = "127.0.0.1:8787 正在监听";
             return true;

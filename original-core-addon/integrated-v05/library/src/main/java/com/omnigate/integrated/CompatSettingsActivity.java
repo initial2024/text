@@ -382,30 +382,41 @@ public final class CompatSettingsActivity extends Activity {
         LinearLayout hero = vertical();
         GradientDrawable gradient = new GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            new int[]{0xFF342B98, 0xFF5F53E7, 0xFF2E83E7});
+            new int[]{0xFF5842A6, 0xFF7A56BE, 0xFF7050C9});
         gradient.setCornerRadius(dp(22));
         hero.setBackground(gradient);
         hero.setPadding(dp(19), dp(17), dp(19), dp(18));
         margin(page, hero, 14);
-        margin(hero, text("◈ OmniGate", 24, Color.WHITE, true), 3);
-        margin(hero, text("API · 账号 · 额度控制台", 13, 0xFFE5E7FF, false), 7);
-        margin(hero, text("自动恢复本地 8787 · Relay 按已有授权重连 · 原版模型不自动重启", 12, 0xFFD6E9FF, false), 0);
+        margin(hero, text("OmniPaws", 24, Color.WHITE, true), 3);
+        margin(hero, text("浏览器与账号设置", 13, 0xFFE5E7FF, false), 7);
+        margin(hero, text("网关默认关闭，可在高级设置开启", 12, 0xFFD6E9FF, false), 0);
 
         // Visible immediately when entering Settings, without scrolling
         // through API/Relay controls or expanding hidden Advanced options.
-        Button accountEntry=button(page,"账号切换 / 多账号备份（独立浏览器）",true);
+        Button accountEntry=button(page,"打开网页 · 账号 / 访客",true);
         accountEntry.setOnClickListener(v->IsolatedGeckoBrowser.showPicker(this));
-        Button accountManager=button(page,"多账号管理 · 搜索 / 筛选 / 自定义名称",false);
+        Button accountManager=button(page,"账号管理",false);
         accountManager.setOnClickListener(v->AccountManagerUi.show(this));
         margin(page,text("DeepSeek / GLM / ChatGPT / Grok / Claude｜网页登录独立存储；"+
             "不会切换原版 8787 模型执行账号",12,0xFF637086,false),8);
-        Button localHourEntry=button(page,"API 本地每小时请求上限（分别设置）",false);
+        Button addonEntry=button(page,"浏览器扩展 / 权限",false);
+        addonEntry.setOnClickListener(v->GeckoTimezoneAddonUi.show(this));
+        Button advancedEntry=button(page,"高级 API 与网关 ▸",false);
+        LinearLayout gatewaySection=vertical();
+        margin(page,gatewaySection,8);
+        gatewaySection.setVisibility(View.GONE);
+        advancedEntry.setOnClickListener(v->{
+            boolean expand=gatewaySection.getVisibility()!=View.VISIBLE;
+            gatewaySection.setVisibility(expand?View.VISIBLE:View.GONE);
+            advancedEntry.setText(expand?"高级 API 与网关 ▾":"高级 API 与网关 ▸");
+        });
+        Button localHourEntry=button(gatewaySection,"API 本地每小时请求上限（分别设置）",false);
         localHourEntry.setOnClickListener(v->showApiHourlyPicker());
-        margin(page,text("官方 API RPM/TPM 响应头达到 80% 时按官方重置时间暂停；"+
+        margin(gatewaySection,text("官方 API RPM/TPM 响应头达到 80% 时按官方重置时间暂停；"+
             "这里另设本地滚动60分钟请求次数。网页 Token 无可信统计，不能替代官方额度。"+
             "关闭本地上限不会清除官方熔断。",12,0xFF637086,false),8);
 
-        LinearLayout connection = panel(page, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
+        LinearLayout connection = panel(gatewaySection, "本地 API 服务", "仅监听手机本机 127.0.0.1，默认不暴露到公网");
         localBadge = statusBadge(connection, "○ 8787 检查中");
         upstreamBadge = statusBadge(connection, "○ 1601 检查中");
         serviceState = text("", 12, 0xFF637086, false);
@@ -434,7 +445,7 @@ public final class CompatSettingsActivity extends Activity {
         autoStart.setOnCheckedChangeListener((button,checked)->{
             GatewayApp.setAutoStartEnabled(checked);
             if(checked)AutoStartRuntime.requestRefresh();
-            else GatewayApp.setBackgroundKeepAliveEnabled(false);
+            else {updateState();refreshRelayStatus();}
         });
         android.widget.CheckBox keepAlive = new android.widget.CheckBox(this);
         keepAlive.setText("通知保活（可选）：允许 Android 前台服务维持后台连接");
@@ -582,7 +593,7 @@ public final class CompatSettingsActivity extends Activity {
             "Claude 网页登录 · 手动选择隔离账号（不支持 API）",false);
         claudeWeb.setOnClickListener(v->IsolatedGeckoBrowser.show(this,"claude"));
 
-        LinearLayout api = panel(page, "客户端连接", "Minis、DSH 等客户端填写以下信息");
+        LinearLayout api = panel(gatewaySection, "客户端连接", "Minis、DSH 等客户端填写以下信息");
         margin(api, text(LOCAL_URL, 14, 0xFF323B83, true), 10);
         Button copy = button(api, "复制 Base URL", false);
         copy.setOnClickListener(v -> {
@@ -665,7 +676,7 @@ public final class CompatSettingsActivity extends Activity {
         models.setBackground(background(0xFFF3F5FC, 12, 0xFFE5E9F2));
         margin(api, models, 2);
 
-        LinearLayout files = panel(page, "图片与文件",
+        LinearLayout files = panel(gatewaySection, "图片与文件",
             "原版网页注入：打开会话 → 上传附件 → 等待网站确认 → 发送问题");
         TextView sessionHint = text(
             "注意：选择文件只在本机完成；需要先进入对应 AI 提供商网页并保持可用登录状态。",
@@ -694,8 +705,8 @@ public final class CompatSettingsActivity extends Activity {
         margin(files, text("也可以在模型网页的悬浮小窗使用 API／文件注入双页签。原版注入依赖网页 file input 和网站上传完成迹象。只有成功回复并经网页确认，"
           + "才能标记附件送达；如果网站不支持附件或要求登录，本功能不会绕过。", 12, 0xFF68718A, false), 0);
 
-        Button expand = button(page, "高级配置  ▾  密钥与公网选项", false);
-        LinearLayout settings = panel(page, "高级配置", "本地 8787 Key 由 Android Keystore 独立生成；这里设置上游与公网 Key");
+        Button expand = button(gatewaySection, "高级配置  ▾  密钥与公网选项", false);
+        LinearLayout settings = panel(gatewaySection, "高级配置", "本地 8787 Key 由 Android Keystore 独立生成；这里设置上游与公网 Key");
         settings.setVisibility(View.GONE);
         expand.setOnClickListener(v -> {
             boolean show = settings.getVisibility() != View.VISIBLE;
@@ -813,6 +824,7 @@ public final class CompatSettingsActivity extends Activity {
                     "后台可能被 Android 回收，不保证一直在线。")
                 .setNegativeButton("取消",null)
                 .setPositiveButton("确认连接",(dialog,which)->{
+                    GatewayApp.setAutoStartEnabled(true);
                     GatewayApp.setTunnelEnabled(true);
                     try {
                         RelayRuntime.ensureStarted();
@@ -826,7 +838,7 @@ public final class CompatSettingsActivity extends Activity {
                 }).show();
         });
 
-        LinearLayout note = panel(page, "连续生成", "代理不按固定时间主动截停");
+        LinearLayout note = panel(gatewaySection, "连续生成", "代理不按固定时间主动截停");
         margin(note, text("8787 不设读取截止时间；原 1601、网站及 Android 后台仍可能中断。", 12, 0xFF5C6582, false), 0);
 
         updateState();
@@ -880,8 +892,8 @@ public final class CompatSettingsActivity extends Activity {
     private void updateState() {
         if (serviceState == null) return;
         boolean local = LocalProxyRuntime.isListening();
-        boolean upstream = SidecarProxyServer.isUpstreamReachable();
-        boolean owned = OriginalCoreBridge.nativeOwnerRunning();
+        boolean upstream = GatewayApp.autoStartEnabled() && SidecarProxyServer.isUpstreamReachable();
+        boolean owned = GatewayApp.autoStartEnabled() && OriginalCoreBridge.nativeOwnerRunning();
         int nativePort = OriginalCoreBridge.configuredPort();
         localBadge.setText(local ? "● 本地 8787 · 已监听" : "○ 本地 8787 · 已停止");
         localBadge.setTextColor(local ? 0xFF136A48 : 0xFF664D87);
@@ -920,6 +932,9 @@ public final class CompatSettingsActivity extends Activity {
     }
 
     private void probeHealth() {
+        if(!GatewayApp.autoStartEnabled()){
+            healthState.setText("本地 API 已关闭；未进行端口探测");return;
+        }
         healthState.setText("正在读取 /health …");
         new Thread(() -> {
             HttpURLConnection c = null;

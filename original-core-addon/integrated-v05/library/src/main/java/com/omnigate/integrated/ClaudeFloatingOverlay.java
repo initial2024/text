@@ -49,6 +49,7 @@ public final class ClaudeFloatingOverlay {
     private static boolean translationOpen;
     private static int translationEpoch;
     private static FrameLayout viewport;
+    private static GeckoLoadIndicator pageProgress;
     private static TextView caption,accountClockText;
     private static AccountTimeZoneUi.LiveClock overlayClock;
     private static Button account,fold,closeControl,fullscreenControl,fullscreenFooter,quickControl;
@@ -194,7 +195,7 @@ public final class ClaudeFloatingOverlay {
                 onOverlayGeckoTouch(view,event);
                 return false; // deliver real taps to GeckoView
             });
-            viewport.addView(visual,new FrameLayout.LayoutParams(-1,-1));
+            viewport.addView(visual,0,new FrameLayout.LayoutParams(-1,-1));
             // GeckoView.releaseSession does NOT close or reload the session.
             GeckoLiveWindowHandoff.move(sourceView,nextView,existing,id);
             session=existing;
@@ -446,6 +447,7 @@ public final class ClaudeFloatingOverlay {
         });
         viewport=new FrameLayout(app);
         body.addView(viewport,new LinearLayout.LayoutParams(-1,0,1));
+        pageProgress=new GeckoLoadIndicator(app,viewport);
         LinearLayout footer=new LinearLayout(app);
         body.addView(footer,new LinearLayout.LayoutParams(-1,dp(app,39)));
         Button back=button(app,"后退"),reload=button(app,"刷新"),home=button(app,"主页");
@@ -1127,6 +1129,7 @@ public final class ClaudeFloatingOverlay {
                 if(session!=created||!showing())return;
                 contentProcessTerminated=true;
                 lastLoadFailure=event;
+                if(pageProgress!=null)pageProgress.stop(created);
                 if(caption!=null)
                     caption.setText(event+" · 点击账号菜单手动重开；Cookie 仍保留");
             });
@@ -1141,7 +1144,7 @@ public final class ClaudeFloatingOverlay {
             onOverlayGeckoTouch(v,event);
             return false;
         });
-        viewport.addView((View)visual,new FrameLayout.LayoutParams(-1,-1));
+        viewport.addView((View)visual,0,new FrameLayout.LayoutParams(-1,-1));
         // Native Gecko selection actions remain scoped to this one session.
         // No DOM extraction, injected JS or silent clipboard read.
         GeckoSelectionControls.overlay(created,account,
@@ -1185,6 +1188,7 @@ public final class ClaudeFloatingOverlay {
                         String reason=GeckoPageFailureUi.detail(err);
                         if(session==owned){
                             lastLoadFailure=reason;
+                            if(pageProgress!=null)pageProgress.stop(owned);
                             if(caption!=null)caption.setText(
                                 "网页加载失败："+reason+" · 手动重开");
                         }
@@ -1214,9 +1218,20 @@ public final class ClaudeFloatingOverlay {
                         lastLoadFailure=null;
                         contentProcessTerminated=false;
                         GeckoBrowserTransfers.cancelSession(app,owned);
+                        if(pageProgress!=null)pageProgress.start(owned);
+                        if(caption!=null)caption.setText("网页正在加载…");
+                    }else if("onProgressChange".equals(m.getName())&&args!=null&&
+                        args.length>1&&args[0]==owned&&session==owned&&
+                        args[1] instanceof Integer && lastLoadFailure==null){
+                        int value=(Integer)args[1];
+                        if(value>=0&&value<=100){
+                            if(pageProgress!=null)pageProgress.progress(owned,value);
+                            if(caption!=null)caption.setText("网页加载 "+value+"%");
+                        }
                     }else if("onPageStop".equals(m.getName())&&args!=null&&
                         args.length>1&&args[0]==owned&&session==owned&&
                         args[1] instanceof Boolean){
+                        if(pageProgress!=null)pageProgress.stop(owned);
                         if(caption!=null){
                             caption.setText(lastLoadFailure!=null
                                 ?"网页未加载："+lastLoadFailure
@@ -1251,15 +1266,21 @@ public final class ClaudeFloatingOverlay {
             if(u.getHost()==null||u.getRawUserInfo()!=null)
                 throw new IllegalArgumentException("url");
             GeckoBrowserTransfers.cancelSession(app,session);
+            if(pageProgress!=null)pageProgress.request(session);
             session.getClass().getMethod("loadUri",String.class).invoke(session,url);
         }catch(Exception invalid){
+            if(pageProgress!=null)pageProgress.stop(session);
             Toast.makeText(app,"仅支持有效 HTTP/HTTPS 网址",Toast.LENGTH_SHORT).show();
         }
     }
     private static void callSession(String op){
         if(session==null)return;
-        try{session.getClass().getMethod(op).invoke(session);}
-        catch(Exception ignored){}
+        try{
+            if("reload".equals(op)&&pageProgress!=null)pageProgress.request(session);
+            session.getClass().getMethod(op).invoke(session);
+        }catch(Exception ignored){
+            if(pageProgress!=null)pageProgress.stop(session);
+        }
     }
     /**
      * Expand/restores the *same* WindowManager view tree. Never detaches
@@ -1393,6 +1414,7 @@ public final class ClaudeFloatingOverlay {
     }
     private static void releaseSession(){
         Object old=session,visual=geckoView;
+        if(pageProgress!=null)pageProgress.clear();
         if(app!=null)GeckoBrowserTransfers.cancelSession(app,old);
         GeckoBrowserDownloads.cancelSession(old);
         session=null;geckoView=null;foldedLowMemorySession=null;
@@ -1421,7 +1443,7 @@ public final class ClaudeFloatingOverlay {
         }
         root=null;body=null;addressBar=null;addressControl=null;
         addressExpanded=false;tallWindow=false;
-        viewport=null;caption=null;account=null;fold=null;
+        viewport=null;pageProgress=null;caption=null;account=null;fold=null;
         accountClockText=null;overlayClock=null;
         closeControl=null;fullscreenControl=null;fullscreenFooter=null;
         quickControl=null;returnToPageControl=null;

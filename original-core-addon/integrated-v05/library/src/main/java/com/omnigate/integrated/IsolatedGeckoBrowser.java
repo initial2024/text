@@ -49,6 +49,7 @@ final class IsolatedGeckoBrowser {
     private final Dialog dialog;
     private final LinearLayout tabs;
     private final FrameLayout display;
+    private final GeckoLoadIndicator pageProgress;
     private final LinearLayout root;
     private final Button fullscreenExit;
     private final EditText addressInput;
@@ -326,6 +327,7 @@ final class IsolatedGeckoBrowser {
         }
         // On success the SAME GeckoSession is now attached to the overlay.
         // Do not call GeckoSession.close() from Dialog.onDismiss.
+        pageProgress.clear();
         session=null;
         geckoView=null;
         selected=-1;
@@ -416,8 +418,8 @@ final class IsolatedGeckoBrowser {
         root.setPadding(dp(host,12),dp(host,12),dp(host,12),dp(host,8));
         root.setBackgroundColor(0xFF0B1024);
         TextView info=new TextView(host);
-        info.setText("OmniGate  /  "+provider.toUpperCase(java.util.Locale.ROOT)+
-            (guestWindow?"\n临时访客 · 关闭后清除该空间的站点存储 · 可能仍被网页指纹识别":
+        info.setText("OmniPaws  /  "+provider.toUpperCase(java.util.Locale.ROOT)+
+            (guestWindow?"\n临时访客 · 私密浏览":
             AccountBrowserSlots.browserOnly(provider)
                 ? "\n仅浏览器登录 · 不支持 API · 不会后台预加载"
                 : "\n隔离账号空间 · 与原版 8787 主执行登录独立"));
@@ -438,6 +440,12 @@ final class IsolatedGeckoBrowser {
             accountEntry.setOnClickListener(v->showNativeAccountMenu(accountEntry));
             nativeHeader.addView(accountEntry,
                 new LinearLayout.LayoutParams(dp(host,102),dp(host,44)));
+        }else{
+            Button extensionEntry=button("扩展权限");
+            extensionEntry.setContentDescription("临时访客扩展权限管理，与持久账号空间无关");
+            extensionEntry.setOnClickListener(v->GeckoTimezoneAddonUi.showGuestPermissions(host));
+            nativeHeader.addView(extensionEntry,
+                new LinearLayout.LayoutParams(dp(host,92),dp(host,44)));
         }
         root.addView(nativeHeader);
         if(!guestWindow){
@@ -505,7 +513,7 @@ final class IsolatedGeckoBrowser {
         root.addView(state);
         TextView instructions=new TextView(host);
         instructions.setText(guestWindow
-            ? "临时访客：独立随机空间 + Gecko 私密模式 + 跟踪保护。关闭后清除该空间；不保证网站无法识别设备。"
+            ? "关闭后清理访客站点数据；仍可能被网站识别设备。"
             : AccountBrowserSlots.browserOnly(provider)
             ? "仅在你点击此账号时连接 claude.ai；切换或关闭即结束当前 Gecko 会话。" +
               "不调用模型 API、不自动发送、不中途轮换账号。"
@@ -542,6 +550,7 @@ final class IsolatedGeckoBrowser {
             root.addView(mainTarget,targetParams);
         display=new FrameLayout(host);
         root.addView(display,new LinearLayout.LayoutParams(-1,0,1));
+        pageProgress=new GeckoLoadIndicator(host,display);
         // One movable, low-obstruction edge handle. No buttons over the
         // website's top navigation; Back also exits fullscreen.
         fullscreenExit=button("⋮");
@@ -599,7 +608,11 @@ final class IsolatedGeckoBrowser {
                 int index=AccountBrowserStore.create(host,provider);
                 renderTabs();switchTo(index);
             }catch(RuntimeException ex){
-                state.setText("新增失败："+ex.getClass().getSimpleName());
+                if("slot_capacity_reached".equals(ex.getMessage())){
+                    state.setText("当前平台已达到 "+AccountBrowserSlots.MAX_SLOTS+" 个账号槽位上限；现有登录资料不受影响");
+                }else{
+                    state.setText("新增失败："+ex.getClass().getSimpleName()+"；请检查账号空间设置，勿清除登录资料");
+                }
             }
         });
         Button back=button("后退");back.setOnClickListener(v->callSession("goBack"));
@@ -893,6 +906,7 @@ final class IsolatedGeckoBrowser {
         menu.getMenu().add(0,5,5,"退出全屏");
         menu.getMenu().add(0,7,6,"翻译网页 / 恢复原文");
         if(!guestWindow)menu.getMenu().add(0,8,7,"当前账号空间 · 下载管理");
+        if(guestWindow)menu.getMenu().add(0,9,8,"临时访客 · 扩展权限");
         menu.setOnMenuItemClickListener(item->{
             switch(item.getItemId()){
                 case 1:showAddressDialog();return true;
@@ -902,6 +916,9 @@ final class IsolatedGeckoBrowser {
                 case 5:setFullscreen(false);return true;
                 case 7:GeckoPageTranslate.showMenu(host,fullscreenExit,session,geckoView);return true;
                 case 8:showDownloads();return true;
+                case 9:
+                    if(guestWindow)GeckoTimezoneAddonUi.showGuestPermissions(host);
+                    return true;
                 case 6:
                     if(!guestWindow&&selected>=0)
                         handoffToFloatingWindow();
@@ -1036,17 +1053,21 @@ final class IsolatedGeckoBrowser {
                         }
                         started[0]=android.os.SystemClock.elapsedRealtime();
                         host.runOnUiThread(()->{
-                            if(session==ownedSession&&dialog.isShowing())
+                            if(session==ownedSession&&dialog.isShowing()){
+                                pageProgress.start(ownedSession);
                                 state.setText(provider.toUpperCase(java.util.Locale.ROOT)+
                                     " 网页正在加载 · 未触发自动刷新或更换账号");
+                            }
                         });
                     }else if("onProgressChange".equals(event)&&
-                            "claude".equals(provider)&&args[1] instanceof Integer){
+                            args[1] instanceof Integer){
                         int percent=(Integer)args[1];
                         if(percent>=0&&percent<=100)host.runOnUiThread(()->{
-                            if(session==ownedSession&&dialog.isShowing()&&lastPageFailure==null)
-                                state.setText("Claude 基础页面 "+percent+
-                                    "% · 不代表网页登录或模型功能已经就绪");
+                            if(session==ownedSession&&dialog.isShowing()&&lastPageFailure==null){
+                                pageProgress.progress(ownedSession,percent);
+                                state.setText(provider.toUpperCase(java.util.Locale.ROOT)+
+                                    " 基础页面 "+percent+"% · 不代表网页登录或模型功能已经就绪");
+                            }
                         });
                     }else if("onPageStop".equals(event)&&args[1] instanceof Boolean){
                         boolean success=(Boolean)args[1];
@@ -1056,6 +1077,7 @@ final class IsolatedGeckoBrowser {
                             java.util.Locale.ROOT,"%.1fs",elapsed/1000.0):"未记录";
                         host.runOnUiThread(()->{
                             if(session!=ownedSession||!dialog.isShowing())return;
+                            pageProgress.stop(ownedSession);
                             if(lastPageFailure!=null){
                                 state.setText(lastPageFailure+
                                     " · 未自动重试，请点击“主页”手动重新打开");
@@ -1122,12 +1144,14 @@ final class IsolatedGeckoBrowser {
         }
         try{
             GeckoBrowserTransfers.cancelSession(host,session);
+            pageProgress.request(session);
             session.getClass().getMethod("loadUri",String.class).invoke(session,url);
             currentUrl=url;
             addressInput.setText(url);
             if(url.startsWith("http://"))
                 state.setText("HTTP 未加密，勿在此网站输入密码或验证码");
         }catch(Throwable failure){
+            pageProgress.stop(session);
             new AlertDialog.Builder(host).setTitle("导航失败")
                 .setMessage("无法在当前隔离浏览器中打开网页："+failure.getClass().getSimpleName())
                 .setPositiveButton("确定",null).show();
@@ -1162,6 +1186,7 @@ final class IsolatedGeckoBrowser {
                         host.runOnUiThread(()->{
                             if(session==ownedSession && dialog.isShowing()){
                                 lastPageFailure=reason;
+                                pageProgress.stop(ownedSession);
                                 state.setText(reason+
                                     " · 这是 Gecko 网络/证书错误；不自动重启网页");
                             }
@@ -1605,6 +1630,7 @@ final class IsolatedGeckoBrowser {
                     if(session!=created||!dialog.isShowing())return;
                     contentProcessTerminated=true;
                     lastPageFailure=event;
+                    pageProgress.stop(created);
                     state.setText(event+
                         " · Gecko 内容进程终止；请手动点“主页”重建此账号网页。"+
                         " Cookie 和账号空间 ID 未清理，未自动重发请求");
@@ -1627,11 +1653,18 @@ final class IsolatedGeckoBrowser {
     }
     private void callSession(String method){
         if(session==null)return;
-        try{session.getClass().getMethod(method).invoke(session);}
-        catch(Throwable failure){state.setText("网页操作失败："+failure.getClass().getSimpleName());}
+        try{
+            if("reload".equals(method))pageProgress.request(session);
+            session.getClass().getMethod(method).invoke(session);
+        }
+        catch(Throwable failure){
+            pageProgress.stop(session);
+            state.setText("网页操作失败："+failure.getClass().getSimpleName());
+        }
     }
     private void releaseSession(){
         Object prior=session,view=geckoView;
+        pageProgress.clear();
         GeckoBrowserTransfers.cancelSession(host,prior);
         GeckoBrowserDownloads.cancelSession(prior);
         String guestId=guestContextId;

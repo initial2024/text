@@ -27,8 +27,19 @@ public final class AccountQuickSwitchRowsTest {
         ok("grok".equals(mixed[10].provider)&&mixed[10].slot==2);
         ok("claude".equals(mixed[14].provider)&&mixed[14].slot==3);
         AccountQuickSwitchRows.Row[] max=
-            AccountQuickSwitchRows.build(new int[]{5,5,5,5,5},new int[]{4,4,4,4,4});
-        ok(max.length==25);
+            AccountQuickSwitchRows.build(new int[]{12,12,12,12,12},new int[]{11,11,11,11,11});
+        ok(max.length==60);
+        for(int p=0;p<5;p++){
+            for(int i=0;i<12;i++){
+                AccountQuickSwitchRows.Row row=max[p*12+i];
+                ok(AccountBrowserSlots.PROVIDERS[p].equals(row.provider)&&row.slot==i);
+            }
+        }
+        ok(max[59].label.contains("账号 12"));
+        boolean overLimit=false;
+        try{AccountQuickSwitchRows.build(new int[]{1,1,1,1,13},new int[]{0,0,0,0,0});}
+        catch(IllegalArgumentException expected){overLimit=true;}
+        ok(overLimit);
         boolean failed=false;
         try{AccountQuickSwitchRows.build(new int[]{0,2,2,2,2},new int[]{0,0,0,0,0});}
         catch(IllegalArgumentException expected){failed=true;}
@@ -42,7 +53,7 @@ public final class AccountQuickSwitchRowsTest {
         catch(IllegalArgumentException expected){failed=true;}
         ok(failed);
         System.out.println("OGPROFILE04_DIRECT_PROVIDER_ACCOUNT_ROWS=PASS");
-        System.out.println("OGPROFILE04_TEN_TO_TWENTY_FIVE_VISIBLE_CHOICES=PASS");
+        System.out.println("OGSLOTS09_SIXTY_VISIBLE_CHOICES=PASS");
         System.out.println("OGPROFILE04_UNKNOWN_OR_CORRUPT_SLOT_REJECTED=PASS");
         System.out.println("OGPROFILE04_ASSERTIONS="+checks);
     }

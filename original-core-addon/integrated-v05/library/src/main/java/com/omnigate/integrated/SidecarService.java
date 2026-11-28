@@ -31,6 +31,7 @@ public final class SidecarService extends Service {
     private final Runnable watchdog = new Runnable() {
         @Override
         public void run() {
+            if(!authorized()){stopSelf();return;}
             ensureProxyAlive();
             watchdogHandler.postDelayed(this, 4_000L);
         }
@@ -40,6 +41,7 @@ public final class SidecarService extends Service {
     public void onCreate() {
         super.onCreate();
         GatewayApp.initialize(getApplicationContext());
+        if(!authorized()){stopSelf();return;}
         serviceAlive = true;
         createChannel();
         try {
@@ -60,7 +62,12 @@ public final class SidecarService extends Service {
         return serviceAlive;
     }
 
+    private boolean authorized(){
+        return GatewayApp.autoStartEnabled() && GatewayApp.backgroundKeepAliveEnabled();
+    }
+
     private synchronized void ensureProxyAlive() {
+        if(!authorized()){stopSelf();return;}
         if (LocalProxyRuntime.start()) {
             GatewayApp.setLocalApiStatus("8787 正在监听 · 原 1601 上游需单独确认");
         } else {
@@ -80,6 +87,7 @@ public final class SidecarService extends Service {
             Intent intent,
             int flags,
             int startId) {
+        if(!authorized()){stopSelf();return START_NOT_STICKY;}
         ensureProxyAlive();
 
         if (intent != null
@@ -91,11 +99,12 @@ public final class SidecarService extends Service {
             syncRelay();
         }
 
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
+        if(!authorized()){stopSelf();super.onTaskRemoved(rootIntent);return;}
         ensureProxyAlive();
         if(GatewayApp.tunnelEnabled())RelayRuntime.ensureStarted();
         refreshNotification();

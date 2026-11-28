@@ -5,7 +5,8 @@ import java.util.UUID;
 final class AccountBrowserSlots {
     static final String[] PROVIDERS={"deepseek","glm","chatgpt","grok","claude"};
     static final String[] LABELS={"DeepSeek","GLM / 智谱清言","ChatGPT","Grok","Claude · 仅网页登录"};
-    static final int MAX_SLOTS=5;
+    // Bounded local storage capacity; accounts are opened manually, not preloaded.
+    static final int MAX_SLOTS=12;
     private AccountBrowserSlots(){}
     static boolean supported(String provider){
         for(String fixed:PROVIDERS)if(fixed.equals(provider))return true;

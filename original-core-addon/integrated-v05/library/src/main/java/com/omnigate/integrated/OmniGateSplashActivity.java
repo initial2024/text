@@ -21,7 +21,7 @@ import android.widget.TextView;
  * Merely compiling this addon class does NOT update the installed app.
  */
 public final class OmniGateSplashActivity extends Activity {
-    private static final int BG=0xFF0B1024;
+    private static final int BG=0xFFF5F1FC;
     private FrameLayout root;
     private boolean launched;
     private final Runnable next=new Runnable(){
@@ -49,6 +49,11 @@ public final class OmniGateSplashActivity extends Activity {
         GatewayMark(Activity a){super(a);}
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);
+            android.graphics.drawable.Drawable icon=getContext().getApplicationInfo()
+                .loadIcon(getContext().getPackageManager());
+            if(icon!=null){
+                icon.setBounds(0,0,getWidth(),getHeight());icon.draw(canvas);return;
+            }
             float w=getWidth(),h=getHeight(),r=Math.min(w,h)*.40f;
             float cx=w*.5f,cy=h*.5f;
             paint.setStyle(Paint.Style.FILL);
@@ -77,6 +82,8 @@ public final class OmniGateSplashActivity extends Activity {
         super.onCreate(b);
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         root=new FrameLayout(this);
         root.setBackgroundColor(BG);
         setContentView(root);
@@ -87,17 +94,17 @@ public final class OmniGateSplashActivity extends Activity {
         centerLp.leftMargin=dp(18);centerLp.rightMargin=dp(18);
         root.addView(center,centerLp);
         GatewayMark logo=new GatewayMark(this);
-        logo.setContentDescription("OmniGate 网关标识");
+        logo.setContentDescription("OmniPaws 星云传送屋");
         LinearLayout.LayoutParams markLp=new LinearLayout.LayoutParams(dp(116),dp(116));
         markLp.gravity=Gravity.CENTER_HORIZONTAL;center.addView(logo,markLp);
-        TextView brand=text("OmniGate",32,0xFFF4F6FF,true);
+        TextView brand=text("OmniPaws",32,0xFF302448,true);
         brand.setLetterSpacing(.035f);
         LinearLayout.LayoutParams brandLp=new LinearLayout.LayoutParams(-1,-2);
         brandLp.topMargin=dp(19);center.addView(brand,brandLp);
-        TextView slogan=text("一个入口 · 掌控 AI 连接",13,0xFFB1C0E7,false);
+        TextView slogan=text("独立账号 · 自在浏览",14,0xFF625978,false);
         LinearLayout.LayoutParams sloganLp=new LinearLayout.LayoutParams(-1,-2);
         sloganLp.topMargin=dp(10);center.addView(slogan,sloganLp);
-        TextView footer=text("MODEL  ·  ACCOUNT  ·  RELAY",11,0xFF7C8DBB,false);
+        TextView footer=text("BROWSE  ·  YOUR  ·  WAY",11,0xFF625978,false);
         footer.setLetterSpacing(.14f);
         FrameLayout.LayoutParams footLp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);
         footLp.bottomMargin=dp(42);
@@ -117,7 +124,7 @@ public final class OmniGateSplashActivity extends Activity {
             .setStartDelay(280).setDuration(360).start();
         footer.animate().alpha(1f)
             .setStartDelay(380).setDuration(320).start();
-        root.postDelayed(next,820);
+        root.postDelayed(next,650);
     }
     @Override protected void onDestroy(){
         if(root!=null)root.removeCallbacks(next);

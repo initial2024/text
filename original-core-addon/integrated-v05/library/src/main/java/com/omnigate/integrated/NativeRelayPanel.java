@@ -162,6 +162,7 @@ public final class NativeRelayPanel {
         refresh(h);
     }
     private static void setEnabled(Activity a,Holder h,boolean on){
+        if(on)GatewayApp.setAutoStartEnabled(true);
         GatewayApp.setTunnelEnabled(on);
         if(on) {
             AutoStartRuntime.requestRefresh();

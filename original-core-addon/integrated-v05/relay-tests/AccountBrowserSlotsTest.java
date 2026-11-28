@@ -4,7 +4,7 @@ public final class AccountBrowserSlotsTest {
     static int assertions;
     static void ok(boolean b){assertions++;if(!b)throw new AssertionError("account slot "+assertions);}
     public static void main(String[] args){
-        ok(AccountBrowserSlots.MAX_SLOTS==5);
+        ok(AccountBrowserSlots.MAX_SLOTS==12);
         ok(AccountBrowserSlots.PROVIDERS.length==5);
         ok(AccountBrowserSlots.browserOnly("claude"));
         ok(!AccountBrowserSlots.nativeExecutorSupported("claude"));

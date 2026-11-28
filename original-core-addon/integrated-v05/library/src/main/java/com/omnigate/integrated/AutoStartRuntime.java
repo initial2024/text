@@ -51,7 +51,10 @@ public final class AutoStartRuntime {
     }
 
     private static void ensureAsync(String reason){
-        if(!GatewayApp.autoStartEnabled())return;
+        if(!GatewayApp.autoStartEnabled()){
+            status="浏览器模式：本地 API / Relay 已关闭";
+            return;
+        }
         if(!working.compareAndSet(false,true))return;
         new Thread(()->{
             try{
