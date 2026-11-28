@@ -53,6 +53,11 @@ final class GeckoBrowserTransfers {
      */
     static void attachFilePrompt(Context context,Object ownedSession,
             String contextId,BooleanSupplier ownerCurrent){
+        attachFilePrompt(context,ownedSession,contextId,ownerCurrent,null);
+    }
+    static void attachFilePrompt(Context context,Object ownedSession,
+            String contextId,BooleanSupplier ownerCurrent,
+            java.util.function.Consumer<Object> localSaveOffer){
         if(!AccountBrowserSlots.validContextId(contextId))
             throw new IllegalArgumentException("upload_context_invalid");
         try {
@@ -68,8 +73,18 @@ final class GeckoBrowserTransfers {
                     // different auxiliary account context. Manual form entry
                     // still works; only cross-profile autofill is suppressed.
                     String callback=m.getName();
-                    if("onLoginSave".equals(callback)||
-                       "onLoginSelect".equals(callback)||
+                    if("onLoginSave".equals(callback)){
+                        // Never confirm into the shared runtime storage delegate.
+                        // An optional full-page owner can offer its own local
+                        // user-confirmed save; guests and overlays remain denied.
+                        if(args!=null&&args.length>=2&&args[0]==ownedSession&&
+                            localSaveOffer!=null&&ownerCurrent.getAsBoolean()){
+                            try{localSaveOffer.accept(args[1]);}
+                            catch(RuntimeException rejected){/* fail closed */}
+                        }
+                        return args!=null&&args.length>=2?immediateDismiss(args[1]):null;
+                    }
+                    if("onLoginSelect".equals(callback)||
                        "onAddressSave".equals(callback)||
                        "onAddressSelect".equals(callback)||
                        "onCreditCardSave".equals(callback)||
