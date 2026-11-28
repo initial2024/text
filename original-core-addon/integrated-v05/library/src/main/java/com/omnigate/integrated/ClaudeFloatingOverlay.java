@@ -925,7 +925,16 @@ public final class ClaudeFloatingOverlay {
         menu.getMenu().add(0,111,111,"存储 MB / 运行内存 PSS（只读）");
         menu.getMenu().add(0,112,112,"当前账号 · 独立显示时区");
         menu.getMenu().add(0,113,113,"网站实际时区检测（会离开当前网页）");
+        menu.getMenu().add(0,114,114,"当前账号 · 独立密码中心");
         menu.setOnMenuItemClickListener(item->{
+            if(item.getItemId()==114){
+                Activity host=handoffActivity==null?null:handoffActivity.get();
+                if(host!=null&&!host.isFinishing()&&!host.isDestroyed()&&selected>=0){
+                    setMinimized(true);
+                    LocalPasswordCenter.launch(host,selectedProvider,selected);
+                }else if(app!=null)Toast.makeText(app,"请从主界面打开密码中心",Toast.LENGTH_SHORT).show();
+                return true;
+            }
             if(item.getItemId()==112){
                 if(app!=null&&selected>=0&&session!=null){
                     final String p=selectedProvider;
